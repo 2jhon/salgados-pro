@@ -1,0 +1,1 @@
+// Arquivo deletado - Sistema migrado para Supabase Cloud Mode
