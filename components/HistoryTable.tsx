@@ -1,7 +1,8 @@
 
+
 import React, { memo, useState } from 'react';
 import { Transaction } from '../types';
-import { Trash2, AlertTriangle, X } from 'lucide-react';
+import { Trash2, AlertTriangle, X, FileText } from 'lucide-react';
 
 interface HistoryTableProps {
   transactions: Transaction[];
@@ -76,15 +77,19 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
 
               const { date, time } = formatDate(t.date);
               
+              // Verifica se é registro de auditoria
+              const isAudit = t.category === 'AUDITORIA';
+
               // Se é pendente e não é gasto, é a receber. Se é pendente e gasto, é a pagar.
-              const isReceivable = t.isPending && t.subCategory !== 'GASTOS';
-              const isPayable = t.isPending && t.subCategory === 'GASTOS';
-              const isExpense = t.subCategory === 'GASTOS';
+              const isReceivable = !isAudit && t.isPending && t.subCategory !== 'GASTOS';
+              const isPayable = !isAudit && t.isPending && t.subCategory === 'GASTOS';
+              const isExpense = !isAudit && t.subCategory === 'GASTOS';
 
               return (
                 <tr 
                   key={safeId} 
                   className={`border-b border-slate-50 last:border-b-0 transition-colors ${
+                    isAudit ? 'bg-amber-50/30 hover:bg-amber-50' :
                     isReceivable ? 'bg-orange-50/50 hover:bg-orange-50' : 
                     isPayable ? 'bg-red-50/50 hover:bg-red-50' : 
                     'hover:bg-slate-50'
@@ -94,25 +99,37 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
                     {date} <span className="text-xs text-slate-400 ml-1">{time}</span>
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">
-                    {t.item || <span className="text-slate-400 italic">Sem nome</span>}
+                    {isAudit ? (
+                      <span className="flex items-center gap-2 text-amber-700 font-bold uppercase text-xs">
+                        <FileText className="w-3 h-3" /> {t.item}
+                      </span>
+                    ) : (
+                      t.item || <span className="text-slate-400 italic">Sem nome</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs">
-                    <div className="flex flex-col gap-0.5">
-                      {t.quantity ? <span>Qtd: {t.quantity}</span> : null}
-                      {t.isPending && (
-                        <span className={`font-black uppercase text-[8px] tracking-widest ${isReceivable ? 'text-orange-600' : 'text-red-600'}`}>
-                          {isReceivable ? 'A Receber' : 'A Pagar (Dívida)'}
-                        </span>
-                      )}
-                      {t.customerName && (
-                        <span className="text-slate-700 font-bold">
-                          {isExpense ? 'Fornecedor' : 'Cliente'}: {t.customerName}
-                        </span>
-                      )}
-                    </div>
+                    {isAudit ? (
+                      <span className="font-mono text-[10px] text-amber-600 block max-w-[200px] truncate" title={t.customerName}>
+                        {t.customerName}
+                      </span>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        {t.quantity ? <span>Qtd: {t.quantity}</span> : null}
+                        {t.isPending && (
+                          <span className={`font-black uppercase text-[8px] tracking-widest ${isReceivable ? 'text-orange-600' : 'text-red-600'}`}>
+                            {isReceivable ? 'A Receber' : 'A Pagar (Dívida)'}
+                          </span>
+                        )}
+                        {t.customerName && (
+                          <span className="text-slate-700 font-bold">
+                            {isExpense ? 'Fornecedor' : 'Cliente'}: {t.customerName}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
-                  <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isReceivable ? 'text-orange-600' : isPayable ? 'text-red-600' : 'text-slate-700'}`}>
-                    {formatCurrency(t.value)}
+                  <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${isAudit ? 'text-slate-400' : isReceivable ? 'text-orange-600' : isPayable ? 'text-red-600' : 'text-slate-700'}`}>
+                    {isAudit ? '-' : formatCurrency(t.value)}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button 

@@ -598,6 +598,7 @@ export const App: React.FC = () => {
                     user={currentUser} 
                     transactions={transactions} 
                     addTransactions={addTransactions}
+                    updateTransaction={updateTransaction}
                     settleCustomerDebt={settleCustomerDebt}
                     partialSettleTransaction={partialSettleTransaction}
                     calculateTotals={calculateTotals}

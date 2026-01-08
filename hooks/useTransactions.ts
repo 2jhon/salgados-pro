@@ -1,4 +1,5 @@
 
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Transaction, PeriodTotals, AppSection } from '../types';
 import { supabase, withRetry, safeStringifyError } from '../lib/supabase';
@@ -299,10 +300,14 @@ export const useTransactions = (workspaceId: string | undefined, sections: AppSe
       const payload: any = {};
       if (updates.value !== undefined) payload.value = updates.value;
       if (updates.isPending !== undefined) payload.is_pending = updates.isPending;
+      if (updates.quantity !== undefined) payload.quantity = updates.quantity;
+      if (updates.item !== undefined) payload.item = updates.item;
 
       const { error } = await supabase.from('transactions').update(payload).eq('id', id);
       if (error) throw error;
-    } catch (e: any) {}
+    } catch (e: any) {
+      console.error("Erro ao atualizar transação:", e);
+    }
   };
 
   const deleteTransaction = async (id: string) => {

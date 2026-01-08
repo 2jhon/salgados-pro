@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { SubTabFactory, Transaction, AppSection, User, PeriodTotals, EntryState, ExpenseCalc } from '../types';
 import { useCustomers } from '../hooks/useCustomers';
@@ -13,7 +14,7 @@ import {
   Square, CheckSquare, Receipt, ShoppingCart, ArrowRightLeft,
   Calculator, Edit3, Trash2, Save,
   MessageCircle, Share2, EyeOff, DollarSign, Clock, Phone,
-  Truck, Wallet, ChevronUp, Printer, FileText, MessageSquarePlus, Scissors
+  Truck, Wallet, ChevronUp, Printer, FileText, MessageSquarePlus, Scissors, Pencil
 } from 'lucide-react';
 
 interface FactoryProps {
@@ -21,6 +22,7 @@ interface FactoryProps {
   user: User;
   transactions: Transaction[];
   addTransactions: (ts: Omit<Transaction, 'id' | 'date'>[]) => Promise<Transaction[] | null>;
+  updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
   settleCustomerDebt: (customerName: string, transactionIds: string[]) => Promise<void>;
   partialSettleTransaction: (originalTx: Transaction, amountPaid: number) => Promise<boolean>;
   calculateTotals: (category: string, subCategory?: string) => PeriodTotals;
@@ -31,7 +33,7 @@ interface FactoryProps {
 const DEFAULT_TAB_ORDER: SubTabFactory[] = ['VENDAS', 'A_RECEBER', 'GASTOS'];
 
 export const Factory: React.FC<FactoryProps> = ({ 
-  section, user, transactions, addTransactions, settleCustomerDebt, partialSettleTransaction, calculateTotals, saveConfig, sections 
+  section, user, transactions, addTransactions, updateTransaction, settleCustomerDebt, partialSettleTransaction, calculateTotals, saveConfig, sections 
 }) => {
   const { customers, addCustomer } = useCustomers(user.workspaceId);
   const { addNote } = useNotes(user.workspaceId);
@@ -63,10 +65,13 @@ export const Factory: React.FC<FactoryProps> = ({
   const [settleConfirm, setSettleConfirm] = useState<{customerName: string, txIds: string[], type: 'RECEBIMENTO' | 'PAGAMENTO'} | null>(null);
   const [shakeField, setShakeField] = useState(false);
   
-  // States for Partial Payment
+  // States for Partial Payment & Editing
   const [partialPayModal, setPartialPayModal] = useState<{ isOpen: boolean, tx: Transaction | null }>({ isOpen: false, tx: null });
   const [partialAmount, setPartialAmount] = useState('');
   
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editForm, setEditForm] = useState({ quantity: '', value: '' });
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -269,6 +274,57 @@ export const Factory: React.FC<FactoryProps> = ({
       }
     } catch (e) { console.error(e); }
     finally { setIsSaving(false); }
+  };
+
+  const handleOpenEdit = (tx: Transaction) => {
+    setEditingTx(tx);
+    setEditForm({ 
+      quantity: tx.quantity ? tx.quantity.toString() : '', 
+      value: tx.value.toFixed(2).replace('.', ',') 
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingTx) return;
+    setIsSaving(true);
+    try {
+      const newVal = parseFloat(editForm.value.replace(',', '.')) || 0;
+      const newQty = parseFloat(editForm.quantity.replace(',', '.')) || 0;
+      
+      const oldQty = editingTx.quantity || 0;
+      const oldVal = editingTx.value;
+
+      // 1. Atualiza a transação original
+      // Adiciona * no nome se não tiver, para marcar visualmente
+      const newItemName = editingTx.item.endsWith('*') ? editingTx.item : `${editingTx.item} *`;
+      
+      await updateTransaction(editingTx.id, {
+        value: newVal,
+        quantity: newQty,
+        item: newItemName
+      });
+
+      // 2. Cria registro de auditoria
+      await addTransactions([{
+        workspaceId: user.workspaceId,
+        category: 'AUDITORIA',
+        subCategory: 'EDICAO',
+        item: `LOG: ${editingTx.item.replace(' *', '')}`,
+        customerName: `Antes: ${oldQty}x (${formatCurrency(oldVal)}) | Depois: ${newQty}x (${formatCurrency(newVal)}) por ${user.name}`,
+        value: 0, // Valor zero pois é informativo
+        quantity: 1,
+        createdBy: user.name,
+        paymentMethod: 'SISTEMA',
+        isPending: false
+      }]);
+
+      setEditingTx(null);
+    } catch (e) {
+      console.error("Erro ao editar:", e);
+      alert("Erro ao salvar edição.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const confirmBatch = async () => {
@@ -633,6 +689,13 @@ export const Factory: React.FC<FactoryProps> = ({
                                               <div className="flex items-center gap-2">
                                                 <span className="font-black text-slate-400">{formatCurrency(t.value)}</span>
                                                 <button 
+                                                  onClick={() => handleOpenEdit(t)} 
+                                                  className="p-1.5 bg-white text-blue-500 rounded-lg shadow-sm border border-slate-100 hover:bg-blue-50 transition-all"
+                                                  title="Editar Item"
+                                                >
+                                                  <Pencil className="w-3 h-3" />
+                                                </button>
+                                                <button 
                                                   onClick={() => handleOpenPartialPay(t)}
                                                   className="p-1.5 bg-white text-indigo-500 rounded-lg shadow-sm border border-slate-100 hover:bg-indigo-50 transition-all"
                                                   title="Abater Valor"
@@ -806,6 +869,57 @@ export const Factory: React.FC<FactoryProps> = ({
                 >
                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />} 
                    Confirmar Baixa
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO */}
+      {editingTx && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden p-8 animate-in zoom-in-95 duration-200">
+             <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-black text-slate-800 uppercase">Editar Item</h3>
+                <button onClick={() => setEditingTx(null)}><X className="text-slate-400" /></button>
+             </div>
+             
+             <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100">
+                <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Editando</p>
+                <p className="font-bold text-slate-700 uppercase text-xs">{editingTx.item}</p>
+             </div>
+
+             <div className="space-y-4">
+                <div className="flex gap-4">
+                   <div className="flex-1 space-y-1">
+                      <label className="text-[9px] font-black uppercase text-blue-500 ml-2">Qtd</label>
+                      <input 
+                        type="text" 
+                        inputMode="decimal"
+                        value={editForm.quantity}
+                        onChange={e => setEditForm({...editForm, quantity: e.target.value})}
+                        className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-black text-lg text-center outline-none focus:border-blue-500 text-blue-900"
+                      />
+                   </div>
+                   <div className="flex-1 space-y-1">
+                      <label className="text-[9px] font-black uppercase text-blue-500 ml-2">Total (R$)</label>
+                      <input 
+                        type="text" 
+                        inputMode="decimal"
+                        value={editForm.value}
+                        onChange={e => setEditForm({...editForm, value: e.target.value})}
+                        className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-black text-lg text-center outline-none focus:border-blue-500 text-blue-900"
+                      />
+                   </div>
+                </div>
+                
+                <button 
+                  onClick={saveEdit} 
+                  disabled={isSaving} 
+                  className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 
+                   Salvar Alteração
                 </button>
              </div>
           </div>
