@@ -1,996 +1,1872 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AppSection, User, Transaction, Ad, SectionType, UserRole, ConfigItem, Customer, StoreProfile } from '../types';
+
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useInterval } from '../hooks/useInterval';
+import { AppSection, User, Transaction, Ad, StoreProfile, Customer, ConfigItem } from '../types';
 import { useCustomers } from '../hooks/useCustomers';
+import { normalizeString } from '../lib/utils';
 import { MarketplaceManager } from './MarketplaceManager';
+import { StoreProfileSettings } from './StoreProfileSettings';
+import { CouponManager } from './CouponManager';
+import { jsPDF } from "jspdf";
+import autoTable from 'jspdf-autotable';
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { AuditLog } from './AuditLog';
 import { 
-  Layout, Users, Megaphone, Settings as SettingsIcon, CreditCard, 
-  Plus, Trash2, ArrowUp, ArrowDown, Save, Edit3, EyeOff, DollarSign, 
-  Check, X, AlertTriangle, Loader2, Store, Package, UserCircle, Phone, Search,
-  ShieldCheck, ShoppingBag, Truck, Calendar, Zap, ShieldAlert, ArrowRight, Info, Box,
-  UserPlus, Square, CheckSquare, ShoppingCart, Mail, Image as ImageIcon, Sparkles, Upload,
-  Clock, Wallet, MessageSquare, FileDown, Printer, CheckCircle, Eye, Crown, Rocket, Star
+  Layout, Users, Megaphone, Settings as SettingsIcon,
+  Plus, Trash2, Save, Edit3, DollarSign, 
+  Check, X, Loader2, Store, Package, UserCircle, Phone, Search,
+  ShoppingBag, Truck, Calendar, ArrowRight,
+  UserPlus, CheckCircle2, AlertTriangle, LogOut, CreditCard, ToggleLeft, ToggleRight, 
+  Volume2, VolumeX, Eye, EyeOff, Download, Database, Music, FileText, Zap, MessageCircle,
+  Image as ImageIcon, Upload, Camera, Wand2, Clock, Printer, Bluetooth, Sparkles
 } from 'lucide-react';
-
-const ADMIN_EMAILS = [
-  'brasilanonymous66@gmail.com',
-  'anonymousx484@gmail.com',
-  'lillysilva345@gmail.com'
-];
+import { toast } from 'sonner';
+import { printer } from '../lib/printer';
 
 interface SettingsProps {
   sections: AppSection[];
-  saveConfig: (sections: AppSection[]) => Promise<void>;
+  saveConfig: (sections: AppSection[]) => Promise<boolean>;
   deleteSection: (id: string) => Promise<void>;
   users: User[];
   addUser: (user: Omit<User, 'id'>) => Promise<User | null>;
   removeUser: (id: string) => Promise<void>;
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   transactions: Transaction[];
-  clearTransactions: (period: 'day' | 'week' | 'month' | 'all', wid: string) => Promise<void>;
+  clearTransactions: (period: 'day' | 'week' | 'month' | 'all' | 'custom', wid: string, customRange?: { start: string, end: string }, categoryFilter?: string[]) => Promise<void>;
+  archiveYear: (wid: string, year: number) => Promise<number>;
   currentUser: User;
   companyProfile: StoreProfile | null;
-  onSaveProfile: (profile: Omit<StoreProfile, 'id'>) => Promise<StoreProfile | null>;
+  onSaveProfile: (profile: Partial<StoreProfile> & { workspaceId: string }) => Promise<StoreProfile | null>;
   ads: Ad[];
   saveAd: (ad: Partial<Ad> & { ownerId: string, workspaceId: string }) => Promise<Ad | null>;
   deleteAd: (id: string) => Promise<boolean>;
   onNavigate: (tab: string) => void;
   isGodModeUnlocked?: boolean;
   onUnlockGodMode: () => void;
+  addNote?: (note: any) => Promise<boolean>;
 }
 
-// Componente visual para o Timer do Plano
-const PlanCountDown: React.FC<{ expiresAt?: string; light?: boolean }> = ({ expiresAt, light }) => {
-  const [timeLeft, setTimeLeft] = useState<{ d: number; h: number; m: number } | null>(null);
+const PlanTimer = ({ expiresAt }: { expiresAt?: string }) => {
+  const [label, setLabel] = useState('');
+
+  const update = useCallback(() => {
+    const now = Date.now();
+    const end = new Date(expiresAt).getTime();
+    const diff = end - now;
+    
+    if (diff <= 0) {
+      setLabel('Expirado');
+      return;
+    }
+    
+    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    setLabel(`${d}d ${h}h restantes`);
+  }, [expiresAt]);
 
   useEffect(() => {
     if (!expiresAt) return;
-    const update = () => {
-      const diff = new Date(expiresAt).getTime() - new Date().getTime();
-      if (diff <= 0) { setTimeLeft(null); return; }
-      setTimeLeft({
-        d: Math.floor(diff / (1000 * 60 * 60 * 24)),
-        h: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
-        m: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-      });
-    };
     update();
-    const interval = setInterval(update, 60000); // Atualiza a cada minuto
-    return () => clearInterval(interval);
+  }, [expiresAt, update]);
+
+  useInterval(update, expiresAt ? 60000 : null);
+
+  if (!label) return null;
+  return <p className="text-[8px] font-bold uppercase tracking-widest opacity-80 mt-1">{label}</p>;
+};
+
+const PromoTimer = ({ expiresAt }: { expiresAt?: string }) => {
+  const [label, setLabel] = useState('');
+
+  const update = useCallback(() => {
+    if (!expiresAt) return;
+    const now = Date.now();
+    const end = new Date(expiresAt).getTime();
+    const diff = end - now;
+    
+    if (diff <= 0) {
+      setLabel('');
+      return;
+    }
+    
+    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const s = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    setLabel(`${d > 0 ? `${d}d ` : ''}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
   }, [expiresAt]);
 
-  if (!timeLeft) return <span className="text-[10px] font-black uppercase text-rose-500">Expirado</span>;
+  useEffect(() => {
+    if (!expiresAt) return;
+    update();
+  }, [expiresAt, update]);
 
-  return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${light ? 'bg-white/20 border-white/20 text-white' : 'bg-emerald-50 border-emerald-100 text-emerald-700'}`}>
-      <Clock size={12} className={light ? "animate-pulse" : ""} />
-      <span className="font-mono text-xs font-black tracking-widest">
-        {timeLeft.d}d {timeLeft.h}h {timeLeft.m}m
-      </span>
-    </div>
-  );
+  useInterval(update, expiresAt ? 1000 : null);
+
+  if (!label) return null;
+  return <span className="tabular-nums">{label}</span>;
 };
 
 export const Settings: React.FC<SettingsProps> = ({
   sections, saveConfig, deleteSection, users, addUser, removeUser, updateUser,
-  transactions, clearTransactions, currentUser, companyProfile, onSaveProfile, 
+  transactions, clearTransactions, archiveYear, currentUser, companyProfile, onSaveProfile, 
   ads, saveAd, deleteAd, onNavigate,
-  isGodModeUnlocked, onUnlockGodMode
+  isGodModeUnlocked, onUnlockGodMode, addNote
 }) => {
-  const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS'>(() => {
-    const pending = localStorage.getItem('settings_pending_tab');
-    if (pending) {
-      localStorage.removeItem('settings_pending_tab');
-      return pending as any;
-    }
-    return 'ESTRUTURA';
-  });
-  const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser.workspaceId);
-  const [systemTabClicks, setSystemTabClicks] = useState(0);
-
-  // Verificação rigorosa do e-mail para Super Admin
-  const isSuperAdmin = useMemo(() => {
-    const email = currentUser?.email?.toLowerCase()?.trim() || '';
-    if (!email) return false;
-    return ADMIN_EMAILS.includes(email);
-  }, [currentUser?.email]);
-
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{ type: 'USER' | 'SECTION' | 'AD' | 'CUSTOMER', id: string, name: string } | null>(null);
-  
-  // State para Confirmação de Limpeza
-  const [clearConfirm, setClearConfirm] = useState<{ period: 'day' | 'week' | 'month' | 'all', label: string } | null>(null);
-
-  // States Estrutura
-  const [newSectionName, setNewSectionName] = useState('');
-  const [newSectionType, setNewSectionType] = useState<SectionType>('FACTORY_STYLE');
-  const [editingSection, setEditingSection] = useState<AppSection | null>(null);
-  const [sectionEditTab, setSectionEditTab] = useState<'ITEMS' | 'EXPENSES'>('ITEMS');
-  const [newItem, setNewItem] = useState({ name: '', priceVista: '', pricePrazo: '' });
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-
-  // States Equipe
-  const [showAddUser, setShowAddUser] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [newUser, setNewUser] = useState<{name: string, email: string, phone: string, pin: string, role: UserRole, assignedSectionIds: string[], hideSalesValues: boolean}>({ 
-    name: '', email: '', phone: '', pin: '', role: 'MANAGER_FACTORY', assignedSectionIds: [], hideSalesValues: false 
-  });
-  const [editUserData, setEditUserData] = useState<{name: string, email: string, phone: string, pin: string, role: string, assignedSectionIds: string[], hideSalesValues: boolean}>({ 
-    name: '', email: '', phone: '', pin: '', role: '', assignedSectionIds: [], hideSalesValues: false 
-  });
-
-  // States Clientes
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [customerFormData, setCustomerFormData] = useState({ name: '', phone: '' });
-
-  // States Anúncio
-  const [adForm, setAdForm] = useState({ title: '', description: '', link: '', mediaUrl: '', days: 7 });
-  const [editingAdId, setEditingAdId] = useState<string | null>(null);
-  const [isGeneratingIA, setIsGeneratingIA] = useState(false);
-  const [supportPhone, setSupportPhone] = useState('21999999999');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const formTopRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'MARKETING' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS' | 'AUDITORIA'>('ESTRUTURA');
 
   useEffect(() => {
-    const fetchSupport = async () => {
-      try {
-        const { data } = await supabase.from('app_config').select('items').eq('id', 'GLOBAL_SYSTEM_SETTINGS').maybeSingle();
-        if (data && Array.isArray(data.items) && data.items[0]?.support_phone) {
-          setSupportPhone(data.items[0].support_phone);
-        }
-      } catch (e) {
-        console.warn("Kernel: Falha ao carregar config global.");
+    const pendingTab = localStorage.getItem('settings_pending_tab');
+    if (pendingTab) {
+      const validTabs: any[] = ['ESTRUTURA', 'CLIENTES', 'EQUIPE', 'VITRINE', 'MARKETING', 'ANUNCIO', 'SISTEMA', 'PLANOS'];
+      if (validTabs.includes(pendingTab)) {
+        setActiveTab(pendingTab as any);
       }
-    };
-    fetchSupport();
+      localStorage.removeItem('settings_pending_tab');
+    }
   }, []);
 
-  // Lógica de manipulação de cliques na aba
-  const handleTabClick = (tab: string) => {
-    if (tab === 'SISTEMA') {
-      const newCount = systemTabClicks + 1;
-      setSystemTabClicks(newCount);
-      console.log(`[DEBUG] Cliques Sistema: ${newCount}/7`);
-      
-      if (newCount >= 7) {
-        // Verifica estritamente se é Super Admin (baseado na lista de emails permitidos)
-        if (isSuperAdmin) {
-          alert("Painel Master Ativado com Sucesso!");
-          onUnlockGodMode();
+  const [clientSubTab, setClientSubTab] = useState<'CLIENT' | 'SUPPLIER'>('CLIENT');
+  
+  const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser.workspaceId);
+  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [supportPhone, setSupportPhone] = useState('21999999999');
+  const [adDailyPrice, setAdDailyPrice] = useState(5);
+  const [promoAdPrice, setPromoAdPrice] = useState<number | null>(null);
+  const [promoAdEndsAt, setPromoAdEndsAt] = useState<string | null>(null);
+  const [plans, setPlans] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchGlobalSettings = async () => {
+      try {
+        // Tenta ler da nova tabela system_settings
+        const { data: newSettings } = await supabase.from('system_settings').select('*').eq('id', 'GLOBAL').maybeSingle();
+        
+        if (newSettings) {
+          setSupportPhone(newSettings.support_phone);
+          setAdDailyPrice(newSettings.ad_daily_price);
+          setPromoAdPrice(newSettings.promo_ad_price);
+          setPromoAdEndsAt(newSettings.promo_ad_ends_at);
         } else {
-          const emailDebug = currentUser?.email || "Email não identificado";
-          alert(`ACESSO NEGADO\nVocê atingiu os 7 toques, mas seu e-mail não tem permissão Master.\n\nE-mail: ${emailDebug}`);
+          // Fallback
+          const { data } = await supabase.from('app_config').select('items').eq('id', 'GLOBAL_SYSTEM_SETTINGS').maybeSingle();
+          if (data && Array.isArray(data.items) && data.items[0]?.support_phone) {
+            setSupportPhone(data.items[0].support_phone);
+          }
         }
-        setSystemTabClicks(0);
-      }
-    } else {
-      setSystemTabClicks(0);
-    }
-    setActiveTab(tab as any);
-  };
 
-  const handleSubscribe = (planName: string, price: string) => {
-    const msg = `Olá! Gostaria de assinar o *${planName}* (${price}) para minha empresa: *${currentUser.name}*.`;
-    window.open(`https://wa.me/55${supportPhone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-  };
-
-  const handleDownloadReport = (period: 'day' | 'week' | 'month' | 'all') => {
-    const doc = new jsPDF();
-    const now = new Date();
-    let startTime = 0;
-    let periodLabel = "TUDO";
-
-    if (period === 'day') {
-      startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-      periodLabel = "HOJE";
-    } else if (period === 'week') {
-      startTime = now.getTime() - (7 * 24 * 60 * 60 * 1000);
-      periodLabel = "7 DIAS";
-    } else if (period === 'month') {
-      startTime = now.getTime() - (30 * 24 * 60 * 60 * 1000);
-      periodLabel = "30 DIAS";
-    }
-
-    const filtered = transactions.filter(t => 
-      new Date(t.date).getTime() >= startTime && 
-      !t.isPending &&
-      t.workspaceId === currentUser.workspaceId
-    );
-
-    doc.setFillColor(249, 115, 22); 
-    doc.rect(0, 0, 210, 25, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "bold");
-    doc.text("RELATÓRIO FINANCEIRO", 105, 15, { align: "center" });
-    
-    doc.setTextColor(60, 60, 60);
-    doc.setFontSize(10);
-    doc.text(`Período: ${periodLabel}`, 14, 35);
-    doc.text(`Empresa: ${currentUser.name}`, 14, 41);
-
-    const tableData = filtered.map(t => [
-      new Date(t.date).toLocaleDateString('pt-BR'),
-      t.item.toUpperCase(),
-      t.subCategory === 'GASTOS' ? 'DESPESA' : 'VENDA',
-      t.quantity ? t.quantity.toString() : '-',
-      new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(t.value)
-    ]);
-
-    autoTable(doc, {
-      head: [['Data', 'Item', 'Tipo', 'Qtd', 'Valor']],
-      body: tableData,
-      startY: 48,
-      theme: 'striped',
-      headStyles: { fillColor: [40, 40, 40] },
-      styles: { fontSize: 8 },
-    });
-
-    const totalVendas = filtered.filter(t => t.subCategory !== 'GASTOS').reduce((acc, t) => acc + t.value, 0);
-    const totalGastos = filtered.filter(t => t.subCategory === 'GASTOS').reduce((acc, t) => acc + t.value, 0);
-    const finalY = (doc as any).lastAutoTable.finalY || 60;
-
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total Vendas: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVendas)}`, 14, finalY + 15);
-    doc.setTextColor(220, 38, 38); 
-    doc.text(`Total Gastos: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalGastos)}`, 14, finalY + 22);
-    doc.setTextColor(30, 64, 175); 
-    doc.text(`Saldo: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVendas - totalGastos)}`, 14, finalY + 29);
-
-    doc.save(`Relatorio_${periodLabel.replace(/\s/g, '_')}.pdf`);
-  };
-
-  const handleAddSection = async () => {
-    if (!newSectionName) return;
-    setIsProcessing(true);
-    const newSec: AppSection = {
-      id: `sec_${Date.now()}`,
-      workspaceId: currentUser.workspaceId,
-      name: newSectionName,
-      type: newSectionType,
-      order: sections.length,
-      items: [],
-      expenses: [],
-      globalStockMode: 'GLOBAL'
+        // Busca Planos (incluindo campos técnicos)
+        const { data: plansData } = await supabase.from('subscription_plans').select('*').eq('active', true).order('sort_order', { ascending: true });
+        if (plansData) setPlans(plansData);
+      } catch (e) { console.warn("Kernel: Erro ao carregar configurações globais."); }
     };
-    try {
-      await saveConfig([...sections, newSec]);
-      setNewSectionName('');
-    } catch(e) { console.error(e); }
-    finally { setIsProcessing(false); }
-  };
+    fetchGlobalSettings();
+  }, []);
 
-  const handleAddItemToSection = async () => {
-    if (!editingSection || !newItem.name) return;
-    const priceV = parseFloat(newItem.priceVista.replace(',', '.')) || 0;
-    const priceP = parseFloat(newItem.pricePrazo.replace(',', '.')) || 0;
-    const updatedSection = { ...editingSection };
-    if (editingItemId) {
-      const mapper = (i: ConfigItem) => i.id === editingItemId ? { ...i, name: newItem.name.toUpperCase(), defaultPriceAVista: priceV, defaultPriceAPrazo: priceP, defaultPrice: priceV } : i;
-      if (sectionEditTab === 'ITEMS') updatedSection.items = updatedSection.items.map(mapper);
-      else updatedSection.expenses = updatedSection.expenses.map(mapper);
-    } else {
-      const item: ConfigItem = { id: `item_${Date.now()}`, name: newItem.name.toUpperCase(), defaultPriceAVista: priceV, defaultPriceAPrazo: priceP, defaultPrice: priceV, currentStock: 0, minStock: 0 };
-      if (sectionEditTab === 'ITEMS') updatedSection.items = [...(updatedSection.items || []), item];
-      else updatedSection.expenses = [...(updatedSection.expenses || []), item];
+  // Benefícios Automatizados do Plano Ativo
+  const activePlan = useMemo(() => {
+    if (!currentUser.activePlanId) return null;
+    return plans.find(p => p.id === currentUser.activePlanId);
+  }, [currentUser.activePlanId, plans]);
+
+  const now = Date.now();
+
+  const isProActive = useMemo(() => {
+    const manual = currentUser.hasProPlan && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
+    const fromPlan = activePlan?.grants_pro && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
+    return !!(manual || fromPlan);
+  }, [currentUser, activePlan, now]);
+
+  const isAdFreeActive = useMemo(() => {
+    const manual = currentUser.isAdFree && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
+    const fromPlan = activePlan?.grants_ad_free && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
+    return !!(manual || fromPlan);
+  }, [currentUser, activePlan, now]);
+
+  const isAdvertiserActive = useMemo(() => {
+    const manual = currentUser.isAdvertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
+    const fromPlan = activePlan?.grants_advertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
+    return !!(manual || fromPlan);
+  }, [currentUser, activePlan, now]);
+
+  const freeAdsRemaining = useMemo(() => {
+    if (!activePlan) return 0;
+    const limit = activePlan.free_ads_per_month || 0;
+    const used = currentUser.freeAdsUsedThisMonth || 0;
+    return Math.max(0, limit - used);
+  }, [activePlan, currentUser.freeAdsUsedThisMonth]);
+
+  const isFreeAdAvailable = freeAdsRemaining > 0;
+
+  // Preço efetivo para o usuário atual (considera desconto customizado ou promoção global)
+  const effectiveAdPrice = useMemo(() => {
+    if (isFreeAdAvailable) return 0;
+    if (currentUser.customAdPrice) return currentUser.customAdPrice;
+    
+    const nowTs = new Date().getTime();
+    if (promoAdPrice && promoAdEndsAt && new Date(promoAdEndsAt).getTime() > nowTs) {
+      return promoAdPrice;
     }
-    setEditingSection(updatedSection);
-    const allSections = sections.map(s => s.id === updatedSection.id ? updatedSection : s);
-    await saveConfig(allSections);
-    setNewItem({ name: '', priceVista: '', pricePrazo: '' });
-    setEditingItemId(null);
-  };
+    
+    return adDailyPrice;
+  }, [currentUser.customAdPrice, adDailyPrice, promoAdPrice, promoAdEndsAt, isFreeAdAvailable]);
 
-  const startEditItem = (item: ConfigItem) => {
-    setEditingItemId(item.id);
-    setNewItem({ name: item.name, priceVista: (item.defaultPriceAVista || 0).toString(), pricePrazo: (item.defaultPriceAPrazo || 0).toString() });
-  };
+  const isAdPromoActive = promoAdPrice && promoAdEndsAt && new Date(promoAdEndsAt).getTime() > new Date().getTime();
+  
+  // System Tab States
+  const [sysPeriod, setSysPeriod] = useState<'day' | 'week' | 'month' | 'all' | 'custom'>('day');
+  const [sysScope, setSysScope] = useState<'ALL' | 'FACTORY' | 'STALL'>('ALL');
+  const [customDateStart, setCustomDateStart] = useState('');
+  const [customDateEnd, setCustomDateEnd] = useState('');
+  
+  // Custom Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{ show: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+  const [promptModal, setPromptModal] = useState<{ show: boolean, title: string, placeholder: string, value: string, onConfirm: (val: string) => void } | null>(null);
+  const [successModal, setSuccessModal] = useState<{ show: boolean, title: string, message: string } | null>(null);
+  
+  // States for Customer Modal
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showCustomerHistory, setShowCustomerHistory] = useState<Customer | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', type: 'CLIENT' as 'CLIENT' | 'SUPPLIER' });
 
-  const handleRemoveItemFromSection = async (itemId: string) => {
-    if (!editingSection) return;
-    const updatedSection = { ...editingSection };
-    if (sectionEditTab === 'ITEMS') updatedSection.items = updatedSection.items.filter(i => i.id !== itemId);
-    else updatedSection.expenses = updatedSection.expenses.filter(i => i.id !== itemId);
-    setEditingSection(updatedSection);
-    const allSections = sections.map(s => s.id === updatedSection.id ? updatedSection : s);
-    await saveConfig(allSections);
-  };
+  // States for Team Modal
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({ 
+    name: '', 
+    phone: '', 
+    email: '',
+    accessCode: '', 
+    role: 'MANAGER_FACTORY',
+    hideSalesValues: false,
+    assignedSectionIds: [] as string[]
+  });
 
-  const moveSection = async (index: number, direction: 'UP' | 'DOWN') => {
-    const newOrder = [...sections];
-    const targetIndex = direction === 'UP' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
-    const tempOrder = newOrder[index].order;
-    newOrder[index].order = newOrder[targetIndex].order;
-    newOrder[targetIndex].order = tempOrder;
-    [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
-    await saveConfig(newOrder);
-  };
+  // States for Section Modal
+  const [showSectionModal, setShowSectionModal] = useState(false);
+  const [editingSection, setEditingSection] = useState<AppSection | null>(null);
+  const [sectionForm, setSectionForm] = useState({ name: '', type: 'FACTORY_STYLE' });
 
-  const handleAddUser = async () => {
-    if (!newUser.name || !newUser.pin) { alert("Nome e PIN obrigatórios"); return; }
-    setIsProcessing(true);
-    try {
-      await addUser({
-        workspaceId: currentUser.workspaceId,
-        name: newUser.name,
-        email: newUser.email,
-        phone: newUser.phone,
-        role: newUser.role,
-        accessCode: newUser.pin,
-        isAdFree: false,
-        isAdvertiser: false,
-        hideSalesValues: newUser.hideSalesValues,
-        enableSounds: true,
-        assignedSectionIds: newUser.role === 'OWNER' ? [] : newUser.assignedSectionIds
-      });
-      setShowAddUser(false);
-      setNewUser({ name: '', email: '', phone: '', pin: '', role: 'MANAGER_FACTORY', assignedSectionIds: [], hideSalesValues: false });
-    } catch (e: any) { alert("Erro ao criar colaborador"); }
-    finally { setIsProcessing(false); }
-  };
+  // States for Manage Item (Modal Content)
+  const [manageTab, setManageTab] = useState<'PRODUCTS' | 'EXPENSES'>('PRODUCTS');
+  const [manageForm, setManageForm] = useState({ 
+    name: '', 
+    priceVista: '', 
+    pricePrazo: '', 
+    imageUrl: '',
+    promoVista: '',
+    promoPrazo: '',
+    promoEndsAt: ''
+  });
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const manageFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUpdateUser = async () => {
-    if (!editingUser) return;
-    setIsProcessing(true);
-    try {
-      await updateUser(editingUser.id, {
-        name: editUserData.name,
-        email: editUserData.email,
-        phone: editUserData.phone,
-        role: editUserData.role as UserRole,
-        accessCode: editUserData.pin,
-        hideSalesValues: editUserData.hideSalesValues,
-        assignedSectionIds: editUserData.role === 'OWNER' ? [] : editUserData.assignedSectionIds
-      });
-      setEditingUser(null);
-    } catch (e) { alert("Erro ao atualizar dados"); }
-    finally { setIsProcessing(false); }
-  };
+  // States for Ad Tab
+  const [adForm, setAdForm] = useState({ 
+    title: '', 
+    description: '', 
+    whatsapp: '',
+    duration: 7,
+    mediaUrl: ''
+  });
+  const [editingAdId, setEditingAdId] = useState<string | null>(null);
+  const adFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const toggleSectionPermission = (sectionId: string) => {
-    if (editingUser) {
-      const currentIds = editUserData.assignedSectionIds || [];
-      const newIds = currentIds.includes(sectionId)
-        ? currentIds.filter(id => id !== sectionId)
-        : [...currentIds, sectionId];
-      setEditUserData({ ...editUserData, assignedSectionIds: newIds });
-    } else {
-      const currentIds = newUser.assignedSectionIds || [];
-      const newIds = currentIds.includes(sectionId)
-        ? currentIds.filter(id => id !== sectionId)
-        : [...currentIds, sectionId];
-      setNewUser({ ...newUser, assignedSectionIds: newIds });
-    }
-  };
+  const isSuperAdmin = currentUser.role === 'OWNER';
+
+  // --- HANDLERS ---
 
   const handleSaveCustomer = async () => {
-    if (!customerFormData.name) return;
+    if (!customerForm.name) return;
     setIsProcessing(true);
     try {
-      if (editingCustomer) await updateCustomer(editingCustomer.id, { name: customerFormData.name, phone: customerFormData.phone });
-      else await addCustomer(customerFormData.name, customerFormData.phone);
+      if (editingCustomer) {
+        await updateCustomer(editingCustomer.id, { 
+          name: customerForm.name, 
+          phone: customerForm.phone,
+          type: customerForm.type 
+        });
+      } else {
+        await addCustomer(customerForm.name, customerForm.phone, customerForm.type);
+      }
       setShowCustomerModal(false);
+      setCustomerForm({ name: '', phone: '', type: clientSubTab });
       setEditingCustomer(null);
-      setCustomerFormData({ name: '', phone: '' });
-      alert("Cliente salvo!");
-    } catch (e) { alert("Erro ao salvar."); }
-    finally { setIsProcessing(false); }
-  };
-
-  const startEditCustomer = (c: Customer) => {
-    setEditingCustomer(c);
-    setCustomerFormData({ name: c.name, phone: c.phone || '' });
-    setShowCustomerModal(true);
-  };
-
-  const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setAdForm({ ...adForm, mediaUrl: reader.result as string });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleGenerateIA = async () => {
-    if (!adForm.title || !adForm.description) {
-      alert("Título e Descrição necessários.");
-      return;
-    }
-    setIsGeneratingIA(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Professional food advertising commercial photography of ${adForm.title}. Style: appetizing, warm lighting, 4k, bokeh background. Description: ${adForm.description}`;
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: prompt }] },
-        config: { imageConfig: { aspectRatio: "1:1" } }
-      });
-
-      if (response.candidates?.[0]?.content?.parts?.[0]?.inlineData) {
-        setAdForm(prev => ({ ...prev, mediaUrl: `data:image/png;base64,${response.candidates[0].content.parts[0].inlineData.data}` }));
-      }
-    } catch (e: any) { alert("IA ocupada no momento."); }
-    finally { setIsGeneratingIA(false); }
-  };
-
-  const handleRequestAdPublication = async () => {
-    if (!adForm.title || !adForm.mediaUrl) {
-      alert("Título e Arte são obrigatórios.");
-      return;
-    }
-    setIsProcessing(true);
-    try {
-      const newAd = await saveAd({
-        id: editingAdId || undefined, // Support for updating
-        workspaceId: currentUser.workspaceId,
-        ownerId: currentUser.id,
-        ownerName: currentUser.name,
-        title: adForm.title,
-        description: adForm.description,
-        link: adForm.link || `https://wa.me/55${currentUser.phone}`,
-        backgroundColor: '#4f46e5',
-        mediaUrl: adForm.mediaUrl,
-        mediaType: 'image',
-        active: false // Reset to pending approval on edit
-      });
-
-      if (newAd) {
-        if (!editingAdId) {
-          const msg = `Olá! Solicito publicação de anúncio: ${adForm.title}. Valor: R$ ${(adForm.days * 5).toFixed(2)}. ID: ${newAd.id}`;
-          window.open(`https://wa.me/55${supportPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-          alert("Solicitação enviada!");
-        } else {
-          alert("Anúncio atualizado! Aguardando nova aprovação.");
-        }
-        setAdForm({ title: '', description: '', link: '', mediaUrl: '', days: 7 });
-        setEditingAdId(null);
-      }
-    } catch (e) { alert("Erro ao solicitar."); }
-    finally { setIsProcessing(false); }
-  };
-
-  const requestClear = (period: 'day' | 'week' | 'month' | 'all', label: string) => {
-    setClearConfirm({ period, label });
-  };
-
-  const executeClear = async () => {
-    if (!clearConfirm) return;
-    setIsProcessing(true);
-    try {
-      await clearTransactions(clearConfirm.period, currentUser.workspaceId);
-      setClearConfirm(null);
-      alert("Limpeza concluída com sucesso.");
-    } catch (e) {
-      alert("Erro ao limpar registros.");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteConfirmation) return;
+  const handleSaveUser = async () => {
+    if (!userForm.name || !userForm.accessCode) return;
     setIsProcessing(true);
+    
     try {
-      if (deleteConfirmation.type === 'USER') await removeUser(deleteConfirmation.id);
-      else if (deleteConfirmation.type === 'SECTION') await deleteSection(deleteConfirmation.id);
-      else if (deleteConfirmation.type === 'AD') await deleteAd(deleteConfirmation.id);
-      else if (deleteConfirmation.type === 'CUSTOMER') await removeCustomer(deleteConfirmation.id);
-      setDeleteConfirmation(null);
-    } catch(e) { console.error(e); }
-    finally { setIsProcessing(false); }
+      if (editingUser) {
+        await updateUser(editingUser.id, {
+          name: userForm.name,
+          phone: userForm.phone,
+          email: userForm.email,
+          accessCode: userForm.accessCode,
+          role: userForm.role as any,
+          hideSalesValues: userForm.hideSalesValues,
+          assignedSectionIds: userForm.assignedSectionIds
+        });
+        
+        if (addNote) {
+          addNote({
+            workspaceId: currentUser.workspaceId,
+            createdById: 'system',
+            createdByName: 'Segurança',
+            content: `Usuário ${userForm.name} alterado por ${currentUser.name}.`,
+            type: 'LOG'
+          });
+          
+          if (editingUser.accessCode !== userForm.accessCode) {
+            addNote({
+              workspaceId: currentUser.workspaceId,
+              createdById: 'system',
+              createdByName: 'Segurança',
+              content: `PIN de acesso do usuário ${userForm.name} foi alterado.`,
+              type: 'SECURITY'
+            });
+          }
+        }
+      } else {
+        await addUser({
+          workspaceId: currentUser.workspaceId,
+          name: userForm.name,
+          phone: userForm.phone,
+          email: userForm.email,
+          accessCode: userForm.accessCode,
+          role: userForm.role as any,
+          isAdFree: false,
+          isAdvertiser: false,
+          hideSalesValues: userForm.hideSalesValues,
+          enableSounds: true,
+          hasProPlan: false,
+          assignedSectionIds: userForm.assignedSectionIds
+        });
+        
+        if (addNote) {
+          addNote({
+            workspaceId: currentUser.workspaceId,
+            createdById: 'system',
+            createdByName: 'Segurança',
+            content: `Novo usuário ${userForm.name} criado por ${currentUser.name}.`,
+            type: 'LOG'
+          });
+        }
+      }
+      setShowUserModal(false);
+      setEditingUser(null);
+      toast.success("Colaborador salvo com sucesso!");
+    } catch(e) {
+      toast.error("Erro ao salvar usuário.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const startEditAd = (ad: Ad) => {
+  // Handler for creating NEW sections (Plus button)
+  const handleCreateSection = async () => {
+    if (!sectionForm.name) return;
+    setIsProcessing(true);
+    try {
+      const updatedSections = [...sections];
+      const newSection: AppSection = {
+        id: `sec_${Date.now()}`,
+        workspaceId: currentUser.workspaceId,
+        name: sectionForm.name,
+        type: sectionForm.type as any,
+        order: sections.length,
+        items: [],
+        expenses: [],
+        globalStockMode: 'GLOBAL'
+      };
+      updatedSections.push(newSection);
+      
+      await saveConfig(updatedSections);
+      
+      if (addNote) {
+        addNote({
+          workspaceId: currentUser.workspaceId,
+          createdById: 'system',
+          createdByName: 'Configurações',
+          content: `Nova aba "${sectionForm.name}" criada por ${currentUser.name}.`,
+          type: 'LOG'
+        });
+      }
+      
+      setShowSectionModal(false);
+      setSectionForm({ name: '', type: 'FACTORY_STYLE' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // --- MANAGE ITEMS HANDLERS (Inside Modal) ---
+
+  const handleManageImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setManageForm(prev => ({ ...prev, imageUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveManageItem = async () => {
+    if (!editingSection || !manageForm.name) return;
+    setIsProcessing(true);
+    try {
+        const isProduct = manageTab === 'PRODUCTS';
+        const priceV = parseFloat(manageForm.priceVista.replace(',', '.')) || 0;
+        const priceP = parseFloat(manageForm.pricePrazo.replace(',', '.')) || 0;
+        const promoV = manageForm.promoVista ? parseFloat(manageForm.promoVista.replace(',', '.')) : undefined;
+        const promoP = manageForm.promoPrazo ? parseFloat(manageForm.promoPrazo.replace(',', '.')) : undefined;
+
+        const newItem: ConfigItem = {
+            id: editingItemId || `item_${Date.now()}`,
+            name: manageForm.name,
+            defaultPriceAVista: priceV,
+            defaultPriceAPrazo: priceP,
+            defaultPrice: priceV, // Fallback
+            imageUrl: manageForm.imageUrl,
+            promotionalPriceAVista: promoV,
+            promotionalPriceAPrazo: promoP,
+            promoEndsAt: manageForm.promoEndsAt || undefined,
+            currentStock: 0,
+            minStock: 0,
+            trackStock: true
+        };
+
+        const updatedSection = { ...editingSection };
+        // Ensure arrays exist
+        if (!updatedSection.items) updatedSection.items = [];
+        if (!updatedSection.expenses) updatedSection.expenses = [];
+
+        const list = isProduct ? updatedSection.items : updatedSection.expenses;
+        
+        let newList;
+        if (editingItemId) {
+            newList = list.map(i => i.id === editingItemId ? { ...i, ...newItem } : i);
+        } else {
+            newList = [newItem, ...list];
+        }
+
+        if (isProduct) updatedSection.items = newList;
+        else updatedSection.expenses = newList;
+
+        setEditingSection(updatedSection); // Update local state for modal
+        
+        // Update global state
+        const newSections = sections.map(s => s.id === updatedSection.id ? updatedSection : s);
+        await saveConfig(newSections);
+
+        // Reset form
+        setManageForm({ name: '', priceVista: '', pricePrazo: '', imageUrl: '' });
+        setEditingItemId(null);
+        toast.success("Item salvo com sucesso!");
+    } catch(e) {
+        toast.error("Erro ao salvar item.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteManageItem = async (itemId: string) => {
+    if (!editingSection) return;
+    
+    setConfirmModal({
+        show: true,
+        title: "EXCLUIR ITEM",
+        message: "Deseja realmente remover este item? Esta ação é irreversível.",
+        onConfirm: async () => {
+            setIsProcessing(true);
+            try {
+                const isProduct = manageTab === 'PRODUCTS';
+                const updatedSection = { ...editingSection };
+                const list = isProduct ? (updatedSection.items || []) : (updatedSection.expenses || []);
+                const newList = list.filter(i => i.id !== itemId);
+
+                if (isProduct) updatedSection.items = newList;
+                else updatedSection.expenses = newList;
+
+                setEditingSection(updatedSection);
+                const newSections = sections.map(s => s.id === updatedSection.id ? updatedSection : s);
+                await saveConfig(newSections);
+            } finally {
+                setIsProcessing(false);
+                setConfirmModal(null);
+            }
+        }
+    });
+  };
+
+  const startEditManageItem = (item: ConfigItem) => {
+    setEditingItemId(item.id);
+    setManageForm({
+        name: item.name,
+        priceVista: item.defaultPriceAVista ? String(item.defaultPriceAVista) : '',
+        pricePrazo: item.defaultPriceAPrazo ? String(item.defaultPriceAPrazo) : '',
+        imageUrl: item.imageUrl || '',
+        promoVista: item.promotionalPriceAVista ? String(item.promotionalPriceAVista) : '',
+        promoPrazo: item.promotionalPriceAPrazo ? String(item.promotionalPriceAPrazo) : '',
+        promoEndsAt: item.promoEndsAt || ''
+    });
+  };
+
+  // --- AD & AI HANDLERS ---
+
+  const handleGenerateAdText = async () => {
+    setPromptModal({
+      show: true,
+      title: "GERAR TEXTO COM IA",
+      placeholder: "Sobre o que é o anúncio? (Ex: Promoção de Coxinha)",
+      value: "",
+      onConfirm: async (adPrompt) => {
+        if (!adPrompt) return;
+        setPromptModal(null);
+        setIsGeneratingAI(true);
+        try {
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `Crie um título curto e uma descrição vendedora para um anúncio de: ${adPrompt}. Responda em JSON formato: { "title": "...", "description": "..." }`,
+            config: { responseMimeType: "application/json" }
+          });
+          
+          const json = JSON.parse(response.text || '{}');
+          if (json.title && json.description) {
+            setAdForm(prev => ({ ...prev, title: json.title, description: json.description }));
+            toast.success("Texto gerado com sucesso!");
+          }
+        } catch (e) {
+          toast.error("Erro ao gerar texto com IA.");
+        } finally {
+          setIsGeneratingAI(false);
+        }
+      }
+    });
+  };
+
+  const uploadAdImage = async (fileOrBase64: File | string): Promise<string | null> => {
+    try {
+      const fileName = `${currentUser.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.png`;
+      let fileBody: any;
+
+      if (typeof fileOrBase64 === 'string') {
+        // Converte Base64 para Blob
+        const base64Data = fileOrBase64.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        fileBody = new Blob([byteArray], { type: 'image/png' });
+      } else {
+        fileBody = fileOrBase64;
+      }
+
+      const { data, error } = await supabase.storage
+        .from('ads')
+        .upload(fileName, fileBody, {
+          contentType: 'image/png',
+          upsert: true
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('ads')
+        .getPublicUrl(data.path);
+
+      return publicUrl;
+    } catch (e) {
+      console.error("Erro no upload:", e);
+      return null;
+    }
+  };
+
+  const handleGenerateAdImage = async () => {
+    if (!adForm.title) {
+      toast.error("Preencha o título primeiro ou use a IA de texto.");
+      return;
+    }
+    
+    setIsGeneratingAI(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // Using gemini-2.5-flash-image for generation as per instructions for image tasks
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: `Generate a delicious, professional food photography image for an ad about: ${adForm.title}. The image should be appetizing, high resolution, centered.`,
+      });
+
+      // Extract image from response parts
+      if (response.candidates && response.candidates[0].content.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            const base64 = part.inlineData.data;
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            const base64Full = `data:${mimeType};base64,${base64}`;
+            
+            // ESTRUTURA DE PRODUÇÃO: Upload para Storage
+            toast.loading("Otimizando e salvando imagem na nuvem...");
+            const publicUrl = await uploadAdImage(base64Full);
+            
+            if (publicUrl) {
+              setAdForm(prev => ({ ...prev, mediaUrl: publicUrl }));
+              toast.success("Imagem gerada e salva com sucesso!");
+            } else {
+              // Fallback para base64 se o storage falhar (apenas para não quebrar o fluxo em dev)
+              setAdForm(prev => ({ ...prev, mediaUrl: base64Full }));
+              toast.warning("Imagem gerada, mas salva localmente (verifique o Storage).");
+            }
+            break;
+          }
+        }
+      } else {
+        toast.error("Nenhuma imagem gerada. Tente novamente.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro ao gerar imagem. Tente novamente.");
+    } finally {
+      setIsGeneratingAI(false);
+      toast.dismiss();
+    }
+  };
+
+  const handleSaveAd = async () => {
+    if (!adForm.title || !adForm.description || !adForm.whatsapp) {
+      toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    
+    setIsProcessing(true);
+    try {
+      const whatsappLink = `https://wa.me/55${adForm.whatsapp.replace(/\D/g, '')}`;
+      
+      await saveAd({
+        id: editingAdId || undefined,
+        ownerId: currentUser.id,
+        ownerName: currentUser.name,
+        workspaceId: currentUser.workspaceId,
+        title: adForm.title,
+        description: adForm.description,
+        link: whatsappLink,
+        backgroundColor: '#f59e0b', // Default orange
+        mediaUrl: adForm.mediaUrl,
+        requestedDuration: adForm.duration
+      });
+
+      // Se usou um anúncio grátis, atualiza o contador do usuário
+      if (isFreeAdAvailable && !editingAdId) {
+        await supabase.from('users').update({
+          free_ads_used_this_month: (currentUser.freeAdsUsedThisMonth || 0) + 1
+        }).eq('id', currentUser.id);
+      }
+      
+      // WhatsApp Redirect logic
+      const msg = isFreeAdAvailable && !editingAdId 
+        ? `Olá, acabei de criar um anúncio gratuito pelo meu plano: *${adForm.title}*. Aguardo aprovação.`
+        : `Olá, acabei de ${editingAdId ? 'editar' : 'criar'} um anúncio: *${adForm.title}* (${adForm.duration} dias). Aguardo aprovação para pagamento.`;
+      window.open(`https://wa.me/55${supportPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      
+      setAdForm({ title: '', description: '', whatsapp: '', duration: 7, mediaUrl: '' });
+      setEditingAdId(null);
+      toast.success("Anúncio salvo e enviado para análise!");
+    } catch (e) {
+      toast.error("Erro ao salvar anúncio.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleEditAd = (ad: Ad) => {
+    setEditingAdId(ad.id);
+    // Extract phone from link if possible, else empty
+    let phone = '';
+    if (ad.link && ad.link.includes('wa.me/55')) {
+      phone = ad.link.split('wa.me/55')[1];
+    }
+
     setAdForm({
       title: ad.title,
       description: ad.description,
-      link: ad.link,
-      mediaUrl: ad.mediaUrl || '',
-      days: 7 
+      whatsapp: phone,
+      duration: ad.requestedDuration || 7,
+      mediaUrl: ad.mediaUrl || ''
     });
-    setEditingAdId(ad.id);
-    formTopRef.current?.scrollIntoView({ behavior: 'smooth' });
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const cancelEditAd = () => {
-    setAdForm({ title: '', description: '', link: '', mediaUrl: '', days: 7 });
-    setEditingAdId(null);
+  const handleAdImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsProcessing(true);
+      toast.loading("Enviando imagem...");
+      try {
+        const publicUrl = await uploadAdImage(file);
+        if (publicUrl) {
+          setAdForm(prev => ({ ...prev, mediaUrl: publicUrl }));
+          toast.success("Imagem enviada com sucesso!");
+        } else {
+          toast.error("Erro ao enviar imagem para o servidor.");
+        }
+      } catch (e) {
+        toast.error("Erro no processamento da imagem.");
+      } finally {
+        setIsProcessing(false);
+        toast.dismiss();
+      }
+    }
   };
 
-  const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()));
+  const handleHistoryExport = () => {
+    // Coleta nomes e IDs atuais das seções para um filtro mais robusto
+    const factoryNames = sections.filter(s => s.type === 'FACTORY_STYLE').map(s => normalizeString(s.name));
+    const stallNames = sections.filter(s => s.type === 'STALL_STYLE').map(s => normalizeString(s.name));
+    const factoryIds = sections.filter(s => s.type === 'FACTORY_STYLE').map(s => s.id);
+    const stallIds = sections.filter(s => s.type === 'STALL_STYLE').map(s => s.id);
+
+    const items = transactions.filter(t => {
+      // Filtro por Área (Scope)
+      if (sysScope !== 'ALL') {
+         const txCat = normalizeString(t.category);
+         const txId = t.category; // Caso o ID tenha sido salvo como categoria em versões anteriores
+         
+         if (sysScope === 'FACTORY') {
+            // Verifica se pertence à fábrica por nome, ID ou palavra-chave (fallback para seções deletadas/renomeadas)
+            const isFactory = factoryNames.includes(txCat) || 
+                             factoryIds.includes(txId) || 
+                             txCat.includes('fabrica') || 
+                             txCat.includes('producao');
+            if (!isFactory) return false;
+         }
+         
+         if (sysScope === 'STALL') {
+            // Verifica se pertence à barraca por nome, ID ou palavra-chave
+            const isStall = stallNames.includes(txCat) || 
+                           stallIds.includes(txId) || 
+                           txCat.includes('barraca') || 
+                           txCat.includes('venda') || 
+                           txCat.includes('lanchonete');
+            if (!isStall) return false;
+         }
+      }
+      
+      // Filtro por Período
+      const d = new Date(t.date);
+      const now = new Date();
+      
+      if (sysPeriod === 'day') return d.toDateString() === now.toDateString();
+      if (sysPeriod === 'week') {
+         const weekAgo = new Date(); weekAgo.setDate(now.getDate() - 7);
+         return d >= weekAgo;
+      }
+      if (sysPeriod === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      if (sysPeriod === 'custom' && customDateStart && customDateEnd) {
+         const s = new Date(customDateStart); s.setHours(0,0,0,0);
+         const e = new Date(customDateEnd); e.setHours(23,59,59,999);
+         return d >= s && d <= e;
+      }
+      
+      return true;
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    if (items.length === 0) {
+      setConfirmModal({
+        show: true,
+        title: "RELATÓRIO VAZIO",
+        message: "Não foram encontradas transações para os filtros selecionados (Área e Período). Verifique se há lançamentos nestas datas.",
+        onConfirm: () => setConfirmModal(null)
+      });
+      return;
+    }
+
+    toast.info("Gerando PDF para download...");
+    const doc = new jsPDF();
+    const scopeLabel = sysScope === 'ALL' ? 'Geral' : sysScope === 'FACTORY' ? 'Fábrica' : 'Barraca';
+    
+    doc.setFontSize(18);
+    doc.text(`Relatório de Histórico - ${scopeLabel}`, 14, 20);
+    
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 28);
+
+    const vendas = items.filter(t => t.subCategory !== 'GASTOS');
+    const gastos = items.filter(t => t.subCategory === 'GASTOS');
+
+    let currentY = 35;
+
+    if (vendas.length > 0) {
+      doc.setFontSize(14);
+      doc.setTextColor(22, 163, 74); // Green
+      doc.text("Entradas / Vendas", 14, currentY);
+      currentY += 5;
+
+      const vendasBody = vendas.map(t => {
+        const section = sections.find(s => s.id === t.category);
+        const originName = section ? section.name : (t.category || 'Geral');
+        return [
+          new Date(t.date).toLocaleDateString('pt-BR'),
+          originName.toUpperCase(),
+          t.item,
+          t.quantity ? t.quantity.toString() : '-',
+          t.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          t.customerName || '-',
+          t.isPending ? 'Pendente' : 'Pago'
+        ];
+      });
+
+      autoTable(doc, {
+        head: [['Data', 'Origem', 'Descrição', 'Qtd', 'Valor', 'Cliente', 'Status']],
+        body: vendasBody,
+        startY: currentY,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [22, 163, 74] },
+        columnStyles: {
+          0: { cellWidth: 20, halign: 'center' },
+          1: { cellWidth: 25, halign: 'left' },
+          2: { cellWidth: 'auto', halign: 'left' },
+          3: { cellWidth: 15, halign: 'center' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 25, halign: 'left' },
+          6: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      const totalVendas = vendas.reduce((acc, t) => acc + t.value, 0);
+      currentY = (doc as any).lastAutoTable.finalY + 5;
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Total Entradas: ${totalVendas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, currentY);
+      currentY += 15;
+    }
+
+    if (gastos.length > 0) {
+      if (currentY > 250) {
+        doc.addPage();
+        currentY = 20;
+      }
+      doc.setFontSize(14);
+      doc.setTextColor(220, 38, 38); // Red
+      doc.text("Saídas / Gastos", 14, currentY);
+      currentY += 5;
+
+      const gastosBody = gastos.map(t => {
+        const section = sections.find(s => s.id === t.category);
+        const originName = section ? section.name : (t.category || 'Geral');
+        return [
+          new Date(t.date).toLocaleDateString('pt-BR'),
+          originName.toUpperCase(),
+          t.item,
+          t.quantity ? t.quantity.toString() : '-',
+          t.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          t.customerName || '-',
+          t.isPending ? 'Pendente' : 'Pago'
+        ];
+      });
+
+      autoTable(doc, {
+        head: [['Data', 'Origem', 'Descrição', 'Qtd', 'Valor', 'Fornecedor', 'Status']],
+        body: gastosBody,
+        startY: currentY,
+        styles: { fontSize: 7 },
+        headStyles: { fillColor: [220, 38, 38] },
+        columnStyles: {
+          0: { cellWidth: 20, halign: 'center' },
+          1: { cellWidth: 25, halign: 'left' },
+          2: { cellWidth: 'auto', halign: 'left' },
+          3: { cellWidth: 15, halign: 'center' },
+          4: { cellWidth: 25, halign: 'right' },
+          5: { cellWidth: 25, halign: 'left' },
+          6: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      const totalGastos = gastos.reduce((acc, t) => acc + t.value, 0);
+      currentY = (doc as any).lastAutoTable.finalY + 5;
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Total Saídas: ${totalGastos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, currentY);
+      currentY += 15;
+    }
+
+    if (vendas.length > 0 && gastos.length > 0) {
+      const totalVendas = vendas.reduce((acc, t) => acc + t.value, 0);
+      const totalGastos = gastos.reduce((acc, t) => acc + t.value, 0);
+      const saldo = totalVendas - totalGastos;
+      
+      if (currentY > 270) {
+        doc.addPage();
+        currentY = 20;
+      }
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(saldo >= 0 ? 22 : 220, saldo >= 0 ? 163 : 38, saldo >= 0 ? 74 : 38);
+      doc.text(`Saldo do Período: ${saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, currentY);
+    }
+
+    doc.save(`historico_${sysScope.toLowerCase()}_${new Date().getTime()}.pdf`);
+    toast.success("Download iniciado!");
+    
+    setSuccessModal({
+      show: true,
+      title: "DOWNLOAD CONCLUÍDO",
+      message: `O relatório de histórico (${scopeLabel}) foi baixado com sucesso.`
+    });
+    
+    if (addNote) {
+      addNote({
+        workspaceId: currentUser.workspaceId,
+        createdById: 'system',
+        content: `Relatório de histórico (${scopeLabel}) baixado com sucesso.`,
+        type: 'system'
+      });
+    }
+  };
+
+  const handleHistoryClearRequest = () => {
+    setConfirmModal({
+      show: true,
+      title: "ATENÇÃO: ZONA DE PERIGO",
+      message: "Esta ação apagará permanentemente o histórico selecionado (apenas itens já PAGOS). As dívidas e pendências serão mantidas. Confirmar?",
+      onConfirm: async () => {
+        setIsProcessing(true);
+        try {
+          let categories: string[] | undefined = undefined;
+          
+          if (sysScope === 'FACTORY') {
+             categories = sections.filter(s => s.type === 'FACTORY_STYLE').map(s => s.name);
+          } else if (sysScope === 'STALL') {
+             categories = sections.filter(s => s.type === 'STALL_STYLE').map(s => s.name);
+          }
+
+          let customRange: { start: string, end: string } | undefined;
+          if (sysPeriod === 'custom' && customDateStart && customDateEnd) {
+             customRange = { start: customDateStart, end: customDateEnd };
+          }
+
+          await clearTransactions(sysPeriod, currentUser.workspaceId, customRange, categories);
+          
+          if (addNote) {
+            addNote({
+              workspaceId: currentUser.workspaceId,
+              createdById: 'system',
+              createdByName: 'Segurança',
+              content: `Histórico de transações (${sysPeriod}) limpo por ${currentUser.name}.`,
+              type: 'LOG'
+            });
+          }
+          toast.success("Histórico limpo com sucesso!");
+        } catch (e) {
+          toast.error("Erro ao limpar histórico.");
+        } finally {
+          setIsProcessing(false);
+          setConfirmModal(null);
+        }
+      }
+    });
+  };
+
+  const handleArchiveYearRequest = () => {
+    const year = prompt("Digite o ano que deseja consolidar e arquivar (ex: 2024):");
+    if (!year || isNaN(Number(year)) || year.length !== 4) return alert("Ano inválido.");
+    
+    setConfirmModal({
+      show: true,
+      title: `ARQUIVAR ANO ${year}?`,
+      message: `Isso irá somar todas as vendas e gastos pagos de ${year}, salvar um resumo e APAGAR as transações individuais para liberar espaço. Deseja continuar?`,
+      onConfirm: async () => {
+        setIsProcessing(true);
+        try {
+          const count = await archiveYear(currentUser.workspaceId, Number(year));
+          if (count === 0) {
+            toast.info(`Nenhuma transação paga encontrada em ${year}.`);
+          } else {
+            toast.success(`Ano ${year} arquivado com sucesso! ${count} registros consolidados.`);
+          }
+        } catch (e) {
+          toast.error("Erro ao arquivar ano.");
+        } finally {
+          setIsProcessing(false);
+          setConfirmModal(null);
+        }
+      }
+    });
+  };
+
+  const filteredCustomers = customers
+    .filter(c => (c.type || 'CLIENT') === clientSubTab)
+    .filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  // Sound Theme Selection
+  const [soundTheme, setSoundTheme] = useState(() => {
+     return localStorage.getItem('sound_theme') || (currentUser.enableSounds ? 'DEFAULT' : 'OFF');
+  });
+
+  const handleSoundChange = (theme: string) => {
+     setSoundTheme(theme);
+     localStorage.setItem('sound_theme', theme);
+     updateUser(currentUser.id, { enableSounds: theme !== 'OFF' });
+  };
+
+  const openManageModal = (section: AppSection) => {
+    setEditingSection(section);
+    setManageForm({ name: '', priceVista: '', pricePrazo: '', imageUrl: '' });
+    setEditingItemId(null);
+    setManageTab('PRODUCTS');
+    setShowSectionModal(true);
+  };
 
   return (
-    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
-      <div className="flex bg-slate-200 p-1 rounded-2xl shadow-inner overflow-x-auto no-scrollbar">
-        {['ESTRUTURA', 'CLIENTES', 'EQUIPE', 'VITRINE', 'ANUNCIO', 'SISTEMA', 'PLANOS'].map(tab => (
-          <button 
-            key={tab} 
-            onClick={() => handleTabClick(tab)}
-            className={`flex-1 py-3 px-5 min-w-fit rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500'}`}
+    <div className="space-y-6 pb-24 animate-in fade-in">
+      {/* Header Tabs */}
+      <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex overflow-x-auto no-scrollbar gap-2">
+        {[
+          { id: 'ESTRUTURA', icon: Layout, label: 'Estrutura' },
+          { id: 'CLIENTES', icon: Users, label: 'Parceiros' },
+          { id: 'EQUIPE', icon: UserCircle, label: 'Equipe' },
+          { id: 'VITRINE', icon: Store, label: 'Vitrine' },
+          { id: 'MARKETING', icon: Sparkles, label: 'Marketing' },
+          { id: 'ANUNCIO', icon: Megaphone, label: 'Anúncios' },
+          { id: 'PLANOS', icon: CreditCard, label: 'Planos' },
+          { id: 'SISTEMA', icon: SettingsIcon, label: 'Sistema' },
+          { id: 'AUDITORIA', icon: FileText, label: 'Auditoria' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex-1 min-w-[80px] py-4 px-2 rounded-[1.6rem] flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === tab.id ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'
+            }`}
           >
-            {tab}
+            <tab.icon size={20} />
+            <span className="text-[9px] font-black uppercase tracking-widest">{tab.label}</span>
           </button>
         ))}
       </div>
 
+      {/* Content Area */}
       {activeTab === 'ESTRUTURA' && (
-        <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50 space-y-6">
-          <div className="flex justify-between items-center px-2">
-             <div><h3 className="font-black text-slate-800 text-sm uppercase tracking-widest leading-none">Minha Estrutura</h3><p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Fábrica, Barracas e Estoque</p></div>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center px-2 sticky top-0 z-40 bg-slate-50 py-2 -mx-2">
+            <h3 className="text-xl font-black text-slate-800 ml-2">Minhas Abas</h3>
+            <button onClick={() => { setEditingSection(null); setSectionForm({ name: '', type: 'FACTORY_STYLE' }); setShowSectionModal(true); }} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg mr-2">
+              <Plus size={20} />
+            </button>
           </div>
-          <div className="flex gap-2 p-2 bg-slate-50 rounded-2xl border border-slate-100">
-             <input value={newSectionName} onChange={e => setNewSectionName(e.target.value)} placeholder="Nome..." className="flex-1 bg-transparent p-2 font-bold text-xs outline-none uppercase" />
-             <select value={newSectionType} onChange={e => setNewSectionType(e.target.value as SectionType)} className="bg-white px-3 py-2 rounded-xl text-[9px] font-black uppercase outline-none border border-slate-200">
-                <option value="FACTORY_STYLE">Fábrica</option>
-                <option value="STALL_STYLE">Barraca</option>
-                <option value="STOCK_STYLE">Estoque</option>
-             </select>
-             <button onClick={handleAddSection} className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg"><Plus size={16} /></button>
-          </div>
-          <div className="space-y-3">
-             {sections.map((s, idx) => (
-               <div key={s.id} className="p-5 bg-slate-50 rounded-[1.8rem] flex items-center justify-between border border-transparent hover:border-slate-100 hover:bg-white hover:shadow-md transition-all">
-                  <div className="flex items-center gap-4">
-                     <div className={`p-3 rounded-xl shadow-sm ${s.type === 'FACTORY_STYLE' ? 'bg-slate-800 text-white' : s.type === 'STOCK_STYLE' ? 'bg-indigo-600 text-white' : 'bg-orange-500 text-white'}`}>{s.type === 'STOCK_STYLE' ? <Box size={20} /> : <Store size={20} />}</div>
-                     <div><p className="font-black text-slate-800 text-xs uppercase">{s.name}</p><p className="text-[8px] font-bold text-slate-400 uppercase">{s.type.replace('_STYLE', '')}</p></div>
+          <div className="grid gap-4">
+            {sections.map(section => (
+              <div key={section.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={`p-4 rounded-2xl ${section.type === 'FACTORY_STYLE' ? 'bg-orange-100 text-orange-600' : section.type === 'STALL_STYLE' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
+                    {section.type === 'FACTORY_STYLE' ? <Package size={24} /> : section.type === 'STALL_STYLE' ? <Store size={24} /> : <Layout size={24} />}
                   </div>
-                  <div className="flex gap-2">
-                     <button onClick={() => setEditingSection(s)} className="p-3 bg-white text-blue-500 rounded-xl shadow-sm"><Edit3 size={16} /></button>
-                     <div className="flex flex-col gap-1">
-                        <button onClick={() => moveSection(idx, 'UP')} disabled={idx === 0} className="p-1 bg-white rounded shadow-sm text-slate-300 disabled:opacity-20"><ArrowUp size={12} /></button>
-                        <button onClick={() => moveSection(idx, 'DOWN')} disabled={idx === sections.length - 1} className="p-1 bg-white rounded shadow-sm text-slate-300 disabled:opacity-20"><ArrowDown size={12} /></button>
-                     </div>
-                     <button onClick={() => setDeleteConfirmation({ type: 'SECTION', id: s.id, name: s.name })} className="p-3 bg-white text-rose-500 rounded-xl shadow-sm"><Trash2 size={16} /></button>
+                  <div>
+                    <h4 className="font-black text-slate-800 text-sm uppercase">{section.name}</h4>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                      {section.type === 'FACTORY_STYLE' ? 'Fábrica' : section.type === 'STALL_STYLE' ? 'Barraca' : 'Estoque'}
+                    </p>
                   </div>
-               </div>
-             ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openManageModal(section)} className="p-3 text-blue-400 hover:bg-blue-50 rounded-xl transition-all border border-blue-100">
+                    <Edit3 size={20} />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setConfirmModal({
+                        show: true,
+                        title: "EXCLUIR ABA",
+                        message: `Deseja realmente excluir a aba "${section.name}"? Esta ação é irreversível.`,
+                        onConfirm: async () => {
+                          await deleteSection(section.id);
+                          if (addNote) {
+                            addNote({
+                              workspaceId: currentUser.workspaceId,
+                              createdById: 'system',
+                              createdByName: 'Configurações',
+                              content: `Aba "${section.name}" excluída por ${currentUser.name}.`,
+                              type: 'LOG'
+                            });
+                          }
+                          setConfirmModal(null);
+                        }
+                      });
+                    }} 
+                    className="p-3 text-rose-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all border border-rose-100"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {activeTab === 'VITRINE' && (
-        <MarketplaceManager 
-          profile={companyProfile}
-          onSave={onSaveProfile}
-          workspaceId={currentUser.workspaceId}
-          user={currentUser}
-        />
-      )}
-
       {activeTab === 'CLIENTES' && (
-        <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50 space-y-6">
-           <div className="flex justify-between items-center px-2">
-             <div><h3 className="font-black text-slate-800 text-sm uppercase tracking-widest">Meus Clientes</h3><p className="text-[9px] font-bold text-slate-400 uppercase">Gestão da Carteira</p></div>
-             <button onClick={() => { setEditingCustomer(null); setCustomerFormData({ name: '', phone: '' }); setShowCustomerModal(true); }} className="p-3 bg-emerald-600 text-white rounded-[1.2rem] shadow-lg"><UserPlus size={20} /></button>
-           </div>
-           <div className="relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="LOCALIZAR CLIENTE..." className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold text-xs uppercase outline-none shadow-inner" /></div>
-           <div className="max-h-[400px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+        <div className="space-y-6">
+          <div className="sticky top-0 z-40 bg-slate-50 pt-2 pb-4 -mx-4 px-4">
+            <div className="bg-slate-100 p-1 rounded-2xl flex mb-4">
+              <button onClick={() => { setClientSubTab('CLIENT'); setCustomerForm(prev => ({...prev, type: 'CLIENT'})); }} className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${clientSubTab === 'CLIENT' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Meus Clientes</button>
+              <button onClick={() => { setClientSubTab('SUPPLIER'); setCustomerForm(prev => ({...prev, type: 'SUPPLIER'})); }} className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${clientSubTab === 'SUPPLIER' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Meus Fornecedores</button>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-5 h-5" />
+                <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder={`Buscar ${clientSubTab === 'CLIENT' ? 'cliente' : 'fornecedor'}...`} className="w-full p-4 pl-12 bg-white rounded-2xl font-bold text-xs uppercase outline-none focus:ring-2 focus:ring-indigo-100 shadow-sm" />
+              </div>
+              <button onClick={() => { setEditingCustomer(null); setCustomerForm({ name: '', phone: '', type: clientSubTab }); setShowCustomerModal(true); }} className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg"><Plus size={20} /></button>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50">
+            <div className="space-y-3">
               {filteredCustomers.map(c => (
-                 <div key={c.id} className="p-4 bg-slate-50 rounded-[1.5rem] flex justify-between items-center group hover:bg-white hover:shadow-md transition-all">
-                    <div className="flex items-center gap-3"><div className="p-2 bg-slate-200 text-slate-500 rounded-xl"><UserCircle size={16} /></div><div><p className="font-black text-slate-700 text-xs uppercase leading-tight">{c.name}</p>{c.phone && <p className="text-[8px] font-bold text-slate-400 mt-0.5">{c.phone}</p>}</div></div>
-                    <div className="flex gap-2"><button onClick={() => startEditCustomer(c)} className="p-2 text-slate-300 hover:text-blue-500"><Edit3 size={16} /></button><button onClick={() => setDeleteConfirmation({ type: 'CUSTOMER', id: c.id, name: c.name })} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={16} /></button></div>
-                 </div>
+                <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 font-black">{c.name.charAt(0)}</div>
+                    <div><h4 className="font-black text-slate-700 text-xs uppercase">{c.name}</h4><p className="text-[9px] font-bold text-slate-400">{c.phone || 'Sem telefone'}</p></div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowCustomerHistory(c)} className="p-2 text-indigo-500 bg-indigo-50 rounded-lg hover:bg-indigo-100"><FileText size={16} /></button>
+                    <button onClick={() => { setEditingCustomer(c); setCustomerForm({ name: c.name, phone: c.phone || '', type: c.type || 'CLIENT' }); setShowCustomerModal(true); }} className="p-2 text-blue-500 bg-blue-50 rounded-lg hover:bg-blue-100"><Edit3 size={16} /></button>
+                    <button 
+                      onClick={() => { 
+                        setConfirmModal({
+                          show: true,
+                          title: "EXCLUIR CONTATO",
+                          message: `Tem certeza que deseja remover ${c.name}?`,
+                          onConfirm: async () => {
+                            await removeCustomer(c.id);
+                            setConfirmModal(null);
+                          }
+                        });
+                      }} 
+                      className="p-2 text-rose-500 bg-rose-50 rounded-lg hover:bg-rose-100"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
               ))}
-           </div>
+              {filteredCustomers.length === 0 && <div className="text-center py-10 text-slate-400"><Users className="w-12 h-12 mx-auto mb-2 opacity-20" /><p className="text-[10px] font-black uppercase tracking-widest">Nenhum registro encontrado</p></div>}
+            </div>
+          </div>
         </div>
       )}
 
       {activeTab === 'EQUIPE' && (
-        <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50 space-y-6">
-           <div className="flex justify-between items-center px-2">
-             <div><h3 className="font-black text-slate-800 text-sm uppercase tracking-widest">Sua Equipe</h3><p className="text-[9px] font-bold text-slate-400 uppercase">Colaboradores e Gerentes</p></div>
-             <button onClick={() => setShowAddUser(true)} className="p-3 bg-indigo-600 text-white rounded-[1.2rem] shadow-lg"><UserPlus size={20} /></button>
-           </div>
-           <div className="grid gap-4">
-              {users.map(u => (
-                 <div key={u.id} className="p-5 bg-slate-50 rounded-[1.8rem] flex items-center justify-between border border-transparent hover:border-slate-100 hover:bg-white hover:shadow-md transition-all">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center font-black text-slate-400 shadow-sm overflow-hidden">
-                          {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : u.name.charAt(0).toUpperCase()}
-                       </div>
-                       <div>
-                          <p className="font-black text-slate-800 text-xs uppercase leading-tight">{u.name}</p>
-                          <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">
-                            {u.role === 'OWNER' ? 'Proprietário' : u.role === 'MANAGER_FACTORY' ? 'Gerente Fábrica' : 'Gerente Barraca'}
-                          </p>
-                       </div>
-                    </div>
-                    <div className="flex gap-1">
-                       <button onClick={() => { 
-                         setEditingUser(u); 
-                         setEditUserData({ 
-                           name: u.name, 
-                           email: u.email || '', 
-                           phone: u.phone || '', 
-                           pin: u.accessCode, 
-                           role: u.role, 
-                           assignedSectionIds: u.assignedSectionIds || [],
-                           hideSalesValues: !!u.hideSalesValues
-                         }); 
-                       }} className="p-3 text-blue-500 rounded-xl"><Edit3 size={16} /></button>
-                       {u.id !== currentUser.id && (
-                         <button onClick={() => setDeleteConfirmation({ type: 'USER', id: u.id, name: u.name })} className="p-3 text-rose-500 rounded-xl"><Trash2 size={16} /></button>
-                       )}
-                    </div>
-                 </div>
-              ))}
-           </div>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center px-2 sticky top-0 z-40 bg-slate-50 py-2 -mx-2">
+            <h3 className="text-xl font-black text-slate-800 ml-2">Sua Equipe</h3>
+            <button onClick={() => { setEditingUser(null); setUserForm({ name: '', phone: '', email: '', accessCode: '', role: 'MANAGER_FACTORY', hideSalesValues: false, assignedSectionIds: [] }); setShowUserModal(true); }} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg mr-2"><UserPlus size={20} /></button>
+          </div>
+          <div className="grid gap-4">
+            {users.sort((a, b) => {
+                if (a.id === currentUser.id) return -1;
+                if (b.id === currentUser.id) return 1;
+                return 0;
+            }).map(u => (
+              <div key={u.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center font-black text-slate-500 overflow-hidden relative">
+                    {u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : u.name.charAt(0)}
+                    {u.lastSeen && (new Date().getTime() - new Date(u.lastSeen).getTime() < 5 * 60 * 1000) && (
+                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-slate-800 text-xs uppercase">{u.name} {u.id === currentUser.id ? '(Você)' : ''}</h4>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                        {u.role === 'OWNER' ? 'Proprietário' : u.role === 'MANAGER_FACTORY' ? 'Gerente Fábrica' : 'Gerente Barraca'}
+                    </p>
+                    <div className="flex gap-2"><p className="text-[9px] font-bold text-indigo-500">PIN: {u.accessCode}</p></div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditingUser(u); setUserForm({ name: u.name, phone: u.phone || '', email: u.email || '', accessCode: u.accessCode, role: u.role, hideSalesValues: u.hideSalesValues, assignedSectionIds: u.assignedSectionIds || [] }); setShowUserModal(true); }} className="p-3 text-blue-400 hover:bg-blue-50 rounded-xl transition-all border border-blue-100"><Edit3 size={18} /></button>
+                  <button onClick={() => {
+                    setConfirmModal({
+                      show: true,
+                      title: "EXCLUIR COLABORADOR",
+                      message: `Tem certeza que deseja remover ${u.name}?`,
+                      onConfirm: async () => {
+                        await removeUser(u.id);
+                        setConfirmModal(null);
+                      }
+                    });
+                  }} className="p-3 text-rose-400 hover:bg-rose-50 rounded-xl transition-all border border-rose-100"><Trash2 size={18} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
+      {activeTab === 'VITRINE' && <MarketplaceManager profile={companyProfile} onSave={onSaveProfile} workspaceId={currentUser.workspaceId} user={currentUser} sections={sections} />}
+
+      {activeTab === 'MARKETING' && <CouponManager workspaceId={currentUser.workspaceId} />}
+
       {activeTab === 'ANUNCIO' && (
         <div className="space-y-6">
-          <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-slate-50" ref={formTopRef}>
-            <div className="flex items-center justify-between mb-8">
-               <div className="flex items-center gap-4">
-                  <div className="p-4 bg-indigo-600 text-white rounded-2xl shadow-xl"><Megaphone size={24} /></div>
-                  <div><h3 className="text-xl font-black text-slate-800 uppercase">{editingAdId ? 'Editar Anúncio' : 'Solicitar Anúncio'}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{editingAdId ? 'Atualizar conteúdo' : 'Apareça no Marketplace'}</p></div>
-               </div>
-               {editingAdId && (
-                 <button onClick={cancelEditAd} className="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 transition-all"><X size={20} /></button>
-               )}
-            </div>
-            <div className="grid md:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <div className="relative aspect-square rounded-[2rem] bg-slate-100 border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center">
-                   {adForm.mediaUrl ? <img src={adForm.mediaUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200" size={40} />}
-                   {isGeneratingIA && <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center text-white text-[10px] font-black uppercase"><Loader2 className="animate-spin mb-2" /> Gerando...</div>}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                   <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-slate-100 rounded-xl font-black text-[9px] uppercase flex items-center justify-center gap-2"><Upload size={14} /> Galeria</button>
-                   <button onClick={handleGenerateIA} disabled={isGeneratingIA} className="py-3 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[9px] uppercase flex items-center justify-center gap-2 border border-indigo-100"><Sparkles size={14} /> Criar IA</button>
-                   <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleGalleryUpload} />
-                </div>
+           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50 space-y-6">
+              <div className="flex justify-between items-start">
+                 <div>
+                    <h3 className="text-2xl font-black text-slate-800 uppercase leading-none mb-2">{editingAdId ? 'Editar Anúncio' : 'Divulgue Aqui'}</h3>
+                    <p className="text-sm font-medium text-slate-600 max-w-[250px] leading-tight">Crie anúncios para alcançar outros usuários da plataforma. Ideal para fornecedores, serviços e parcerias.</p>
+                     <div className="flex flex-wrap gap-2 mt-4">
+                        <div className="flex flex-col">
+                          {isFreeAdAvailable ? (
+                            <div className="flex flex-col">
+                              <span className="text-[8px] font-black text-slate-400 line-through mb-0.5">R$ {adDailyPrice.toFixed(2).replace('.', ',')}</span>
+                              <span className="px-3 py-1 bg-emerald-500 rounded-lg text-[9px] font-black text-white shadow-sm uppercase tracking-widest">Grátis pelo Plano</span>
+                            </div>
+                          ) : (
+                            <>
+                              {isAdPromoActive && !currentUser.customAdPrice && (
+                                <span className="text-[8px] font-black text-slate-400 line-through mb-0.5">R$ {adDailyPrice.toFixed(2).replace('.', ',')}</span>
+                              )}
+                              <span className="px-3 py-1 bg-white border border-slate-100 rounded-lg text-[9px] font-black text-orange-500 shadow-sm uppercase tracking-widest">R$ {effectiveAdPrice.toFixed(2).replace('.', ',')} / Dia</span>
+                            </>
+                          )}
+                        </div>
+                        {!isFreeAdAvailable && (
+                          <span className="px-3 py-1 bg-orange-500 rounded-lg text-[9px] font-black text-white shadow-sm uppercase tracking-widest">Total: R$ {(adForm.duration * effectiveAdPrice).toFixed(2).replace('.', ',')}</span>
+                        )}
+                        <span className="px-3 py-1 bg-emerald-50 rounded-lg text-[9px] font-black text-emerald-600 uppercase tracking-widest">Pix</span>
+                        {isAdPromoActive && !currentUser.customAdPrice && !isFreeAdAvailable && (
+                          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-600 rounded-lg text-[9px] font-black uppercase animate-pulse">
+                            <Zap size={10} fill="currentColor" /> Oferta Relâmpago: <PromoTimer expiresAt={promoAdEndsAt!} />
+                          </div>
+                        )}
+                        {isFreeAdAvailable && (
+                          <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-600 rounded-lg text-[9px] font-black uppercase">
+                            <Check size={10} /> {freeAdsRemaining} Crédito(s) Restante(s)
+                          </div>
+                        )}
+                     </div>
+                 </div>
+                 <div className="p-4 bg-orange-50 rounded-[2rem]"><Megaphone className="w-8 h-8 text-orange-500 transform -rotate-12" /></div>
               </div>
               <div className="space-y-4">
-                <input value={adForm.title} onChange={e => setAdForm({...adForm, title: e.target.value})} placeholder="TÍTULO" className="w-full p-4 bg-slate-50 rounded-xl font-black text-xs outline-none" />
-                <textarea value={adForm.description} onChange={e => setAdForm({...adForm, description: e.target.value})} placeholder="DESCRIÇÃO" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-[10px] h-24 resize-none outline-none" />
-                <div className="p-5 bg-slate-900 rounded-2xl text-white space-y-4">
-                   {!editingAdId && (
-                     <>
-                       <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-slate-400">Duração</span><span className="text-xl font-black">R$ {(adForm.days * 5).toFixed(2)}</span></div>
-                       <div className="grid grid-cols-3 gap-2">
-                          {[7, 15, 30].map(d => (
-                            <button key={d} onClick={() => setAdForm({...adForm, days: d})} className={`py-3 rounded-lg font-black text-[10px] transition-all ${adForm.days === d ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white/40'}`}>{d} DIAS</button>
+                 <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Título do Anúncio (Ex: Forneço Embalagens)</label>
+                    <div className="flex gap-2">
+                      <input value={adForm.title} onChange={e => setAdForm({...adForm, title: e.target.value})} className="flex-1 p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none" />
+                      <button onClick={handleGenerateAdText} disabled={isGeneratingAI} className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all" title="Gerar com IA">
+                        {isGeneratingAI ? <Loader2 className="animate-spin w-5 h-5" /> : <Wand2 className="w-5 h-5" />}
+                      </button>
+                    </div>
+                 </div>
+                 <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Descrição Breve...</label><textarea value={adForm.description} onChange={e => setAdForm({...adForm, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none h-24 resize-none" /></div>
+                 <div className="flex gap-3">
+                    <div className="flex-1 space-y-1">
+                       <label className="text-[9px] font-black text-slate-400 uppercase ml-4">WhatsApp (DDD + Número)</label>
+                       <input type="tel" value={adForm.whatsapp} onChange={e => setAdForm({...adForm, whatsapp: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none" placeholder="21999999999" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                       <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Duração (Dias)</label>
+                       <div className="flex gap-1">
+                          {[1, 7, 15, 30].map(d => (
+                            <button 
+                              key={d} 
+                              onClick={() => setAdForm({...adForm, duration: d})}
+                              className={`flex-1 py-4 rounded-2xl font-black text-[10px] transition-all ${adForm.duration === d ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}
+                            >
+                              {d}
+                            </button>
                           ))}
                        </div>
-                     </>
-                   )}
-                   <button onClick={handleRequestAdPublication} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black uppercase text-[10px] shadow-lg flex items-center justify-center gap-2 mt-4"><CheckCircle size={16} /> {editingAdId ? 'Salvar Alterações' : 'Solicitar Publicação'}</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* LISTA DE ANÚNCIOS DO USUÁRIO */}
-          <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50 space-y-6">
-             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest px-2">Seus Anúncios</h3>
-             <div className="grid gap-4">
-                {ads.filter(a => a.ownerId === currentUser.id).length === 0 ? (
-                  <p className="text-[9px] font-bold text-slate-300 text-center py-4 uppercase">Nenhum anúncio solicitado.</p>
-                ) : (
-                  ads.filter(a => a.ownerId === currentUser.id).map(ad => (
-                    <div key={ad.id} className="p-4 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between group hover:bg-white hover:shadow-xl transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 rounded-2xl bg-white overflow-hidden shadow-inner flex items-center justify-center flex-shrink-0">
-                              {ad.mediaUrl ? <img src={ad.mediaUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200" />}
-                          </div>
-                          <div>
-                              <p className="font-black text-slate-800 text-xs uppercase truncate max-w-[150px]">{ad.title}</p>
-                              <div className="flex flex-col items-start gap-1">
-                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full mt-1 inline-block ${ad.active ? 'bg-emerald-100 text-emerald-600' : 'bg-orange-100 text-orange-600'}`}>
-                                  {ad.active ? 'Publicado' : 'Aguardando Aprovação'}
-                                </span>
-                                {ad.active && ad.expiresAt && (
-                                  <div className="scale-75 origin-left">
-                                    <PlanCountDown expiresAt={ad.expiresAt} />
-                                  </div>
-                                )}
-                              </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                           <button onClick={() => startEditAd(ad)} className="p-3 text-blue-500 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-blue-50 transition-colors"><Edit3 size={16} /></button>
-                           <button onClick={() => setDeleteConfirmation({ type: 'AD', id: ad.id, name: ad.title })} className="p-3 text-rose-500 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-rose-50 transition-colors"><Trash2 size={16} /></button>
-                        </div>
                     </div>
-                  ))
-                )}
-             </div>
-          </div>
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Imagem do Anúncio (Obrigatório)</label>
+                    <div className="flex gap-2">
+                      <div onClick={() => adFileInputRef.current?.click()} className="flex-1 h-40 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex items-center justify-center cursor-pointer hover:border-indigo-300 transition-all relative overflow-hidden group">
+                        {adForm.mediaUrl ? <><img src={adForm.mediaUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /><div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><ImageIcon className="text-white w-8 h-8" /></div></> : <div className="text-center"><ImageIcon className="w-8 h-8 text-slate-300 mx-auto mb-2" /><span className="text-[9px] font-black text-slate-400 uppercase">Enviar Foto</span></div>}
+                      </div>
+                      <button onClick={handleGenerateAdImage} disabled={isGeneratingAI} className="w-16 h-40 bg-purple-50 border-2 border-dashed border-purple-200 rounded-[2rem] flex flex-col items-center justify-center gap-2 hover:bg-purple-100 transition-all text-purple-600" title="Gerar Imagem IA">
+                         {isGeneratingAI ? <Loader2 className="animate-spin w-6 h-6" /> : <><Zap size={24} /><span className="text-[8px] font-black uppercase">IA</span></>}
+                      </button>
+                    </div>
+                    <input type="file" ref={adFileInputRef} hidden accept="image/*" onChange={handleAdImageUpload} />
+                 </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                 {editingAdId && (
+                   <button onClick={() => { setEditingAdId(null); setAdForm({ title: '', description: '', whatsapp: '', duration: 7, mediaUrl: '' }); }} className="px-6 py-4 text-slate-400 font-black uppercase text-xs hover:text-slate-600">Cancelar</button>
+                 )}
+                 <button onClick={handleSaveAd} disabled={isProcessing} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-indigo-200 active:scale-95 transition-all flex items-center justify-center gap-2">
+                    {isProcessing ? <Loader2 className="animate-spin w-4 h-4" /> : <Save size={16} />} {editingAdId ? 'Salvar Alterações' : 'Salvar e Enviar'}
+                 </button>
+              </div>
+           </div>
+
+           <div className="space-y-4">
+              <h3 className="text-lg font-black text-slate-800 uppercase ml-4">Meus Anúncios</h3>
+              {ads.filter(a => a.ownerId === currentUser.id).map(ad => (
+                <div key={ad.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden">
+                         {ad.mediaUrl ? <img src={ad.mediaUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Megaphone /></div>}
+                      </div>
+                      <div>
+                         <h4 className="font-black text-slate-800 text-xs uppercase">{ad.title}</h4>
+                         <div className="flex items-center gap-2 mt-1">
+                            <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${ad.active ? 'bg-emerald-100 text-emerald-600' : 'bg-orange-100 text-orange-600'}`}>
+                               {ad.active ? 'Ativo' : 'Em Análise'}
+                            </span>
+                            <span className="text-[9px] font-bold text-slate-400">{ad.clicks} Cliques</span>
+                         </div>
+                      </div>
+                   </div>
+                   <div className="flex gap-1">
+                      <button onClick={() => handleEditAd(ad)} className="p-3 text-blue-400 hover:bg-blue-50 rounded-xl transition-all border border-blue-100">
+                         <Edit3 size={18} />
+                      </button>
+                      <button 
+                        onClick={() => { 
+                          setConfirmModal({
+                            show: true,
+                            title: "EXCLUIR ANÚNCIO",
+                            message: "Deseja remover este anúncio?",
+                            onConfirm: async () => {
+                              await deleteAd(ad.id);
+                              setConfirmModal(null);
+                            }
+                          });
+                        }} 
+                        className="p-3 text-rose-400 hover:bg-rose-50 rounded-xl transition-all border border-rose-100"
+                      >
+                         <Trash2 size={18} />
+                      </button>
+                   </div>
+                </div>
+              ))}
+              {ads.filter(a => a.ownerId === currentUser.id).length === 0 && (
+                 <div className="text-center py-10 text-slate-400">
+                    <Megaphone className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Nenhum anúncio criado</p>
+                 </div>
+              )}
+           </div>
         </div>
       )}
 
       {activeTab === 'PLANOS' && (
-        <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-           {/* Cabeçalho Planos */}
-           <div className="flex justify-between items-end px-2 mb-4">
-              <div>
-                 <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Assinaturas</h3>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Evolua seu negócio com recursos premium</p>
+        <div className="space-y-6">
+           <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden text-white border-2 border-slate-800">
+              <h3 className="text-2xl font-black mb-2">Plano Atual</h3>
+              <div className="flex gap-2 mb-8">
+                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] ${isProActive ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                  {isProActive ? 'PRO ATIVO' : 'GRATUITO'}
+                </span>
+                {isProActive && currentUser.proExpiresAt && <span className="px-3 py-1 bg-emerald-900/50 text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-[0.2em]"><PlanTimer expiresAt={currentUser.proExpiresAt} /></span>}
               </div>
-              <div className="bg-gradient-to-r from-amber-400 to-orange-500 p-2 rounded-xl shadow-lg">
-                 <Rocket className="text-white w-6 h-6" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className={`p-4 rounded-2xl border ${isAdFreeActive ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
+                  <EyeOff className={`w-6 h-6 mb-2 ${isAdFreeActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Sem Ads</p>
+                  {isAdFreeActive && <PlanTimer expiresAt={currentUser.adFreeExpiresAt} />}
+                </div>
+                <div className={`p-4 rounded-2xl border ${isAdvertiserActive ? 'bg-amber-900/20 border-amber-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
+                  <Megaphone className={`w-6 h-6 mb-2 ${isAdvertiserActive ? 'text-amber-400' : 'text-slate-500'}`} />
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Anunciante</p>
+                  {isAdvertiserActive && <PlanTimer expiresAt={currentUser.advertiserExpiresAt} />}
+                </div>
               </div>
            </div>
-
-           {/* PLANO COMPLETO (PRO) */}
-           <div className={`p-8 rounded-[3rem] shadow-2xl relative overflow-hidden transition-all duration-500 ${currentUser.hasProPlan ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-100'}`}>
-              {currentUser.hasProPlan && (
-                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-              )}
-              <div className="relative z-10">
-                 <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-3">
-                       <div className={`p-3 rounded-2xl ${currentUser.hasProPlan ? 'bg-amber-500 text-slate-900' : 'bg-slate-100 text-slate-400'}`}>
-                          <Crown size={24} />
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50">
+               <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-4 ml-2">Assinar ou Renovar</h4>
+               <div className="space-y-3">
+                 {plans.map(plan => {
+                   const isPro = plan.name.toUpperCase().includes('PRO');
+                   const now = new Date().getTime();
+                   const isPromoActive = plan.promo_price && plan.promo_ends_at && new Date(plan.promo_ends_at).getTime() > now;
+                   
+                   let displayPrice = plan.price;
+                   if (isPro && currentUser.customProPrice) {
+                     displayPrice = currentUser.customProPrice;
+                   } else if (isPromoActive) {
+                     displayPrice = plan.promo_price;
+                   }
+                   
+                   return (
+                     <button 
+                       key={plan.id}
+                       onClick={() => window.open(`https://wa.me/55${supportPhone}?text=${encodeURIComponent(`Quero assinar o ${plan.name}!`)}`, '_blank')} 
+                       className={`w-full p-5 rounded-[2rem] flex items-center justify-between group active:scale-95 transition-all relative overflow-hidden ${isPro ? 'bg-slate-900 text-white' : 'bg-white border-2 border-slate-100 hover:border-slate-200'}`}
+                     >
+                       {isPromoActive && !currentUser.customProPrice && (
+                         <div className="absolute top-0 right-0 bg-amber-500 text-slate-950 text-[7px] font-black px-4 py-1 rotate-45 translate-x-3 -translate-y-1 uppercase tracking-tighter shadow-sm flex flex-col items-center pt-2">
+                           <span>Oferta</span>
+                           <span className="text-[6px] opacity-80"><PromoTimer expiresAt={plan.promo_ends_at} /></span>
+                         </div>
+                       )}
+                       <div className="text-left">
+                         <p className={`text-xs font-black uppercase flex items-center gap-2 ${isPro ? 'text-yellow-400' : 'text-slate-600'}`}>
+                           {isPro ? <Zap size={14} fill="currentColor" /> : <EyeOff size={14} />} {plan.name}
+                         </p>
+                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{plan.description}</p>
                        </div>
-                       <div>
-                          <h4 className="text-xl font-black uppercase tracking-tight">Plano Profissional</h4>
-                          <span className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full ${currentUser.hasProPlan ? 'bg-white/10 text-emerald-400' : 'bg-slate-100 text-slate-400'}`}>
-                             {currentUser.hasProPlan ? 'ASSINATURA ATIVA' : 'MENSAL'}
-                          </span>
+                       <div className="text-right">
+                         {isPromoActive && !currentUser.customProPrice && (
+                           <p className="text-[9px] font-black text-slate-500 line-through uppercase tracking-widest leading-none mb-1">R$ {(plan.price || 0).toFixed(2).replace('.', ',')}</p>
+                         )}
+                         <span className={`text-lg font-black ${isPro ? 'text-white' : 'text-slate-700'}`}>
+                           R$ {(displayPrice || 0).toFixed(2).replace('.', ',')}
+                           <span className="text-[9px] font-medium text-slate-500 ml-1">/MÊS</span>
+                         </span>
                        </div>
-                    </div>
-                    {currentUser.hasProPlan ? (
-                       <PlanCountDown expiresAt={currentUser.proExpiresAt} light={true} />
-                    ) : (
-                       <p className="text-2xl font-black text-slate-800">R$ 34,90</p>
-                    )}
-                 </div>
-
-                 <ul className="space-y-3 mb-8">
-                    {[
-                       'Vitrine Online (Link da Loja)',
-                       'Loja Destacada no Marketplace',
-                       'Prioridade no Suporte (24h)',
-                       'Remoção Total de Anúncios'
-                    ].map((feature, i) => (
-                       <li key={i} className="flex items-center gap-3 text-xs font-bold uppercase tracking-tight opacity-90">
-                          <CheckCircle className={`w-4 h-4 ${currentUser.hasProPlan ? 'text-emerald-400' : 'text-indigo-600'}`} />
-                          {feature}
-                       </li>
-                    ))}
-                 </ul>
-
-                 {currentUser.hasProPlan ? (
-                    <div className="w-full py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center gap-2 text-emerald-400 font-black uppercase text-[10px] tracking-widest">
-                       <Check size={16} /> Você é PRO Master
-                    </div>
-                 ) : (
-                    <button 
-                       onClick={() => handleSubscribe('Plano Profissional', 'R$ 34,90/mês')}
-                       className="w-full py-5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-                    >
-                       <Star className="w-4 h-4 fill-white" /> Quero ser PRO
-                    </button>
+                     </button>
+                   );
+                 })}
+                 {plans.length === 0 && (
+                   <div className="py-6 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest">Carregando planos...</div>
                  )}
-              </div>
-           </div>
-
-           {/* PLANO REMOVER ADS */}
-           <div className={`p-8 rounded-[3rem] shadow-xl relative overflow-hidden transition-all duration-500 ${currentUser.isAdFree && !currentUser.hasProPlan ? 'bg-blue-600 text-white' : 'bg-white text-slate-800 border border-slate-100'}`}>
-              <div className="relative z-10">
-                 <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-3">
-                       <div className={`p-3 rounded-2xl ${currentUser.isAdFree ? 'bg-white text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-                          <EyeOff size={24} />
-                       </div>
-                       <div>
-                          <h4 className="text-xl font-black uppercase tracking-tight">Remover Anúncios</h4>
-                          <span className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full ${currentUser.isAdFree ? 'bg-black/20 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                             {currentUser.isAdFree ? 'ATIVO' : 'MENSAL'}
-                          </span>
-                       </div>
-                    </div>
-                    {currentUser.isAdFree ? (
-                       <PlanCountDown expiresAt={currentUser.adFreeExpiresAt} light={true} />
-                    ) : (
-                       <p className="text-2xl font-black text-slate-800">R$ 9,90</p>
-                    )}
-                 </div>
-
-                 <p className={`text-[10px] font-bold uppercase leading-relaxed mb-8 ${currentUser.isAdFree ? 'opacity-90' : 'text-slate-500'}`}>
-                    Navegue com mais foco e velocidade removendo todas as publicidades do aplicativo.
-                 </p>
-
-                 {currentUser.isAdFree ? (
-                    <div className="w-full py-4 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center gap-2 text-white font-black uppercase text-[10px] tracking-widest">
-                       <Check size={16} /> Anúncios Removidos
-                    </div>
-                 ) : (
-                    <button 
-                       onClick={() => handleSubscribe('Remover Anúncios', 'R$ 9,90/mês')}
-                       className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-                    >
-                       <Zap className="w-4 h-4" /> Assinar Remoção
-                    </button>
-                 )}
-              </div>
-           </div>
+               </div>
+               <button onClick={() => window.open(`https://wa.me/55${supportPhone}?text=Olá, preciso de suporte.`, '_blank')} className="w-full mt-6 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"><MessageCircle size={16} /> Falar com Suporte</button>
+            </div>
         </div>
       )}
 
       {activeTab === 'SISTEMA' && (
         <div className="space-y-6">
-           {isGodModeUnlocked && isSuperAdmin && (
-              <div className="bg-slate-950 p-8 rounded-[3rem] shadow-2xl border-2 border-amber-500/50 text-white relative overflow-hidden group animate-pulse hover:animate-none transition-all">
-                 <div className="relative z-10 flex justify-between items-center">
-                    <div>
-                       <div className="flex items-center gap-2 mb-2 text-amber-500"><ShieldAlert size={20} /><span className="text-[9px] font-black uppercase tracking-[0.4em]">ADMIN MASTER ATIVO</span></div>
-                       <h3 className="text-3xl font-black mb-1 tracking-tighter">Painel Kernel</h3>
-                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Gestão Global da Rede</p>
-                    </div>
-                    <button onClick={() => onNavigate('GOD_MODE')} className="p-6 bg-amber-500 text-slate-950 rounded-[2rem] shadow-2xl shadow-amber-500/20 hover:scale-110 active:scale-90 transition-all flex items-center gap-3">
-                       <span className="text-xs font-black uppercase">Entrar</span>
-                       <ArrowRight size={28} />
-                    </button>
-                 </div>
-                 <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-[80px] -mr-32 -mt-32" />
-              </div>
-           )}
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-50">
+             <h3 className="text-lg font-black text-slate-800 uppercase mb-6 flex items-center gap-2"><Printer size={20} className="text-slate-400" /> Impressora Térmica</h3>
+             <div className="space-y-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">
+                  Conecte sua impressora térmica Bluetooth (58mm ou 80mm) para imprimir recibos diretamente do aplicativo.
+                </p>
+                <button 
+                  onClick={async () => {
+                    const toastId = toast.loading("Conectando à impressora...");
+                    try {
+                      const success = await printer.connect();
+                      if (success) {
+                        toast.success("Impressora conectada com sucesso!", { id: toastId });
+                      } else {
+                        toast.error("Não foi possível conectar. Verifique se o Bluetooth está ligado.", { id: toastId });
+                      }
+                    } catch (e: any) {
+                      toast.error(e.message || "Erro na conexão Bluetooth.", { id: toastId });
+                    }
+                  }}
+                  className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                >
+                  <Bluetooth size={18} /> Conectar Impressora
+                </button>
+             </div>
+          </div>
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-50">
+             <h3 className="text-lg font-black text-slate-800 uppercase mb-6 flex items-center gap-2"><Music size={20} className="text-slate-400" /> Sons do Sistema</h3>
+             <div className="flex gap-2">{['DEFAULT', 'SOFT', 'MECHANICAL', 'OFF'].map(theme => { const labels: any = { 'DEFAULT': 'Padrão', 'SOFT': 'Suave', 'MECHANICAL': 'Mec.', 'OFF': 'Off' }; const isSelected = soundTheme === theme; return (<button key={theme} onClick={() => handleSoundChange(theme)} className={`flex-1 py-3 rounded-xl font-black text-[9px] uppercase transition-all border-2 ${isSelected ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-slate-50 border-transparent text-slate-400'}`}>{labels[theme]}</button>); })}</div>
+          </div>
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-50">
+             <h3 className="text-lg font-black text-slate-800 uppercase mb-6 flex items-center gap-2"><Database size={20} className="text-slate-400" /> Gerenciar Dados</h3>
+             <div className="space-y-6">
+                <div><label className="text-[9px] font-black uppercase text-slate-400 ml-2 mb-2 block">1. Área</label><div className="flex bg-slate-50 p-1 rounded-xl">{[{ id: 'ALL', label: 'Tudo' }, { id: 'FACTORY', label: 'Fábrica' }, { id: 'STALL', label: 'Barraca' }].map(scope => (<button key={scope.id} onClick={() => setSysScope(scope.id as any)} className={`flex-1 py-3 rounded-xl font-black text-[9px] uppercase transition-all ${sysScope === scope.id ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>{scope.label}</button>))}</div></div>
+                <div><label className="text-[9px] font-black uppercase text-slate-400 ml-2 mb-2 block">2. Período</label><div className="flex flex-wrap gap-2">{['day', 'week', 'month', 'custom', 'all'].map(p => { const labels: any = { day: 'Hoje', week: 'Semana', month: 'Mês', custom: 'Selecionar', all: 'Tudo' }; return (<button key={p} onClick={() => setSysPeriod(p as any)} className={`px-4 py-2 rounded-xl font-black text-[9px] uppercase transition-all border-2 ${sysPeriod === p ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-slate-50 border-transparent text-slate-400'}`}>{labels[p]}</button>); })}</div>{sysPeriod === 'custom' && (<div className="flex gap-2 mt-2 animate-in slide-in-from-top-2"><input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)} className="flex-1 p-3 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 outline-none" /><input type="date" value={customDateEnd} onChange={e => setCustomDateEnd(e.target.value)} className="flex-1 p-3 bg-slate-50 rounded-xl text-xs font-bold text-slate-600 outline-none" /></div>)}</div>
+                <div className="flex gap-3 pt-2"><button onClick={handleHistoryExport} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] hover:bg-indigo-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"><Download size={16} /> Baixar Relatório</button><button onClick={handleHistoryClearRequest} disabled={isProcessing} className="flex-1 py-4 bg-rose-50 text-rose-600 rounded-2xl font-black uppercase text-[10px] hover:bg-rose-100 transition-all flex items-center justify-center gap-2">{isProcessing ? <Loader2 className="animate-spin" /> : <Trash2 size={16} />} Limpar Histórico</button></div>
+                <div className="pt-2">
+                  <button onClick={handleArchiveYearRequest} disabled={isProcessing} className="w-full py-4 bg-amber-50 text-amber-600 rounded-2xl font-black uppercase text-[10px] hover:bg-amber-100 transition-all flex items-center justify-center gap-2 border-2 border-amber-100">
+                    {isProcessing ? <Loader2 className="animate-spin" /> : <Database size={16} />} Consolidar e Arquivar Ano
+                  </button>
+                  <p className="text-[9px] text-slate-400 text-center mt-2 font-medium px-4">Esta opção soma todas as vendas e gastos de um ano, salva um resumo e apaga os detalhes para liberar espaço no banco de dados.</p>
+                </div>
+             </div>
+          </div>
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-50 text-center"><AlertTriangle className="w-12 h-12 text-orange-500 mx-auto mb-4" /><h3 className="text-lg font-black text-slate-800 uppercase mb-2">Zona de Perigo</h3><div className="flex flex-col gap-3"><button onClick={() => { setConfirmModal({ show: true, title: "RESETAR TUDO", message: "ATENÇÃO: ISSO APAGARÁ TODAS AS VENDAS, DÍVIDAS, CLIENTES E CONFIGURAÇÕES. AÇÃO IRREVERSÍVEL. CONFIRMAR?", onConfirm: async () => { setIsProcessing(true); await clearTransactions('all', currentUser.workspaceId); if (addNote) { addNote({ workspaceId: currentUser.workspaceId, createdById: 'system', createdByName: 'Segurança', content: `RESET TOTAL da fábrica realizado por ${currentUser.name}.`, type: 'SECURITY' }); } setIsProcessing(false); setConfirmModal(null); window.location.reload(); } }); }} className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] hover:bg-rose-700 transition-all shadow-xl shadow-rose-200">Resetar Fábrica (Apagar Tudo)</button></div></div>
+          {(currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && (
+            <button onClick={onUnlockGodMode} className="w-full py-4 text-[9px] font-black text-slate-300 uppercase tracking-[0.5em] text-center hover:text-slate-400">Acesso Root</button>
+          )}
+        </div>
+      )}
 
-           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50">
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-3"><div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><FileDown size={16} /></div> Relatórios (PDF)</h3>
-              <div className="grid grid-cols-2 gap-3">
-                 <button onClick={() => handleDownloadReport('day')} className="p-5 bg-slate-50 text-slate-700 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 hover:text-orange-600 transition-all border border-transparent hover:border-orange-100 flex flex-col items-center gap-2"><Printer size={16} /> Relatório Hoje</button>
-                 <button onClick={() => handleDownloadReport('week')} className="p-5 bg-slate-50 text-slate-700 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 hover:text-orange-600 transition-all border border-transparent hover:border-orange-100 flex flex-col items-center gap-2"><Printer size={16} /> Últimos 7 Dias</button>
-                 <button onClick={() => handleDownloadReport('month')} className="p-5 bg-slate-50 text-slate-700 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-orange-50 hover:text-orange-600 transition-all border border-transparent hover:border-orange-100 flex flex-col items-center gap-2"><Printer size={16} /> Últimos 30 Dias</button>
-                 <button onClick={() => handleDownloadReport('all')} className="p-5 bg-indigo-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg flex flex-col items-center gap-2"><Printer size={16} /> Baixar Tudo</button>
-              </div>
-           </div>
+      {activeTab === 'AUDITORIA' && (
+        <div className="space-y-4">
+          <h3 className="text-xl font-black text-slate-800 px-2">Logs do Sistema</h3>
+          <AuditLog />
+        </div>
+      )}
 
-           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50">
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-8 flex items-center gap-3"><div className="p-2 bg-rose-100 text-rose-600 rounded-lg"><Trash2 size={16} /></div> Manutenção</h3>
-              <div className="grid grid-cols-2 gap-3">
-                 <button onClick={() => requestClear('day', 'Hoje')} className="p-5 bg-slate-50 text-slate-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100">Limpar Hoje</button>
-                 <button onClick={() => requestClear('week', 'Semana')} className="p-5 bg-slate-50 text-slate-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100">Limpar Semana</button>
-                 <button onClick={() => requestClear('month', 'Mês')} className="p-5 bg-slate-50 text-slate-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100">Limpar Mês</button>
-                 <button onClick={() => requestClear('all', 'Tudo')} className="p-5 bg-slate-50 text-rose-600 rounded-2xl font-black uppercase text-[9px] shadow-sm border border-rose-100 hover:bg-rose-600 hover:text-white transition-all">ZERAR TUDO</button>
-              </div>
+      {confirmModal && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl text-center border-4 border-rose-100">
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner animate-pulse"><AlertTriangle className="w-10 h-10 text-rose-600" /></div>
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase">{confirmModal.title}</h3>
+              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{confirmModal.message}</p>
+              <div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-colors">Cancelar</button><button onClick={confirmModal.onConfirm} disabled={isProcessing} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-900/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">{isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmar</button></div>
            </div>
         </div>
       )}
 
-      {/* MODAIS (MANTIDOS) */}
-      {editingSection && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white w-full max-w-md rounded-[3rem] p-8 shadow-3xl animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-              <div className="flex justify-between items-center mb-8 shrink-0">
-                 <div><h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Gerenciar Seção</h3><p className="text-[10px] font-black text-indigo-600 uppercase mt-2">{editingSection.name}</p></div>
-                 <button onClick={() => { setEditingSection(null); setEditingItemId(null); }} className="p-3 bg-slate-100 rounded-full"><X size={20} /></button>
+      {successModal && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl text-center border-4 border-green-100">
+              <div className="w-20 h-20 bg-green-100 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner"><CheckCircle2 className="w-10 h-10 text-green-600" /></div>
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase">{successModal.title}</h3>
+              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{successModal.message}</p>
+              <button onClick={() => setSuccessModal(null)} className="w-full py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-green-900/20 hover:scale-105 active:scale-95 transition-all">OK</button>
+           </div>
+        </div>
+      )}
+
+      {promptModal && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl border-4 border-indigo-100">
+              <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner"><Sparkles className="w-10 h-10 text-indigo-600" /></div>
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase text-center">{promptModal.title}</h3>
+              <div className="mb-8">
+                <input 
+                  autoFocus
+                  value={promptModal.value}
+                  onChange={e => setPromptModal({ ...promptModal, value: e.target.value })}
+                  placeholder={promptModal.placeholder}
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
               </div>
-              <div className="flex bg-slate-100 p-1 rounded-2xl mb-8 shrink-0">
-                 <button onClick={() => { setSectionEditTab('ITEMS'); setEditingItemId(null); }} className={`flex-1 py-3.5 text-[10px] font-black uppercase rounded-xl transition-all ${sectionEditTab === 'ITEMS' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Produtos</button>
-                 <button onClick={() => { setSectionEditTab('EXPENSES'); setEditingItemId(null); }} className={`flex-1 py-3.5 text-[10px] font-black uppercase rounded-xl transition-all ${sectionEditTab === 'EXPENSES' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500'}`}>Despesas</button>
-              </div>
-              <div className="space-y-4 mb-8 shrink-0 bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
-                 <input autoFocus value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} placeholder="NOME DO ITEM" className="w-full p-4 bg-white border border-slate-200 rounded-xl font-black text-xs uppercase outline-none" />
-                 <div className="flex gap-2">
-                    <input value={newItem.priceVista} onChange={e => setNewItem({...newItem, priceVista: e.target.value})} placeholder="R$ VISTA" className="flex-1 p-4 bg-white border border-slate-200 rounded-xl font-black text-xs text-center outline-none" />
-                    <input value={newItem.pricePrazo} onChange={e => setNewItem({...newItem, pricePrazo: e.target.value})} placeholder="R$ PRAZO" className="flex-1 p-4 bg-white border border-slate-200 rounded-xl font-black text-xs text-center outline-none" />
-                 </div>
-                 <button onClick={handleAddItemToSection} className="w-full py-4 bg-indigo-600 text-white rounded-xl shadow-lg font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">{editingItemId ? 'Salvar Edição' : 'Adicionar Item'}</button>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                 {(sectionEditTab === 'ITEMS' ? editingSection.items : editingSection.expenses).map(item => (
-                    <div key={item.id} className="flex justify-between items-center p-4 rounded-2xl border bg-white border-slate-100 shadow-sm group hover:border-indigo-200">
-                       <div><p className="font-black text-slate-800 text-xs uppercase leading-tight">{item.name}</p><div className="flex items-center gap-3 mt-1"><span className="text-[8px] font-bold text-slate-400 uppercase">VISTA: R${item.defaultPriceAVista?.toFixed(2)}</span><span className="text-[8px] font-bold text-slate-400 uppercase">PRAZO: R${item.defaultPriceAPrazo?.toFixed(2)}</span></div></div>
-                       <div className="flex gap-1"><button onClick={() => startEditItem(item)} className="p-3 text-blue-500 rounded-xl"><Edit3 size={16} /></button><button onClick={() => handleRemoveItemFromSection(item.id)} className="p-3 text-slate-200 hover:text-rose-500 rounded-xl"><Trash2 size={16} /></button></div>
-                    </div>
-                 ))}
+              <div className="flex gap-3">
+                 <button onClick={() => setPromptModal(null)} className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-colors">Cancelar</button>
+                 <button onClick={() => promptModal.onConfirm(promptModal.value)} disabled={isProcessing || !promptModal.value} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">{isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmar</button>
               </div>
            </div>
         </div>
       )}
 
       {showCustomerModal && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl animate-in zoom-in-95">
-              <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">{editingCustomer ? 'Editar' : 'Novo'} Cliente</h3>
-              <div className="space-y-4">
-                 <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-4">Nome</label><div className="relative"><UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input autoFocus value={customerFormData.name} onChange={e => setCustomerFormData({...customerFormData, name: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold uppercase text-xs outline-none focus:border-emerald-500" placeholder="EX: JOÃO SILVA" /></div></div>
-                 <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-4">Telefone/WhatsApp</label><div className="relative"><Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input value={customerFormData.phone} onChange={e => setCustomerFormData({...customerFormData, phone: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold uppercase text-xs outline-none focus:border-emerald-500" placeholder="EX: 21999999999" /></div></div>
-              </div>
-              <div className="flex gap-3 mt-10"><button onClick={() => { setShowCustomerModal(false); setEditingCustomer(null); }} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button><button onClick={handleSaveCustomer} className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 transition-all">Salvar Cliente</button></div>
-           </div>
+        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl">
+            <h3 className="text-xl font-black text-slate-800 mb-6 uppercase">{editingCustomer ? 'Editar' : 'Novo'} {customerForm.type === 'CLIENT' ? 'Cliente' : 'Fornecedor'}</h3>
+            <div className="space-y-4">
+              <div className="bg-slate-100 p-1 rounded-xl flex mb-4"><button onClick={() => setCustomerForm({...customerForm, type: 'CLIENT'})} className={`flex-1 py-2 rounded-lg font-bold text-[10px] uppercase transition-all ${customerForm.type === 'CLIENT' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Cliente</button><button onClick={() => setCustomerForm({...customerForm, type: 'SUPPLIER'})} className={`flex-1 py-2 rounded-lg font-bold text-[10px] uppercase transition-all ${customerForm.type === 'SUPPLIER' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Fornecedor</button></div>
+              <input autoFocus value={customerForm.name} onChange={e => setCustomerForm({...customerForm, name: e.target.value})} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" />
+              <input type="tel" value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} placeholder="WhatsApp (Opcional)" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" />
+            </div>
+            <div className="flex gap-3 mt-8"><button onClick={() => setShowCustomerModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button><button onClick={handleSaveCustomer} disabled={isProcessing || !customerForm.name} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">{isProcessing ? <Loader2 className="animate-spin mx-auto" /> : 'Salvar'}</button></div>
+          </div>
         </div>
       )}
 
-      {(showAddUser || editingUser) && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl overflow-y-auto max-h-[90vh] no-scrollbar">
-              <h3 className="text-xl font-black text-slate-800 mb-8 uppercase tracking-tighter">{editingUser ? 'Editar' : 'Novo'} Colaborador</h3>
-              <div className="space-y-4">
-                 <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-4">Nome</label><input value={editingUser ? editUserData.name : newUser.name} onChange={e => editingUser ? setEditUserData({...editUserData, name: e.target.value}) : setNewUser({...newUser, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none" /></div>
-                 <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-4">E-mail</label><div className="relative"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input type="email" value={editingUser ? editUserData.email : newUser.email} onChange={e => editingUser ? setEditUserData({...editUserData, email: e.target.value}) : setNewUser({...newUser, email: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold text-xs outline-none" /></div></div>
-                 <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-4">Função</label><select value={editingUser ? editUserData.role : newUser.role} onChange={e => { const val = e.target.value as UserRole; editingUser ? setEditUserData({...editUserData, role: val}) : setNewUser({...newUser, role: val}); }} className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none"><option value="MANAGER_FACTORY">Gerente Fábrica</option><option value="MANAGER_STALL">Gerente Barraca</option><option value="OWNER">Proprietário</option></select></div>
-                 <div className="space-y-1 mt-4"><label className="text-[9px] font-black uppercase text-slate-400 ml-4 text-center block">PIN Acesso (6 dígitos)</label><input type="number" maxLength={6} value={editingUser ? editUserData.pin : newUser.pin} onChange={e => editingUser ? setEditUserData({...editUserData, pin: e.target.value}) : setNewUser({...newUser, pin: e.target.value})} className="w-full p-5 bg-slate-100 border-2 border-indigo-200 rounded-2xl font-black text-center text-2xl outline-none tracking-[0.5em]" placeholder="000000" /></div>
-                 
-                 {/* Seleção de Abas */}
-                 <div className="pt-6 border-t border-slate-100">
-                    <label className="text-[9px] font-black uppercase text-slate-400 ml-4 mb-2 block">Permissões de Acesso</label>
-                    <div className="grid grid-cols-2 gap-2 mb-4">
-                       {sections.map(section => {
-                          const currentIds = editingUser ? editUserData.assignedSectionIds : newUser.assignedSectionIds;
-                          const isSelected = currentIds.includes(section.id);
-                          return (
-                             <button 
-                                key={section.id} 
-                                onClick={() => toggleSectionPermission(section.id)}
-                                className={`p-3 rounded-xl border flex items-center gap-2 transition-all ${isSelected ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-100 text-slate-400'}`}
-                             >
-                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
-                                   {isSelected && <Check size={10} className="text-white" />}
-                                </div>
-                                <span className="text-[9px] font-black uppercase">{section.name}</span>
-                             </button>
-                          );
-                       })}
+      {/* Customer History Modal */}
+      {showCustomerHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center">
+                  <Users size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">{showCustomerHistory.name}</h3>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{showCustomerHistory.phone || 'Sem telefone'}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCustomerHistory(null)} className="p-2 hover:bg-slate-200 rounded-xl transition-all text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="bg-emerald-50 p-4 rounded-3xl border border-emerald-100">
+                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total Comprado</p>
+                  <p className="text-2xl font-black text-emerald-700">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactions
+                      .filter(t => t.customerName === showCustomerHistory.name && !t.isPending)
+                      .reduce((acc, t) => acc + t.value, 0))}
+                  </p>
+                </div>
+                <div className="bg-amber-50 p-4 rounded-3xl border border-amber-100">
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Total Pendente</p>
+                  <p className="text-2xl font-black text-amber-700">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactions
+                      .filter(t => t.customerName === showCustomerHistory.name && t.isPending)
+                      .reduce((acc, t) => acc + t.value, 0))}
+                  </p>
+                </div>
+              </div>
+
+              <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Clock size={16} className="text-indigo-500" />
+                Últimas Compras
+              </h4>
+
+              <div className="space-y-3">
+                {transactions
+                  .filter(t => t.customerName === showCustomerHistory.name)
+                  .slice(0, 10)
+                  .map(t => (
+                    <div key={t.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div>
+                        <p className="text-sm font-bold text-slate-700">{t.item}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{new Date(t.date).toLocaleDateString()} • {t.paymentMethod}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-black ${t.isPending ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(t.value)}
+                        </p>
+                        {t.isPending && <span className="text-[8px] font-black bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Pendente</span>}
+                      </div>
                     </div>
-                    
-                    <button 
-                       onClick={() => editingUser ? setEditUserData({...editUserData, hideSalesValues: !editUserData.hideSalesValues}) : setNewUser({...newUser, hideSalesValues: !newUser.hideSalesValues})}
-                       className={`w-full p-4 rounded-2xl flex items-center justify-between border-2 transition-all ${
-                          (editingUser ? editUserData.hideSalesValues : newUser.hideSalesValues) ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-slate-50 border-slate-100 text-slate-400'
-                       }`}
-                    >
-                       <div className="flex items-center gap-3">
-                          {(editingUser ? editUserData.hideSalesValues : newUser.hideSalesValues) ? <EyeOff size={18} /> : <Eye size={18} />}
-                          <div className="text-left">
-                             <p className="text-[10px] font-black uppercase">Ocultar Financeiro</p>
-                             <p className="text-[8px] font-bold opacity-60">Esconder totais e valores</p>
-                          </div>
-                       </div>
-                       <div className={`w-10 h-6 rounded-full relative transition-all ${(editingUser ? editUserData.hideSalesValues : newUser.hideSalesValues) ? 'bg-rose-500' : 'bg-slate-300'}`}>
-                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${(editingUser ? editUserData.hideSalesValues : newUser.hideSalesValues) ? 'left-5' : 'left-1'}`} />
-                       </div>
-                    </button>
-                 </div>
-              </div>
-              <div className="flex gap-3 mt-10"><button onClick={() => { setShowAddUser(false); setEditingUser(null); }} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button><button onClick={editingUser ? handleUpdateUser : handleAddUser} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 transition-all">Salvar Acesso</button></div>
-           </div>
-        </div>
-      )}
-
-      {/* CONFIRMAÇÃO DE LIMPEZA */}
-      {clearConfirm && (
-        <div className="fixed inset-0 z-[250] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-            <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-3xl text-center">
-              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner"><AlertTriangle className="w-10 h-10 text-rose-500" /></div>
-              <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tighter">Limpar Histórico?</h3>
-              <p className="text-slate-500 text-xs mb-10 leading-relaxed uppercase font-bold px-4">
-                Você está prestes a apagar os registros de: <span className="text-rose-600">"{clearConfirm.label}"</span>.
-                <br/><br/>
-                Esta ação não pode ser desfeita.
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setClearConfirm(null)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px] bg-slate-50 rounded-2xl">Cancelar</button>
-                <button onClick={executeClear} disabled={isProcessing} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-                  {isProcessing ? <Loader2 className="animate-spin" /> : <Trash2 size={16} />} Confirmar
-                </button>
+                  ))}
+                
+                {transactions.filter(t => t.customerName === showCustomerHistory.name).length === 0 && (
+                  <div className="text-center py-12">
+                    <Package size={48} className="mx-auto text-slate-200 mb-4" />
+                    <p className="text-slate-400 font-bold">Nenhuma compra registrada.</p>
+                  </div>
+                )}
               </div>
             </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50">
+              <button 
+                onClick={() => {
+                  const msg = `Olá ${showCustomerHistory.name}! Notamos que faz um tempo que você não pede conosco. Temos novidades hoje!`;
+                  window.open(`https://wa.me/${showCustomerHistory.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                }}
+                className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+              >
+                <Phone size={20} />
+                Enviar Promoção WhatsApp
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {deleteConfirmation && (
-        <div className="fixed inset-0 z-[250] bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-3xl text-center">
-              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner"><AlertTriangle className="w-10 h-10 text-rose-500" /></div>
-              <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tighter">Remover Item?</h3>
-              <p className="text-slate-500 text-xs mb-10 leading-relaxed uppercase font-bold px-4">Deseja realmente excluir <span className="text-rose-600">"{deleteConfirmation.name}"</span>? Esta ação não pode ser desfeita.</p>
-              <div className="flex gap-3"><button onClick={() => setDeleteConfirmation(null)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px] bg-slate-50 rounded-2xl">Cancelar</button><button onClick={handleDelete} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl active:scale-95 transition-all">Confirmar</button></div>
-           </div>
+      {showUserModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden flex flex-col max-h-[90vh] relative">
+            {/* Modal Header */}
+            <div className="p-8 pb-4 flex justify-between items-center border-b border-slate-50">
+              <h3 className="text-xl font-black text-slate-800 uppercase">{editingUser ? 'Editar Colaborador' : 'Novo Colaborador'}</h3>
+              <button onClick={() => setShowUserModal(false)} className="p-2 text-slate-300 hover:text-slate-500 transition-all"><X size={20} /></button>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-8 pt-4 no-scrollbar space-y-4">
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Nome</label><input value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">E-mail</label><input type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" placeholder="exemplo@gmail.com" /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Função</label><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none uppercase"><option value="OWNER">Proprietário</option><option value="MANAGER_FACTORY">Gerente Fábrica</option><option value="MANAGER_STALL">Gerente Barraca</option></select></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">PIN Acesso (6 Dígitos)</label><input type="number" maxLength={6} value={userForm.accessCode} onChange={e => setUserForm({...userForm, accessCode: e.target.value})} className="w-full p-4 bg-indigo-50 border-2 border-indigo-100 rounded-xl font-black text-center text-lg outline-none text-indigo-700" placeholder="••••••" /></div>
+              
+              {/* Dynamic Section Assignment */}
+              <div className="pt-4 border-t border-slate-50 space-y-3">
+                <p className="text-[9px] font-black text-slate-400 uppercase ml-2">Abas Autorizadas</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {sections.map(section => (
+                     <button 
+                       key={section.id} 
+                       onClick={() => {
+                          const current = userForm.assignedSectionIds;
+                          const newIds = current.includes(section.id) 
+                             ? current.filter(id => id !== section.id)
+                             : [...current, section.id];
+                          setUserForm({...userForm, assignedSectionIds: newIds});
+                       }}
+                       className={`p-3 rounded-xl border-2 flex items-center justify-between gap-2 transition-all ${userForm.assignedSectionIds.includes(section.id) ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}
+                     >
+                        <div className="flex flex-col text-left overflow-hidden">
+                           <span className="text-[9px] font-black uppercase truncate w-24">{section.name}</span>
+                           <span className="text-[7px] font-bold opacity-60">
+                             {section.type === 'FACTORY_STYLE' ? 'Fábrica' : section.type === 'STALL_STYLE' ? 'Barraca' : 'Estoque'}
+                           </span>
+                        </div>
+                        {userForm.assignedSectionIds.includes(section.id) ? <CheckCircle2 size={14} /> : <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300" />}
+                     </button>
+                  ))}
+                  {sections.length === 0 && (
+                     <p className="text-[9px] text-slate-400 col-span-2 text-center py-2">Nenhuma aba disponível.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"><div className="flex items-center gap-2"><EyeOff size={16} className="text-slate-400" /><span className="text-[10px] font-black text-slate-500 uppercase">Ocultar Financeiro</span></div><button onClick={() => setUserForm({...userForm, hideSalesValues: !userForm.hideSalesValues})} className={`w-10 h-6 rounded-full relative transition-all ${userForm.hideSalesValues ? 'bg-indigo-500' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${userForm.hideSalesValues ? 'left-5' : 'left-1'}`} /></button></div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-8 pt-4 flex gap-3 border-t border-slate-50">
+              <button onClick={() => setShowUserModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button>
+              <button onClick={handleSaveUser} disabled={isProcessing || !userForm.name || userForm.accessCode.length < 4} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">
+                {isProcessing ? <Loader2 className="animate-spin mx-auto" /> : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION MODAL - NEW / EDIT (MANAGE) */}
+      {showSectionModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl overflow-y-auto max-h-[90vh]">
+            {!editingSection ? (
+              // CREATE NEW SECTION LAYOUT
+              <>
+                <h3 className="text-xl font-black text-slate-800 mb-6 uppercase">Nova Aba</h3>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-3">Nome da Nova Aba</label>
+                    <input 
+                      autoFocus
+                      value={sectionForm.name} 
+                      onChange={e => setSectionForm({...sectionForm, name: e.target.value})} 
+                      placeholder="Ex: Lanchonete" 
+                      className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold uppercase text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800" 
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-3">Tipo de Operação</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setSectionForm({...sectionForm, type: 'FACTORY_STYLE'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${sectionForm.type === 'FACTORY_STYLE' ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+                        <Package size={24} />
+                        <span className="text-[9px] font-black uppercase">Fábrica</span>
+                      </button>
+                      <button onClick={() => setSectionForm({...sectionForm, type: 'STALL_STYLE'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${sectionForm.type === 'STALL_STYLE' ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+                        <Store size={24} />
+                        <span className="text-[9px] font-black uppercase">Barraca</span>
+                      </button>
+                      <button onClick={() => setSectionForm({...sectionForm, type: 'STOCK_STYLE'})} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all col-span-2 ${sectionForm.type === 'STOCK_STYLE' ? 'border-amber-500 bg-amber-50 text-amber-600' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+                        <Package size={24} />
+                        <span className="text-[9px] font-black uppercase">Estoque</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-8">
+                  <button onClick={() => setShowSectionModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button>
+                  <button onClick={handleCreateSection} disabled={isProcessing || !sectionForm.name} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-indigo-700 transition-all disabled:opacity-50">
+                    {isProcessing ? <Loader2 className="animate-spin mx-auto" /> : 'Criar Aba'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              // MANAGE TAB LAYOUT (Based on Screenshot)
+              <>
+                <div className="flex justify-between items-start mb-6">
+                   <div className="w-full mr-4">
+                      <h3 className="text-xl font-black text-slate-800 uppercase leading-none mb-1">Gerenciar Aba</h3>
+                      <input 
+                        value={editingSection.name}
+                        onChange={(e) => setEditingSection({...editingSection, name: e.target.value})}
+                        onBlur={() => saveConfig(sections.map(s => s.id === editingSection.id ? { ...s, name: editingSection.name } : s))}
+                        className="w-full bg-transparent text-[12px] font-black text-indigo-600 uppercase tracking-widest outline-none border-b border-dashed border-indigo-200 focus:border-indigo-500 placeholder-indigo-300"
+                        placeholder="NOME DA ABA"
+                      />
+                   </div>
+                   <button onClick={() => setShowSectionModal(false)} className="p-2 bg-slate-50 text-slate-400 rounded-full hover:bg-slate-200 transition-all shrink-0">
+                      <X size={20} />
+                   </button>
+                </div>
+
+                <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
+                   <button onClick={() => setManageTab('PRODUCTS')} className={`flex-1 py-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${manageTab === 'PRODUCTS' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Produtos</button>
+                   <button onClick={() => setManageTab('EXPENSES')} className={`flex-1 py-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${manageTab === 'EXPENSES' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Despesas</button>
+                </div>
+
+                <div className="flex gap-3 mb-2">
+                   <div onClick={() => manageFileInputRef.current?.click()} className="w-20 h-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center shrink-0 cursor-pointer overflow-hidden group relative hover:border-indigo-400 transition-all">
+                      {manageForm.imageUrl ? (
+                         <>
+                           <img src={manageForm.imageUrl} className="w-full h-full object-cover" />
+                           <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Camera className="text-white" size={16} /></div>
+                         </>
+                      ) : (
+                         <div className="text-slate-300"><Camera size={20} /></div>
+                      )}
+                      <input type="file" ref={manageFileInputRef} hidden accept="image/*" onChange={handleManageImageUpload} />
+                   </div>
+                   <div className="flex-1 space-y-2">
+                      <input value={manageForm.name} onChange={e => setManageForm({...manageForm, name: e.target.value})} placeholder="NOME DO ITEM" className="w-full p-3 bg-slate-50 rounded-xl font-bold uppercase text-[10px] outline-none border border-transparent focus:border-indigo-100 focus:bg-white transition-all text-slate-700" />
+                      <div className="flex gap-2">
+                         <div className="flex-1 relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">R$</span>
+                            <input type="number" step="0.01" value={manageForm.priceVista} onChange={e => setManageForm({...manageForm, priceVista: e.target.value})} placeholder="VISTA" className="w-full p-2 pl-6 bg-slate-50 rounded-lg font-black text-[10px] outline-none text-slate-700 focus:bg-white focus:ring-2 focus:ring-indigo-50 transition-all" />
+                         </div>
+                         <div className="flex-1 relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">R$</span>
+                            <input type="number" step="0.01" value={manageForm.pricePrazo} onChange={e => setManageForm({...manageForm, pricePrazo: e.target.value})} placeholder="PRAZO" className="w-full p-2 pl-6 bg-slate-50 rounded-lg font-black text-[10px] outline-none text-slate-700 focus:bg-white focus:ring-2 focus:ring-indigo-50 transition-all" />
+                         </div>
+                      </div>
+                      <div className="flex gap-2">
+                         <div className="flex-1 relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-emerald-500">R$</span>
+                            <input type="number" step="0.01" value={manageForm.promoVista} onChange={e => setManageForm({...manageForm, promoVista: e.target.value})} placeholder="PROMO VISTA" className="w-full p-2 pl-6 bg-emerald-50 text-emerald-700 rounded-lg font-black text-[10px] outline-none placeholder:text-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 transition-all" />
+                         </div>
+                         <div className="flex-1 relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-emerald-500">R$</span>
+                            <input type="number" step="0.01" value={manageForm.promoPrazo} onChange={e => setManageForm({...manageForm, promoPrazo: e.target.value})} placeholder="PROMO PRAZO" className="w-full p-2 pl-6 bg-emerald-50 text-emerald-700 rounded-lg font-black text-[10px] outline-none placeholder:text-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 transition-all" />
+                         </div>
+                      </div>
+                      {(manageForm.promoVista || manageForm.promoPrazo) && (
+                        <div className="relative">
+                          <input 
+                            type="datetime-local" 
+                            value={manageForm.promoEndsAt ? new Date(new Date(manageForm.promoEndsAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} 
+                            onChange={e => setManageForm({...manageForm, promoEndsAt: e.target.value ? new Date(e.target.value).toISOString() : ''})} 
+                            className="w-full p-2 bg-slate-50 rounded-lg font-bold text-[10px] text-slate-600 outline-none" 
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400 uppercase pointer-events-none">Validade</span>
+                        </div>
+                      )}
+                   </div>
+                </div>
+
+                <button 
+                   onClick={handleSaveManageItem}
+                   disabled={isProcessing || !manageForm.name}
+                   className="w-full py-4 mb-6 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 disabled:active:scale-100"
+                >
+                   {isProcessing ? <Loader2 className="animate-spin w-4 h-4" /> : editingItemId ? 'Atualizar Item' : 'Adicionar'}
+                </button>
+
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                   {((manageTab === 'PRODUCTS' ? editingSection.items : editingSection.expenses) || []).map((item) => (
+                      <div key={item.id} className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-indigo-100 transition-all">
+                         <div className="w-10 h-10 bg-slate-50 rounded-lg overflow-hidden shrink-0 border border-slate-100 flex items-center justify-center">
+                            {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-slate-300" />}
+                         </div>
+                         <div className="flex-1 min-w-0">
+                            <p className="text-[10px] font-black text-slate-700 uppercase truncate">{item.name}</p>
+                            <p className="text-[9px] font-bold text-slate-400">
+                               R$ {item.defaultPriceAVista?.toFixed(2) || '0.00'} / R$ {item.defaultPriceAPrazo?.toFixed(2) || '0.00'}
+                            </p>
+                         </div>
+                         <div className="flex gap-1">
+                            <button onClick={() => startEditManageItem(item)} className="p-2 text-blue-400 hover:bg-blue-50 rounded-lg transition-colors"><Edit3 size={14} /></button>
+                            <button onClick={() => handleDeleteManageItem(item.id)} className="p-2 text-rose-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={14} /></button>
+                         </div>
+                      </div>
+                   ))}
+                   {((manageTab === 'PRODUCTS' ? editingSection.items : editingSection.expenses) || []).length === 0 && (
+                      <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">
+                         <p className="text-[10px] font-black uppercase tracking-widest">Nenhum item cadastrado</p>
+                      </div>
+                   )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

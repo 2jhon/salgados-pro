@@ -225,7 +225,14 @@ const AIAgent: React.FC = () => {
                   </div>
                 </div>
                 <div className="pt-6">
-                  <button onClick={() => window.location.reload()} className="w-full p-5 bg-blue-600 rounded-[1.5rem] text-white font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all hover:bg-blue-500">
+                  <button 
+                    onClick={() => {
+                      setLogs([]);
+                      setStatus('HEALTHY');
+                      addOrUpdateLog({ type: 'INFO', message: "Nexus Guardian Kernel Reiniciado.", status: 'DONE' });
+                    }} 
+                    className="w-full p-5 bg-blue-600 rounded-[1.5rem] text-white font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all hover:bg-blue-500 flex items-center justify-center gap-2"
+                  >
                     <RefreshCw className="w-4 h-4" /> Reiniciar Nexus
                   </button>
                   <p className="text-[8px] text-slate-600 font-black uppercase mt-4 text-center tracking-widest opacity-50">Nexus Security Kernel © 2024</p>

@@ -28,7 +28,8 @@ export const useAds = () => {
     mediaType: ad.media_type,
     active: ad.active,
     clicks: ad.clicks || 0,
-    expiresAt: ad.expires_at
+    expiresAt: ad.expires_at,
+    requestedDuration: ad.requested_duration
   }), []);
 
   const fetchAds = useCallback(async () => {
@@ -98,7 +99,8 @@ export const useAds = () => {
         background_color: ad.backgroundColor,
         media_url: ad.mediaUrl,
         media_type: ad.mediaType,
-        active: false // Sempre inativo até que o admin aprove via WhatsApp
+        active: false, // Sempre inativo até que o admin aprove via WhatsApp
+        requested_duration: ad.requestedDuration || 7
       };
 
       if (ad.id) {

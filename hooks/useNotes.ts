@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Note } from '../types';
+import { toast } from 'sonner';
 
 export const useNotes = (workspaceId?: string) => {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -38,6 +39,7 @@ export const useNotes = (workspaceId?: string) => {
       if (data) setNotes(data.map(mapNote));
     } catch (e) {
       console.warn("Erro ao buscar notas:", e);
+      toast.error("Erro ao buscar notas. Verifique sua conexão.");
     } finally {
       setLoading(false);
     }
@@ -64,6 +66,7 @@ export const useNotes = (workspaceId?: string) => {
       return () => { supabase.removeChannel(channel); };
     } catch(e) {
       console.warn("Erro ao subscrever realtime notes:", e);
+      toast.error("Erro ao conectar ao servidor de tempo real (notas).");
     }
   }, [workspaceId, fetchNotes]);
 
@@ -82,6 +85,7 @@ export const useNotes = (workspaceId?: string) => {
       return true;
     } catch (e) {
       console.error("Erro ao enviar nota:", e);
+      toast.error("Erro ao enviar nota.");
       return false;
     }
   };
@@ -90,7 +94,10 @@ export const useNotes = (workspaceId?: string) => {
     setNotes(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     try {
       await supabase.from('notes').update({ is_read: true }).eq('id', id);
-    } catch (e) {}
+    } catch (e) {
+      console.error("Erro ao marcar como lida:", e);
+      toast.error("Erro ao marcar nota como lida.");
+    }
   };
 
   const deleteNote = async (id: string) => {
@@ -99,6 +106,7 @@ export const useNotes = (workspaceId?: string) => {
       await supabase.from('notes').delete().eq('id', id);
     } catch (e) {
       console.error("Erro ao deletar nota:", e);
+      toast.error("Erro ao deletar nota.");
     }
   };
 
@@ -108,6 +116,7 @@ export const useNotes = (workspaceId?: string) => {
       await supabase.from('notes').delete().eq('workspace_id', workspaceId).eq('is_read', true);
     } catch (e) {
       console.error("Erro ao limpar notas lidas:", e);
+      toast.error("Erro ao limpar notas lidas.");
     }
   };
 

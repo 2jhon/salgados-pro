@@ -1,0 +1,1 @@
+ALTER TABLE public.ads ADD COLUMN IF NOT EXISTS requested_duration INTEGER DEFAULT 7;

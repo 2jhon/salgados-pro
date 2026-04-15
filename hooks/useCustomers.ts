@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Customer } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, safeStringifyError } from '../lib/supabase';
 
 const LS_CUSTOMERS_KEY = 'salgados_customers_v1';
 
@@ -29,7 +29,8 @@ export const useCustomers = (workspaceId?: string) => {
           id: c.id,
           workspaceId: c.workspace_id,
           name: c.name,
-          phone: c.phone
+          phone: c.phone,
+          type: c.type || 'CLIENT'
         }));
         setCustomers(mapped);
         localStorage.setItem(`${LS_CUSTOMERS_KEY}_${workspaceId}`, JSON.stringify(mapped));
@@ -62,7 +63,8 @@ export const useCustomers = (workspaceId?: string) => {
               id: payload.new.id,
               workspaceId: payload.new.workspace_id,
               name: payload.new.name,
-              phone: payload.new.phone
+              phone: payload.new.phone,
+              type: payload.new.type || 'CLIENT'
             };
             setCustomers(prev => {
               // Previne duplicação se já tiver sido adicionado manualmente
@@ -72,7 +74,7 @@ export const useCustomers = (workspaceId?: string) => {
           } else if (payload.eventType === 'UPDATE') {
             setCustomers(prev => prev.map(c => 
               String(c.id) === String(payload.new.id) 
-                ? { ...c, name: payload.new.name, phone: payload.new.phone } 
+                ? { ...c, name: payload.new.name, phone: payload.new.phone, type: payload.new.type || 'CLIENT' } 
                 : c
             ));
           } else if (payload.eventType === 'DELETE') {
@@ -87,22 +89,64 @@ export const useCustomers = (workspaceId?: string) => {
     };
   }, [workspaceId, fetchCustomers]);
 
-  const addCustomer = async (name: string, phone?: string) => {
+  const addCustomer = async (name: string, phone?: string, type: 'CLIENT' | 'SUPPLIER' = 'CLIENT') => {
     if (!workspaceId) return null;
-    console.log('[DEBUG_CUSTOMER_ADD] Adding:', name, phone);
+    
+    // Ensure clean phone number
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
+    
+    console.log('[DEBUG_CUSTOMER_ADD] Adding:', name, cleanPhone, type);
     
     try {
       const { data, error } = await supabase
         .from('customers')
-        .insert([{ name, phone, workspace_id: workspaceId }])
+        .insert([{ name, phone: cleanPhone, workspace_id: workspaceId, type }])
         .select();
       
-      if (!error && data) {
+      if (error) {
+        console.error('[DEBUG_CUSTOMER_ADD] Primary Insert Error:', safeStringifyError(error));
+        
+        // Fallback: If 'type' column doesn't exist (DB Schema Mismatch), retry without it
+        // Error code 42703 is "undefined_column" in Postgres
+        // Error code PGRST204 is "Could not find the column in the schema cache"
+        const code = (error as any).code;
+        const msg = (error.message || '').toLowerCase();
+        
+        if (code === '42703' || code === 'PGRST204' || msg.includes('type') || msg.includes('column')) {
+           console.warn('[DEBUG_CUSTOMER_ADD] Retrying insert without "type" field...');
+           const { data: retryData, error: retryError } = await supabase
+            .from('customers')
+            .insert([{ name, phone: cleanPhone, workspace_id: workspaceId }])
+            .select();
+            
+           if (!retryError && retryData) {
+              const fallbackCustomer = {
+                id: retryData[0].id,
+                workspaceId: retryData[0].workspace_id,
+                name: retryData[0].name,
+                phone: retryData[0].phone,
+                type: 'CLIENT' // Default since DB doesn't support it yet
+              } as Customer;
+              
+              setCustomers(prev => {
+                if (prev.some(c => c.id === fallbackCustomer.id)) return prev;
+                return [...prev, fallbackCustomer].sort((a,b) => a.name.localeCompare(b.name));
+              });
+              return fallbackCustomer;
+           }
+           if (retryError) throw retryError;
+        } else {
+            throw error;
+        }
+      }
+
+      if (data) {
         const newC = {
           id: data[0].id,
           workspaceId: data[0].workspace_id,
           name: data[0].name,
-          phone: data[0].phone
+          phone: data[0].phone,
+          type: data[0].type || 'CLIENT'
         } as Customer;
         
         console.log('[DEBUG_CUSTOMER_ADD] Success:', newC);
@@ -115,9 +159,8 @@ export const useCustomers = (workspaceId?: string) => {
 
         return newC;
       }
-      if(error) console.error('[DEBUG_CUSTOMER_ADD] Error:', error);
     } catch (err) {
-      console.error("Erro ao adicionar cliente:", err);
+      console.error("Erro ao adicionar cliente:", safeStringifyError(err));
     }
     return null;
   };
@@ -136,14 +179,25 @@ export const useCustomers = (workspaceId?: string) => {
     ));
 
     const payload: any = {};
-    if (updates.name) payload.name = updates.name;
-    if (updates.phone) payload.phone = updates.phone;
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.phone !== undefined) payload.phone = updates.phone ? updates.phone.replace(/\D/g, '') : null;
+    if (updates.type !== undefined) payload.type = updates.type;
 
     try {
       const { error } = await supabase.from('customers').update(payload).eq('id', id);
-      if (error) throw error;
+      if (error) {
+         const code = (error as any).code;
+         const msg = (error.message || '').toLowerCase();
+         // Fallback if updating type fails
+         if ((code === '42703' || code === 'PGRST204' || msg.includes('type')) && payload.type) {
+             delete payload.type;
+             await supabase.from('customers').update(payload).eq('id', id);
+         } else {
+             throw error;
+         }
+      }
     } catch (e) {
-      console.error("Erro ao atualizar cliente no servidor:", e);
+      console.error("Erro ao atualizar cliente no servidor:", safeStringifyError(e));
       // O realtime reverterá o estado caso necessário
     }
   };

@@ -1,21 +1,28 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { AppSection, ConfigItem, StockMode } from '../types';
+import { AppSection, ConfigItem, StockMode, StockMovement, User } from '../types';
 import { 
   Package, Search, AlertCircle, TrendingDown, 
   ArrowRightLeft, Settings2, Check, X, Plus, Minus,
   Globe, Layout, ShoppingCart, Box, Info, ChevronRight,
-  PlusCircle, Save, Loader2, Link as LinkIcon
+  PlusCircle, Save, Loader2, Link as LinkIcon, History, Filter
 } from 'lucide-react';
+import { supabase, registerStockMovement, upsertInventory } from '../lib/supabase';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface StockProps {
   sections: AppSection[];
-  saveConfig: (s: AppSection[]) => Promise<void>;
-  /* Fix: Add workspaceId to props */
+  saveConfig: (s: AppSection[]) => Promise<boolean>;
   workspaceId: string;
+  user: User;
 }
 
-export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId }) => {
+export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId, user }) => {
+  const [activeTab, setActiveTab] = useState<'CURRENT' | 'HISTORY'>('CURRENT');
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -37,6 +44,31 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
       setActiveStockSectionId(allStockSections[0].id);
     }
   }, [allStockSections, activeStockSectionId]);
+
+  useEffect(() => {
+    if (activeTab === 'HISTORY') {
+      fetchMovements();
+    }
+  }, [activeTab, workspaceId]);
+
+  const fetchMovements = async () => {
+    setIsLoadingHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('stock_movements')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      setMovements(data || []);
+    } catch (err) {
+      console.error('Error fetching stock movements:', err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
 
   const stockItems = useMemo(() => {
     const items: { sectionName: string; sectionId: string; item: ConfigItem; linkedTo?: string }[] = [];
@@ -70,7 +102,6 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
     if (allStockSections.length === 0) {
       const newStockSection: AppSection = {
         id: 'stock_' + Date.now(),
-        /* Fix: Include workspaceId */
         workspaceId,
         name: 'Estoque Central',
         type: 'STOCK_STYLE',
@@ -109,7 +140,6 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
     if (!targetSectionId) {
       const autoSection: AppSection = {
         id: 'stock_auto_' + Date.now(),
-        /* Fix: Include workspaceId */
         workspaceId,
         name: 'Estoque Central',
         type: 'STOCK_STYLE',
@@ -146,24 +176,66 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
 
       setIsAddModalOpen(false);
       setNewItem({ name: '', currentStock: '', minStock: '' });
-      saveConfig(updatedSections);
+      await saveConfig(updatedSections);
+      
+      // Upsert to inventory table
+      await upsertInventory(workspaceId, targetSectionId, itemData.id, itemData.currentStock || 0, itemData.minStock);
     } catch (err) {
       console.error("Estoque: Erro ao processar novo item:", err);
     }
   };
 
-  const updateItemStock = async (sectionId: string, itemId: string, updates: Partial<ConfigItem>) => {
+  const updateItemStock = async (sectionId: string, itemId: string, updates: Partial<ConfigItem>, reason: 'MANUAL_ADJUSTMENT' | 'LOSS' = 'MANUAL_ADJUSTMENT') => {
+    let oldStock = 0;
+    let newStock = 0;
+    let itemName = '';
+
     const updatedSections = sections.map(s => {
       if (s.id !== sectionId) return s;
       const currentItems = s.items || [];
-      const newItems = currentItems.map(item => 
-        item.id === itemId ? { ...item, ...updates } : item
-      );
+      const newItems = currentItems.map(item => {
+        if (item.id === itemId) {
+          oldStock = item.currentStock || 0;
+          newStock = updates.currentStock !== undefined ? updates.currentStock : oldStock;
+          itemName = item.name;
+          return { ...item, ...updates };
+        }
+        return item;
+      });
       return { ...s, items: newItems };
     });
 
-    saveConfig(updatedSections);
+    await saveConfig(updatedSections);
     setIsEditing(null);
+
+    // Upsert to inventory table
+    if (updates.currentStock !== undefined || updates.minStock !== undefined) {
+      await upsertInventory(
+        workspaceId, 
+        sectionId, 
+        itemId, 
+        newStock, 
+        updates.minStock
+      );
+    }
+
+    // Register movement if stock changed
+    if (updates.currentStock !== undefined && oldStock !== newStock) {
+      const quantity = Math.abs(newStock - oldStock);
+      const type = newStock > oldStock ? 'IN' : 'OUT';
+      await registerStockMovement({
+        workspace_id: workspaceId,
+        item_id: itemId,
+        item_name: itemName,
+        movement_type: type,
+        reason: reason,
+        quantity: quantity,
+        previous_balance: oldStock,
+        new_balance: newStock,
+        created_by: user.name
+      });
+      if (activeTab === 'HISTORY') fetchMovements();
+    }
   };
 
   const quickAdjustment = async (sectionId: string, itemId: string, current: number, amount: number) => {
@@ -207,184 +279,311 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
         <Package className="w-32 h-32 absolute -right-8 -bottom-8 text-white opacity-5" />
       </div>
 
-      {/* Painel de Vínculo - Visível apenas no modo Separado */}
-      {globalMode === 'LOCAL' && (
-        <div className="px-2 animate-in slide-in-from-top-4 duration-500">
-           <div className="bg-white p-6 rounded-[2.5rem] border-2 border-indigo-100 shadow-xl shadow-indigo-900/5">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200">
-                  <LinkIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black uppercase text-slate-800 tracking-tight">Vínculo de Aba</h3>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Defina qual aba este estoque atende</p>
-                </div>
-              </div>
-              
-              <div className="grid sm:grid-cols-2 gap-4 items-end">
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-500 uppercase ml-2 flex items-center gap-1">
-                    <Box className="w-3 h-3" /> Sua Área de Estoque
-                  </label>
-                  <select 
-                    value={activeStockSectionId}
-                    onChange={(e) => setActiveStockSectionId(e.target.value)}
-                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-slate-700 text-xs outline-none focus:ring-4 focus:ring-indigo-50"
-                  >
-                    {allStockSections.length > 0 ? (
-                      allStockSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)
-                    ) : (
-                      <option value="">Aguardando criação...</option>
-                    )}
-                  </select>
-                </div>
-                
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-indigo-600 uppercase ml-2 flex items-center gap-1">
-                    <ShoppingCart className="w-3 h-3" /> Atende as vendas de:
-                  </label>
-                  <select 
-                    value={currentActiveSection?.linkedSectionId || ''}
-                    onChange={(e) => handleLinkSection(activeStockSectionId, e.target.value)}
-                    className="w-full p-4 bg-indigo-50 border-2 border-indigo-200 rounded-2xl font-black text-indigo-700 text-xs outline-none focus:bg-white transition-all shadow-inner"
-                  >
-                    <option value="">NENHUM VÍNCULO (NÃO ABATE)</option>
-                    {salesSections.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name.toUpperCase()} ({s.type === 'FACTORY_STYLE' ? 'FÁBRICA' : 'BARRACA'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="mt-6 flex items-start gap-3 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-                 <Info className="w-4 h-4 text-indigo-500 mt-0.5" />
-                 <p className="text-[9px] font-bold text-indigo-800 uppercase leading-relaxed tracking-tight">
-                   Ao selecionar uma aba acima, todas as vendas registradas nela <span className="underline">reduzirão automaticamente</span> o saldo dos produtos desta lista.
-                 </p>
-              </div>
-           </div>
+      {/* Tabs */}
+      <div className="flex px-2 mb-6">
+        <div className="flex bg-slate-200/50 p-1 rounded-2xl w-full sm:w-auto">
+          <button
+            onClick={() => setActiveTab('CURRENT')}
+            className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'CURRENT' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Package className="w-4 h-4" /> Saldo Atual
+          </button>
+          <button
+            onClick={() => setActiveTab('HISTORY')}
+            className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'HISTORY' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <History className="w-4 h-4" /> Histórico
+          </button>
         </div>
-      )}
-
-      {/* Busca e Botão Adicionar */}
-      <div className="flex gap-2 px-2">
-        <div className="relative flex-1 group">
-          <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
-            <Search className="w-5 h-5" />
-          </div>
-          <input 
-            type="text"
-            placeholder="Buscar no estoque..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-4 pl-14 bg-white rounded-2xl shadow-sm border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-slate-700 transition-all"
-          />
-        </div>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase hidden sm:inline">Adicionar</span>
-        </button>
       </div>
 
-      {/* Grid de Itens */}
-      <div className="grid gap-4 px-2">
-        {stockItems.length === 0 ? (
-          <div className="p-16 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
-            <Box className="w-16 h-16 text-slate-100 mx-auto mb-6" />
-            <h3 className="text-slate-800 font-black text-lg mb-2">Estoque Vazio</h3>
-            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest max-w-[200px] mx-auto leading-relaxed">
-              Adicione produtos para começar o controle de inventário.
-            </p>
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
-            {stockItems.map(({ sectionName, sectionId, item, linkedTo }) => {
-              const current = item.currentStock ?? 0;
-              const min = item.minStock ?? 0;
-              const isLow = current <= min && min > 0;
-
-              return (
-                <div key={`${sectionId}-${item.id}`} className={`bg-white p-6 rounded-[2.5rem] shadow-xl border transition-all duration-300 ${isLow ? 'border-red-200 ring-8 ring-red-50/50' : 'border-slate-50'}`}>
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-4 rounded-2xl ${isLow ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
-                        <Package className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h4 className="font-black text-slate-800 text-lg leading-tight">{item.name}</h4>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-full">{sectionName}</span>
-                          {globalMode === 'LOCAL' && linkedTo && (
-                            <span className="text-[8px] font-black text-indigo-500 uppercase px-2 py-0.5 bg-indigo-50 rounded-full flex items-center gap-1">
-                              <LinkIcon className="w-2 h-2" /> {linkedTo}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+      {activeTab === 'CURRENT' ? (
+        <>
+          {/* Painel de Vínculo - Visível apenas no modo Separado */}
+          {globalMode === 'LOCAL' && (
+            <div className="px-2 animate-in slide-in-from-top-4 duration-500">
+               <div className="bg-white p-6 rounded-[2.5rem] border-2 border-indigo-100 shadow-xl shadow-indigo-900/5">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200">
+                      <LinkIcon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase text-slate-800 tracking-tight">Vínculo de Aba</h3>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Defina qual aba este estoque atende</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid sm:grid-cols-2 gap-4 items-end">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-500 uppercase ml-2 flex items-center gap-1">
+                        <Box className="w-3 h-3" /> Sua Área de Estoque
+                      </label>
+                      <select 
+                        value={activeStockSectionId}
+                        onChange={(e) => setActiveStockSectionId(e.target.value)}
+                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-slate-700 text-xs outline-none focus:ring-4 focus:ring-indigo-50"
+                      >
+                        {allStockSections.length > 0 ? (
+                          allStockSections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)
+                        ) : (
+                          <option value="">Aguardando criação...</option>
+                        )}
+                      </select>
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-indigo-600 uppercase ml-2 flex items-center gap-1">
+                        <ShoppingCart className="w-3 h-3" /> Atende as vendas de:
+                      </label>
+                      <select 
+                        value={currentActiveSection?.linkedSectionId || ''}
+                        onChange={(e) => handleLinkSection(activeStockSectionId, e.target.value)}
+                        className="w-full p-4 bg-indigo-50 border-2 border-indigo-200 rounded-2xl font-black text-indigo-700 text-xs outline-none focus:bg-white transition-all shadow-inner"
+                      >
+                        <option value="">NENHUM VÍNCULO (NÃO ABATE)</option>
+                        {salesSections.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name.toUpperCase()} ({s.type === 'FACTORY_STYLE' ? 'FÁBRICA' : 'BARRACA'})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-6">
-                    <div className="flex-1">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Saldo Atual</p>
-                      {isEditing === item.id ? (
-                        <div className="flex items-center gap-2 animate-in zoom-in-95">
-                          <input 
-                            autoFocus
-                            type="number" 
-                            value={editValue} 
-                            onChange={(e) => setEditValue(e.target.value)}
-                            className="w-full p-4 bg-slate-200 rounded-2xl font-black text-2xl text-center outline-none border-2 border-indigo-500"
-                          />
-                          <div className="flex flex-col gap-1">
-                            <button onClick={() => updateItemStock(sectionId, item.id, { currentStock: parseFloat(editValue.replace(',', '.')) || 0 })} className="p-3 bg-green-600 text-white rounded-xl shadow-lg"><Check className="w-4 h-4" /></button>
-                            <button onClick={() => setIsEditing(null)} className="p-3 bg-slate-200 text-slate-500 rounded-xl"><X className="w-4 h-4" /></button>
+                  <div className="mt-6 flex items-start gap-3 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                     <Info className="w-4 h-4 text-indigo-500 mt-0.5" />
+                     <p className="text-[9px] font-bold text-indigo-800 uppercase leading-relaxed tracking-tight">
+                       Ao selecionar uma aba acima, todas as vendas registradas nela <span className="underline">reduzirão automaticamente</span> o saldo dos produtos desta lista.
+                     </p>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {/* Busca e Botão Adicionar */}
+          <div className="flex gap-2 px-4 py-2 sticky top-0 z-40 bg-slate-50 -mx-2">
+            <div className="relative flex-1 group">
+              <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
+                <Search className="w-5 h-5" />
+              </div>
+              <input 
+                type="text"
+                placeholder="Buscar no estoque..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full p-4 pl-14 bg-white rounded-2xl shadow-sm border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-slate-700 transition-all"
+              />
+            </div>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="text-[10px] font-black uppercase hidden sm:inline">Adicionar</span>
+            </button>
+          </div>
+
+          {/* Grid de Itens */}
+          <div className="grid gap-4 px-2">
+            {stockItems.length === 0 ? (
+              <div className="p-16 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+                <Box className="w-16 h-16 text-slate-100 mx-auto mb-6" />
+                <h3 className="text-slate-800 font-black text-lg mb-2">Estoque Vazio</h3>
+                <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest max-w-[200px] mx-auto leading-relaxed">
+                  Adicione produtos para começar o controle de inventário.
+                </p>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-4">
+                {stockItems.map(({ sectionName, sectionId, item, linkedTo }) => {
+                  const current = item.currentStock ?? 0;
+                  const min = item.minStock ?? 0;
+                  const isLow = current <= min && min > 0;
+
+                  return (
+                    <div key={`${sectionId}-${item.id}`} className={`bg-white p-6 rounded-[2.5rem] shadow-xl border transition-all duration-300 ${isLow ? 'border-red-200 ring-8 ring-red-50/50' : 'border-slate-50'}`}>
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex items-center gap-4">
+                          {item.imageUrl ? (
+                            <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                              <img src={item.imageUrl} className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className={`p-4 rounded-2xl ${isLow ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
+                              <Package className="w-6 h-6" />
+                            </div>
+                          )}
+                          
+                          <div>
+                            <h4 className="font-black text-slate-800 text-lg leading-tight">{item.name}</h4>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-full">{sectionName}</span>
+                              {globalMode === 'LOCAL' && linkedTo && (
+                                <span className="text-[8px] font-black text-indigo-500 uppercase px-2 py-0.5 bg-indigo-50 rounded-full flex items-center gap-1">
+                                  <LinkIcon className="w-2 h-2" /> {linkedTo}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      ) : (
-                        <div 
-                          onClick={() => { setIsEditing(item.id); setEditValue(current.toString()); }}
-                          className={`p-5 rounded-3xl flex items-center justify-center cursor-pointer transition-all ${isLow ? 'bg-red-50 border-2 border-red-100' : 'bg-slate-50 hover:bg-indigo-50 hover:scale-[1.02]'}`}
-                        >
-                          <span className={`text-4xl font-black ${isLow ? 'text-red-600' : 'text-slate-800'}`}>
-                            {current}
-                          </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-6">
+                        <div className="flex-1">
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Saldo Atual</p>
+                          {isEditing === item.id ? (
+                            <div className="flex items-center gap-2 animate-in zoom-in-95">
+                              <input 
+                                autoFocus
+                                type="number" 
+                                value={editValue} 
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-full p-4 bg-slate-100 rounded-2xl font-black text-2xl text-center outline-none border-2 border-indigo-500"
+                              />
+                              <div className="flex flex-col gap-1">
+                                <button onClick={() => updateItemStock(sectionId, item.id, { currentStock: parseFloat(editValue.replace(',', '.')) || 0 })} className="p-3 bg-green-600 text-white rounded-xl shadow-lg"><Check className="w-4 h-4" /></button>
+                                <button onClick={() => setIsEditing(null)} className="p-3 bg-slate-200 text-slate-500 rounded-xl"><X className="w-4 h-4" /></button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div 
+                              onClick={() => { setIsEditing(item.id); setEditValue(current.toString()); }}
+                              className={`p-5 rounded-3xl flex items-center justify-center cursor-pointer transition-all ${isLow ? 'bg-red-50 border-2 border-red-100' : 'bg-slate-50 hover:bg-indigo-50 hover:scale-[1.02]'}`}
+                            >
+                              <span className={`text-4xl font-black ${isLow ? 'text-red-600' : 'text-slate-800'}`}>
+                                {current}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    <div className="flex flex-col gap-2">
-                       <button onClick={() => quickAdjustment(sectionId, item.id, current, 10)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-indigo-600 hover:text-white">+10</button>
-                       <button onClick={() => quickAdjustment(sectionId, item.id, current, -10)} className="p-3 bg-red-50 text-red-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-red-600 hover:text-white">-10</button>
-                    </div>
-                  </div>
+                        <div className="flex flex-col gap-2">
+                           <button onClick={() => quickAdjustment(sectionId, item.id, current, 10)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-indigo-600 hover:text-white">+10</button>
+                           <button onClick={() => quickAdjustment(sectionId, item.id, current, -10)} className="p-3 bg-red-50 text-red-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-red-600 hover:text-white">-10</button>
+                           <button onClick={() => {
+                             const lossAmount = window.prompt(`Registrar perda para ${item.name}:\nQuantos itens foram perdidos/estragaram?`);
+                             if (lossAmount && !isNaN(parseFloat(lossAmount))) {
+                               const amount = parseFloat(lossAmount);
+                               if (amount > 0) {
+                                 updateItemStock(sectionId, item.id, { currentStock: Math.max(0, current - amount) }, 'LOSS');
+                               }
+                             }
+                           }} className="p-3 bg-orange-50 text-orange-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-orange-600 hover:text-white" title="Registrar Perda">
+                             <TrendingDown className="w-4 h-4 mx-auto" />
+                           </button>
+                        </div>
+                      </div>
 
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-50">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className={`w-3 h-3 ${isLow ? 'text-red-600' : 'text-slate-300'}`} />
-                      <span className="text-[9px] font-black text-slate-400 uppercase">Aviso Mínimo:</span>
-                      <input 
-                        type="number"
-                        defaultValue={min}
-                        onBlur={(e) => updateItemStock(sectionId, item.id, { minStock: parseFloat(e.target.value.replace(',', '.')) || 0 })}
-                        className="w-10 bg-transparent font-black text-slate-800 text-[10px] outline-none border-b border-transparent focus:border-indigo-200"
-                      />
+                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-50">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className={`w-3 h-3 ${isLow ? 'text-red-600' : 'text-slate-300'}`} />
+                          <span className="text-[9px] font-black text-slate-400 uppercase">Aviso Mínimo:</span>
+                          <input 
+                            type="number"
+                            defaultValue={min}
+                            onBlur={(e) => updateItemStock(sectionId, item.id, { minStock: parseFloat(e.target.value.replace(',', '.')) || 0 })}
+                            className="w-12 bg-slate-100 p-1 rounded font-black text-slate-800 text-[10px] text-center outline-none border border-slate-200 focus:border-indigo-300"
+                          />
+                        </div>
+                        {isLow && (
+                          <span className="text-[8px] font-black text-red-600 uppercase tracking-widest animate-pulse">Reabastecer</span>
+                        )}
+                      </div>
                     </div>
-                    {isLow && (
-                      <span className="text-[8px] font-black text-red-600 uppercase tracking-widest animate-pulse">Reabastecer</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <div className="px-2 animate-in fade-in duration-500">
+          <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="font-black text-slate-800 flex items-center gap-2">
+                <History className="w-5 h-5 text-indigo-600" />
+                Histórico de Movimentações
+              </h3>
+              <button onClick={fetchMovements} className="p-2 text-slate-400 hover:text-indigo-600 bg-white rounded-xl shadow-sm border border-slate-100">
+                <Filter className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {isLoadingHistory ? (
+              <div className="p-12 flex justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+              </div>
+            ) : movements.length === 0 ? (
+              <div className="p-16 text-center">
+                <History className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                <p className="text-slate-500 font-bold text-sm">Nenhuma movimentação registrada ainda.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-[10px] uppercase tracking-widest text-slate-400 font-black">
+                      <th className="p-4 pl-6">Data</th>
+                      <th className="p-4">Item</th>
+                      <th className="p-4">Tipo</th>
+                      <th className="p-4 text-right">Qtd</th>
+                      <th className="p-4 text-center">Saldo</th>
+                      <th className="p-4 pr-6">Responsável</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm font-medium text-slate-700">
+                    {movements.map((mov) => (
+                      <tr key={mov.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4 pl-6 whitespace-nowrap">
+                          <div className="text-xs font-bold text-slate-800">
+                            {mov.created_at ? format(new Date(mov.created_at), "dd/MM/yyyy", { locale: ptBR }) : '-'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {mov.created_at ? format(new Date(mov.created_at), "HH:mm", { locale: ptBR }) : '-'}
+                          </div>
+                        </td>
+                        <td className="p-4 font-black text-slate-800">{mov.item_name}</td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            {mov.movement_type === 'IN' ? (
+                              <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><Plus className="w-3 h-3" /></span>
+                            ) : (
+                              <span className="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center"><Minus className="w-3 h-3" /></span>
+                            )}
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                              {mov.reason === 'PRODUCTION' ? 'Produção' : 
+                               mov.reason === 'SALE' ? 'Venda' : 
+                               mov.reason === 'LOSS' ? 'Perda' : 
+                               mov.reason === 'RETURN' ? 'Devolução' : 'Ajuste'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-right font-black">
+                          <span className={mov.movement_type === 'IN' ? 'text-emerald-600' : 'text-rose-600'}>
+                            {mov.movement_type === 'IN' ? '+' : '-'}{mov.quantity}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-slate-400">
+                            <span>{mov.previous_balance}</span>
+                            <ArrowRightLeft className="w-3 h-3" />
+                            <span className="text-slate-800">{mov.new_balance}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 pr-6 text-xs text-slate-500">{mov.created_by || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Adicionar Item */}
       {isAddModalOpen && (
@@ -408,7 +607,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
                   value={newItem.name}
                   onChange={e => setNewItem({...newItem, name: e.target.value})}
                   placeholder="Ex: Massa de Coxinha"
-                  className="w-full p-4 bg-slate-200 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-indigo-500 transition-all" 
+                  className="w-full p-4 bg-slate-100 rounded-2xl font-bold outline-none border-2 border-slate-200 focus:border-indigo-500 transition-all" 
                 />
               </div>
 
@@ -421,7 +620,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
                     value={newItem.currentStock}
                     onChange={e => setNewItem({...newItem, currentStock: e.target.value})}
                     placeholder="0"
-                    className="w-full p-4 bg-slate-200 rounded-2xl font-black text-center text-xl outline-none focus:bg-white transition-all" 
+                    className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-black text-center text-xl outline-none focus:bg-white focus:border-indigo-300 transition-all" 
                   />
                 </div>
                 <div className="space-y-1">
@@ -432,7 +631,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId 
                     value={newItem.minStock}
                     onChange={e => setNewItem({...newItem, minStock: e.target.value})}
                     placeholder="10"
-                    className="w-full p-4 bg-slate-200 rounded-2xl font-black text-center text-xl outline-none focus:bg-white transition-all" 
+                    className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-black text-center text-xl outline-none focus:bg-white focus:border-indigo-300 transition-all" 
                   />
                 </div>
               </div>

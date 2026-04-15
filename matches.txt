@@ -1,0 +1,48 @@
+*\n\nI'm now fully immersed in the implementation phase. I've broken down the process into actionable ste
+ do perfil do usuário logado (Detecta ativação de plano PRO instantaneamente)\n  useEffect(() => {\n    i
+ do perfil do usuário logado (Detecta ativação de plano PRO instantaneamente)\n  useEffect(() => {\n    i
+ing and payment workflows, handling all deduction phases for now. I'm verifying data persistence to confi
+ do perfil do usuário logado (Detecta ativação de plano PRO instantaneamente)\n  useEffect(() => {\n    i
+uper admin, as empresas que nao aderiram a nenhum plano, esta sem cor, na minha empresa, pastel br, eu to
+ com o plano pro ativo, esta aparecendo amarelo e com o time a
+ um anuncio ativo. ja a empresa test, ja venceu o plano pro, e venceu o anuncio, foi interrompido correta
+orrigir a inconsistência visual onde empresas com planos vencidos continuam \"acesas\" (coloridas) e empr
+principal será verificar não apenas a \"flag\" do plano (ex: `hasProPlan`), mas também se a data de expir
+      }\n    } catch (e) { alert(\"Erro ao ativar plano.\"); }\n    finally { setIsSaving(false); }\n  };
+lanToManage.field];\n      \n      // 1. Remove o plano do usuário\n      const { error } = await supabas
+: any) { \n      console.error(\"Erro ao encerrar plano:\", e);\n      alert(\"Erro ao encerrar plano: \"
+Função auxiliar para lidar com clique no botão do plano\n  const handlePlanClick = (company: GlobalCompan
+ate-800\">{planToManage.company.name}</strong> ao plano selecionado. Esta ação é imediata.\n             
+ecendo corretamente, mas nessa aba onde mostra os planos, a parte anunciante nao acendeu com o time autom
+      }\n    } catch (e) { alert(\"Erro ao ativar plano.\"); }\n    finally { setIsSaving(false); }\n  };
+lanToManage.field];\n      \n      // 1. Remove o plano do usuário\n      const { error } = await supabas
+: any) { \n      console.error(\"Erro ao encerrar plano:\", e);\n      alert(\"Erro ao encerrar plano: \"
+Função auxiliar para lidar com clique no botão do plano\n  const handlePlanClick = (company: GlobalCompan
+ate-800\">{planToManage.company.name}</strong> ao plano selecionado. Esta ação é imediata.\n             
+ do perfil do usuário logado (Detecta ativação de plano PRO instantaneamente)\n  useEffect(() => {\n    i
+Ja3WtCwst0P48VyFO0QGKr6ck/KftP85TmUboPZrwHXza25VWafase//7ntxqfpagPAAAA0N/gwrkqgzgBUIO4yI2f1FTR63mkVQvbWq
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+Reports**\n\nI'm now fully immersed in the design phase. I've sketched out the UI modifications for `Sett
+t Logic**\n\nI'm now fully immersed in the coding phase. I realized I can filter the `transactions` by da
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+{encodeURIComponent(\"Olá! Gostaria de assinar um plano no Salgados Pro.\")}`}\n                target=\"
+tomática de despesas ao quitar essas contas.\n\nO plano de implementação consiste em:\n1.  **Atualizar Ti
+IER'` field to the `Customer` interface. The next phase involves modifying `hooks/useCustomers.ts` to acc
+\nI'm now fully immersed in the final integration phases, specifically focused on incorporating the compl
+a arae sistema foi tudo simplificado, sumiu a aba planos",
+      "text": "na area de planos, o plano anunciante, nao esta mostrando o time, mesmo ele 
+ \"Anunciante\". Agora, quando o usuário tiver um plano ativo (`isAdvertiser` ou `isAdFree`), ele verá ex
+ tempo falta para expirar, logo abaixo do nome do plano.\n\nIsso resolve o problema de não mostrar o temp
+o mesmo com o plano ativo.\n\n",
+*Finalizing Modal Logic**\n\nI'm now in the final phase of integrating the modal for customer deletion. I
+ctionality Verification**\n\nI'm now in the final phase, methodically checking the `confirmProduction` fu
+ Integration Validation**\n\nI'm now in the final phase, reviewing the integration between debt settlemen
+do Transações (pesadas) e Anúncios para o segundo plano.",

@@ -55,3 +55,15 @@ export const PERIOD_LABELS = {
   weekly: "Esta Semana",
   monthly: "Este Mês"
 };
+
+export const ADMIN_EMAILS = [
+  'hacker3d22@gmail.com',
+  'brasilanonymous66@gmail.com',
+  'anonymousx484@gmail.com',
+  'lillysilva345@gmail.com',
+  'admin@admin.com',
+  'admin@salgadospro.com.br',
+  'suporte@salgadospro.com.br'
+];
+
+export const DEFAULT_SUPPORT_PHONE = '21999999999';

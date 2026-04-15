@@ -4,7 +4,13 @@ import { StoreProfile, PortfolioItem } from '../types';
 import { supabase, withRetry, safeStringifyError, isNetworkError, withTimeout } from '../lib/supabase';
 
 export const useStoreProfiles = () => {
-  const [profiles, setProfiles] = useState<StoreProfile[]>([]);
+  const [profiles, setProfiles] = useState<StoreProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_marketplace_profiles');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
   const [loading, setLoading] = useState(false);
 
   const mapProfile = useCallback((p: any): StoreProfile => ({
@@ -22,16 +28,20 @@ export const useStoreProfiles = () => {
     latitude: Number(p.latitude) || 0,
     longitude: Number(p.longitude) || 0,
     active: p.active === true || p.active === 1 || p.active === 'true',
-    portfolio: p.portfolio || []
+    portfolio: p.portfolio || [],
+    fulfillmentMode: p.fulfillment_mode || 'BOTH',
+    pixKey: p.pix_key || '',
+    deliveryConfig: p.delivery_config || {}
   }), []);
 
   const fetchPublicProfiles = useCallback(async () => {
     setLoading(true);
     try {
       await withRetry(async () => {
+        // PERFORMANCE OPTIMIZATION: Exclude heavy banner_url from list view
         const { data, error } = await supabase
           .from('store_profiles')
-          .select('*')
+          .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, portfolio, fulfillment_mode')
           .eq('active', true)
           .order('name');
         
@@ -40,6 +50,9 @@ export const useStoreProfiles = () => {
         if (data) {
           const mapped = data.map(mapProfile);
           setProfiles(mapped);
+          try {
+            localStorage.setItem('cached_marketplace_profiles', JSON.stringify(mapped));
+          } catch (e) {}
         }
       });
     } catch (e) {
@@ -49,8 +62,6 @@ export const useStoreProfiles = () => {
     }
   }, [mapProfile]);
 
-  // --- MARKETPLACE REALTIME ---
-  // Mantém a vitrine atualizada globalmente para todos os clientes
   useEffect(() => {
     const channel = supabase
       .channel('public_marketplace_changes')
@@ -66,7 +77,6 @@ export const useStoreProfiles = () => {
           if (payload.eventType === 'INSERT') {
             const newProfile = mapProfile(payload.new);
             setProfiles(prev => {
-              // Evita duplicatas se já existir
               if (prev.find(p => p.id === newProfile.id)) return prev;
               return [...prev, newProfile].sort((a,b) => a.name.localeCompare(b.name));
             });
@@ -85,9 +95,10 @@ export const useStoreProfiles = () => {
     };
   }, [mapProfile]);
 
-  const getMyProfile = async (workspaceId: string) => {
+  const getMyProfile = useCallback(async (workspaceId: string) => {
     if (!workspaceId) return null;
     try {
+      // Reduced retries and timeout for fetch
       return await withTimeout(withRetry(async () => {
         const { data, error } = await supabase
           .from('store_profiles')
@@ -97,68 +108,47 @@ export const useStoreProfiles = () => {
         
         if (error) throw error;
         return data ? mapProfile(data) : null;
-      }, 3, 2000), 45000);
+      }, 2, 2000), 10000); 
     } catch (e: any) {
       console.warn("Nexus: Falha ao recuperar perfil da loja.");
       return null;
     }
-  };
+  }, [mapProfile]);
 
-  /**
-   * ATUALIZAÇÃO LEVE: Altera apenas campos de texto/identidade.
-   * Evita enviar o portfólio (JSONB pesado) para não causar timeout.
-   */
-  const updateBasicProfile = async (workspaceId: string, data: Partial<Omit<StoreProfile, 'portfolio' | 'id' | 'workspaceId'>>) => {
+  const saveProfile = useCallback(async (profile: Partial<StoreProfile> & { workspaceId: string }) => {
     try {
-      const payload: any = {};
-      if (data.name !== undefined) payload.name = data.name.trim().substring(0, 100);
-      if (data.description !== undefined) payload.description = data.description.trim().substring(0, 500);
-      if (data.whatsapp !== undefined) payload.whatsapp = data.whatsapp.replace(/\D/g, '');
-      if (data.cnpj !== undefined) payload.cnpj = data.cnpj.replace(/\D/g, '');
-      if (data.instagram !== undefined) payload.instagram = data.instagram.replace('@', '').trim();
-      if (data.facebook !== undefined) payload.facebook = data.facebook.trim();
-      if (data.address !== undefined) payload.address = data.address.trim();
-      if (data.logoUrl !== undefined) payload.logo_url = data.logoUrl;
-      if (data.bannerUrl !== undefined) payload.banner_url = data.bannerUrl;
-      if (data.active !== undefined) payload.active = Boolean(data.active);
-
-      const result = await withTimeout(withRetry(async () => {
-        const { data: updated, error } = await supabase
-          .from('store_profiles')
-          .update(payload)
-          .eq('workspace_id', workspaceId)
-          .select();
-
-        if (error) throw error;
-        return updated;
-      }, 2, 3000), 60000);
-
-      if (result && result[0]) return mapProfile(result[0]);
-      return null;
-    } catch (e) {
-      throw new Error(safeStringifyError(e));
-    }
-  };
-
-  const saveProfile = async (profile: Omit<StoreProfile, 'id'>) => {
-    try {
-      const payload = {
+      const payload: any = {
         workspace_id: profile.workspaceId,
-        name: (profile.name || 'Minha Loja').trim().substring(0, 100),
-        description: (profile.description || '').trim().substring(0, 500),
-        address: (profile.address || '').trim().substring(0, 255),
-        whatsapp: (profile.whatsapp || '').replace(/\D/g, ''),
-        cnpj: (profile.cnpj || '').replace(/\D/g, ''),
-        instagram: (profile.instagram || '').replace('@', '').trim(),
-        facebook: (profile.facebook || '').trim(),
-        logo_url: profile.logoUrl || null,
-        banner_url: profile.bannerUrl || null,
-        latitude: Number(profile.latitude) || 0,
-        longitude: Number(profile.longitude) || 0,
-        active: Boolean(profile.active),
-        portfolio: Array.isArray(profile.portfolio) ? profile.portfolio : []
       };
 
+      // Only add fields if they are defined, allowing partial updates.
+      // If the component passes undefined, these lines skip, and upsert (on existing row) keeps old values.
+      if (profile.name !== undefined) payload.name = (profile.name || 'Minha Loja').trim().substring(0, 100);
+      if (profile.description !== undefined) payload.description = (profile.description || '').trim().substring(0, 500);
+      if (profile.address !== undefined) payload.address = (profile.address || '').trim().substring(0, 255);
+      if (profile.whatsapp !== undefined) payload.whatsapp = (profile.whatsapp || '').replace(/\D/g, '');
+      if (profile.cnpj !== undefined) payload.cnpj = (profile.cnpj || '').replace(/\D/g, '');
+      if (profile.instagram !== undefined) payload.instagram = (profile.instagram || '').replace('@', '').trim();
+      if (profile.facebook !== undefined) payload.facebook = (profile.facebook || '').trim();
+      
+      // Explicitly check for undefined to allow omitting the field (to keep existing) 
+      if (profile.logoUrl !== undefined) payload.logo_url = profile.logoUrl || null;
+      if (profile.bannerUrl !== undefined) payload.banner_url = profile.bannerUrl || null;
+      
+      if (profile.latitude !== undefined) payload.latitude = Number(profile.latitude) || 0;
+      if (profile.longitude !== undefined) payload.longitude = Number(profile.longitude) || 0;
+      if (profile.active !== undefined) payload.active = Boolean(profile.active);
+      if (profile.fulfillmentMode !== undefined) payload.fulfillment_mode = profile.fulfillmentMode;
+      if (profile.pixKey !== undefined) payload.pix_key = (profile.pixKey || '').trim();
+      if (profile.deliveryConfig !== undefined) payload.delivery_config = profile.deliveryConfig;
+      
+      // Optimization: Only send portfolio if it was actually included in the update object
+      if (profile.portfolio !== undefined) {
+        payload.portfolio = Array.isArray(profile.portfolio) ? profile.portfolio : [];
+      }
+
+      // Reduced retry count to 1 for save operations to fail fast if payload is too big or server is erroring
+      console.log("Nexus: Saving payload to Supabase:", payload);
       const result = await withTimeout(withRetry(async () => {
         const { data, error } = await supabase
           .from('store_profiles')
@@ -167,14 +157,14 @@ export const useStoreProfiles = () => {
 
         if (error) throw error;
         return data;
-      }, 2, 4000), 80000);
+      }, 1, 2000), 30000); // 30s max timeout for saving
 
       if (result && result[0]) return mapProfile(result[0]);
       return null;
     } catch (e) {
       throw new Error(safeStringifyError(e));
     }
-  };
+  }, [mapProfile]);
 
-  return { profiles, loading, fetchPublicProfiles, getMyProfile, saveProfile, updateBasicProfile };
+  return { profiles, loading, fetchPublicProfiles, getMyProfile, saveProfile };
 };

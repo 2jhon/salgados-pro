@@ -1,7 +1,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { User } from '../types';
-import { supabase, withRetry, safeStringifyError } from '../lib/supabase';
+import { supabase, withRetry, safeStringifyError, isNetworkError, isTimeoutError } from '../lib/supabase';
 
 const LS_USERS_KEY = 'salgados_cached_users_v1';
 
@@ -40,7 +40,9 @@ const sanitizeSectionIds = (input: any): string[] => {
     }
   };
   extract(input);
-  return Array.from(new Set(result.map(id => id.replace(/["']/g, '').trim()).filter(id => id.length > 3)));
+  // Using new RegExp to avoid potential tokenizer issues with /["']/g in some environments
+  const quoteRegex = new RegExp('["\']', 'g');
+  return Array.from(new Set(result.map(id => id.replace(quoteRegex, '').trim()).filter(id => id.length > 3)));
 };
 
 export const useUsers = () => {
@@ -79,7 +81,11 @@ export const useUsers = () => {
       adFreeExpiresAt: u.ad_free_expires_at,
       advertiserExpiresAt: u.advertiser_expires_at,
       avatarUrl: u.avatar_url || localMeta.avatarUrl,
-      bannerUrl: u.banner_url || localMeta.bannerUrl
+      bannerUrl: u.banner_url || localMeta.bannerUrl,
+      lastSeen: u.last_seen,
+      isBlocked: !!u.is_blocked,
+      totalSpent: u.total_spent || 0,
+      planActivations: u.plan_activations || 0
     };
   }, []);
 
@@ -155,11 +161,12 @@ export const useUsers = () => {
 
   const createUser = async (userData: Omit<User, 'id'>) => {
     const cleanSections = sanitizeSectionIds(userData.assignedSectionIds);
+    const phoneClean = userData.phone?.replace(/\D/g, '');
     const payload = {
       workspace_id: userData.workspaceId,
       name: userData.name,
       email: userData.email,
-      phone: userData.phone?.replace(/\D/g, ''),
+      phone: phoneClean,
       role: userData.role,
       access_code: String(userData.accessCode).trim(),
       assigned_section_id: cleanSections,
@@ -174,7 +181,75 @@ export const useUsers = () => {
     };
 
     try {
-      const { data, error } = await supabase.from('users').insert([payload]).select();
+      // 1. Check if user already exists in public.users by phone or email
+      const existingUsersResult = await withRetry(async () => await supabase
+        .from('users')
+        .select('*')
+        .or(`phone.eq.${phoneClean}${userData.email ? `,email.eq.${userData.email.toLowerCase().trim()}` : ''}`));
+      
+      const { data: existingUsers } = existingUsersResult as any;
+
+      if (existingUsers && existingUsers.length > 0) {
+        // User exists. If it's a different type, we might want to allow "adding" this profile.
+        // For now, let's just return the existing one to avoid duplicates if it's the same type
+        const sameType = existingUsers.find(u => u.user_type === userData.userType);
+        if (sameType) return mapUser(sameType);
+        
+        // If it's a different type, we create a new entry but link to the same auth_id if possible
+        const existingAuthId = existingUsers.find(u => u.auth_id)?.auth_id;
+        if (existingAuthId) {
+          const linkedResult = await withRetry(async () => await supabase
+            .from('users')
+            .insert([{ ...payload, auth_id: existingAuthId }])
+            .select());
+          
+          const { data: linkedData, error: linkError } = linkedResult as any;
+          if (!linkError && linkedData) return mapUser(linkedData[0]);
+        }
+      }
+
+      // 2. Check if we are currently logged in
+      const sessionResult = await withRetry(() => supabase.auth.getSession());
+      const { data: sessionData } = sessionResult as any;
+      let authUserId = sessionData.session?.user?.id || null;
+
+      // 3. If no session, this is a new registration. Create Auth user first.
+      if (!authUserId) {
+        const authEmail = userData.userType === 'COMPANY' ? userData.email : `${phoneClean}@salgados.app`;
+        
+        // Try to sign in first in case the auth account exists but the public.user doesn't
+        const signInResult = await withRetry(() => supabase.auth.signInWithPassword({
+          email: authEmail!,
+          password: payload.access_code
+        }));
+        
+        const { data: signInData } = signInResult as any;
+
+        if (signInData.user) {
+          authUserId = signInData.user.id;
+        } else {
+          const signUpResult = await withRetry(() => supabase.auth.signUp({
+            email: authEmail!,
+            password: payload.access_code,
+          }));
+
+          if (signUpResult.error) {
+            // If user already exists in Auth but we couldn't sign in (wrong password), throw error
+            if (signUpResult.error.message.includes('already registered')) {
+              throw new Error("Este contato já possui uma conta. Tente fazer login com seu PIN.");
+            }
+            throw signUpResult.error;
+          }
+          if (signUpResult.data.user) {
+            authUserId = signUpResult.data.user.id;
+          }
+        }
+      }
+
+      const finalPayload = { ...payload, auth_id: authUserId };
+
+      const insertResult = await withRetry(async () => await supabase.from('users').insert([finalPayload]).select());
+      const { data, error } = insertResult as any;
       if (error) throw error;
       if (data) {
         const created = mapUser(data[0]);
@@ -188,7 +263,7 @@ export const useUsers = () => {
     return null;
   };
 
-  const updateUser = async (id: string, updates: Partial<User>) => {
+  const updateUser = useCallback(async (id: string, updates: Partial<User>) => {
     const payload: any = {};
     if (updates.name !== undefined) payload.name = updates.name;
     if (updates.email !== undefined) payload.email = updates.email;
@@ -207,6 +282,7 @@ export const useUsers = () => {
     if (updates.isAdvertiser !== undefined) payload.is_advertiser = updates.isAdvertiser;
     if (updates.avatarUrl !== undefined) payload.avatar_url = updates.avatarUrl;
     if (updates.bannerUrl !== undefined) payload.banner_url = updates.bannerUrl;
+    if (updates.lastSeen !== undefined) payload.last_seen = updates.lastSeen;
 
     if (updates.avatarUrl !== undefined || updates.bannerUrl !== undefined) {
       saveLocalMeta(id, { avatarUrl: updates.avatarUrl, bannerUrl: updates.bannerUrl });
@@ -223,13 +299,15 @@ export const useUsers = () => {
         ...updates,
         avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : u.avatarUrl,
         bannerUrl: updates.bannerUrl !== undefined ? updates.bannerUrl : u.bannerUrl,
+        lastSeen: updates.lastSeen !== undefined ? updates.lastSeen : u.lastSeen,
         assignedSectionIds: updates.assignedSectionIds ? sanitizeSectionIds(updates.assignedSectionIds) : u.assignedSectionIds
       } : u));
     } catch (e: any) {
       console.error("Erro ao salvar usuário:", e);
-      setUsers(prev => prev.map(u => String(u.id) === String(id) ? { ...u, ...updates } : u));
+      // Removed the erroneous setUsers call in the catch block
+      throw e;
     }
-  };
+  }, []);
 
   const removeUser = async (id: string) => {
     try {
@@ -281,5 +359,115 @@ export const useUsers = () => {
     } catch (e: any) { throw e; }
   };
 
-  return { users, loading, createUser, fetchUsersByWorkspace, findUserByEmail, findUserByPhone, findUserById, removeUser, updateUser };
+  const authenticateUser = async (identifier: string, pin: string, type: 'COMPANY' | 'EMPLOYEE' | 'CUSTOMER') => {
+    try {
+      let cleanIdentifier = identifier.trim();
+      let searchEmail = '';
+      
+      if (type === 'COMPANY') {
+        searchEmail = cleanIdentifier.toLowerCase();
+      } else {
+        const phone = cleanIdentifier.replace(/\D/g, '');
+        // First, try to find the user to see what email they are using in Auth
+        const user = await withRetry(() => findUserByPhone(phone));
+        if (user) {
+          // Use the email from the found user, or the generated one
+          searchEmail = user.email || `${phone}@salgados.app`;
+        } else {
+          searchEmail = `${phone}@salgados.app`;
+        }
+      }
+
+      // 1. Try to sign in with Supabase Auth
+      let authResult = await withRetry(() => supabase.auth.signInWithPassword({
+        email: searchEmail,
+        password: pin,
+      }));
+
+      // 2. If it fails, try the alternative (maybe they registered as COMPANY but are logging in as CUSTOMER)
+      if (authResult.error && type !== 'COMPANY') {
+        const phone = cleanIdentifier.replace(/\D/g, '');
+        // Try with the phone-based email just in case
+        const altEmail = `${phone}@salgados.app`;
+        if (altEmail !== searchEmail) {
+          const altResult = await withRetry(() => supabase.auth.signInWithPassword({
+            email: altEmail,
+            password: pin,
+          }));
+          if (!altResult.error) authResult = altResult;
+        }
+      }
+
+      // 3. Lazy Migration / RPC Fallback
+      if (authResult.error && authResult.error.message.includes('Invalid login credentials')) {
+        const rpcResult = await withRetry(async () => await supabase.rpc('authenticate_user', {
+          p_identifier: cleanIdentifier.replace(/\D/g, ''),
+          p_pin: pin,
+          p_type: type
+        }));
+        
+        const { data: rpcData, error: rpcError } = rpcResult as any;
+
+        if (!rpcError && rpcData && rpcData.length > 0) {
+          const publicUser = rpcData[0];
+          const emailToUse = publicUser.email || `${publicUser.phone}@salgados.app`;
+          
+          const signUpResult = await withRetry(() => supabase.auth.signUp({
+            email: emailToUse,
+            password: pin,
+          }));
+
+          if (signUpResult.data.user) {
+            await withRetry(async () => await supabase.from('users').update({ auth_id: signUpResult.data.user.id }).eq('id', publicUser.id));
+            authResult = signUpResult as any;
+          } else {
+            throw signUpResult.error || new Error("Failed to migrate user");
+          }
+        } else {
+           throw authResult.error;
+        }
+      } else if (authResult.error) {
+         throw authResult.error;
+      }
+
+      // 4. Fetch public.users record
+      if (authResult.data.user) {
+         // Find the user record that matches this auth_id AND the requested type if possible
+         const userResult = await withRetry(async () => await supabase
+           .from('users')
+           .select('*')
+           .eq('auth_id', authResult.data.user.id!)
+           .eq('user_type', type)
+           .maybeSingle());
+         
+         const { data: userData } = userResult as any;
+         
+         if (userData) {
+            return mapUser(userData);
+         } else {
+            // If not found for this type, just get any record for this auth_id
+            const anyUserResult = await withRetry(async () => await supabase
+              .from('users')
+              .select('*')
+              .eq('auth_id', authResult.data.user.id!)
+              .maybeSingle());
+            
+            const { data: anyUserData } = anyUserResult as any;
+            
+            if (anyUserData) return mapUser(anyUserData);
+         }
+      }
+
+      return null;
+    } catch (e: any) {
+      console.error("Auth error:", e);
+      // Se for erro de rede, lança para o App.tsx tratar com safeStringifyError
+      if (isNetworkError(e) || isTimeoutError(e)) {
+        throw new Error(safeStringifyError(e));
+      }
+      return null;
+    }
+  };
+
+  return { users, loading, createUser, fetchUsersByWorkspace, findUserByEmail, findUserByPhone, findUserById, removeUser, updateUser, authenticateUser };
 };

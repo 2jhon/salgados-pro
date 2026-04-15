@@ -1,5 +1,4 @@
 
-
 import React, { memo, useState } from 'react';
 import { Transaction } from '../types';
 import { Trash2, AlertTriangle, X, FileText } from 'lucide-react';
@@ -78,7 +77,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
               const { date, time } = formatDate(t.date);
               
               // Verifica se é registro de auditoria
-              const isAudit = t.category === 'AUDITORIA';
+              const isAudit = (t.category || '').trim().toUpperCase() === 'AUDITORIA';
 
               // Se é pendente e não é gasto, é a receber. Se é pendente e gasto, é a pagar.
               const isReceivable = !isAudit && t.isPending && t.subCategory !== 'GASTOS';
