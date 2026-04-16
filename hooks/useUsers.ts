@@ -292,6 +292,11 @@ export const useUsers = () => {
       if (Object.keys(payload).length > 0) {
         const { error } = await supabase.from('users').update(payload).eq('id', id);
         if (error) throw error;
+
+        // Se o PIN foi alterado, sincroniza com o Supabase Auth
+        if (updates.accessCode !== undefined) {
+          await supabase.rpc('sync_user_auth', { p_user_id: id });
+        }
       }
       
       setUsers(prev => prev.map(u => String(u.id) === String(id) ? { 
@@ -420,6 +425,18 @@ export const useUsers = () => {
           if (signUpResult.data.user) {
             await withRetry(async () => await supabase.from('users').update({ auth_id: signUpResult.data.user.id }).eq('id', publicUser.id));
             authResult = signUpResult as any;
+          } else if (signUpResult.error && signUpResult.error.message.includes('already registered')) {
+            // Se já existe no Auth mas a senha está errada, tenta sincronizar
+            const syncResult = await supabase.rpc('sync_user_auth', { p_user_id: publicUser.id });
+            if (syncResult.data) {
+              // Tenta logar novamente após sincronizar
+              authResult = await withRetry(() => supabase.auth.signInWithPassword({
+                email: emailToUse,
+                password: pin,
+              }));
+            } else {
+              throw signUpResult.error;
+            }
           } else {
             throw signUpResult.error || new Error("Failed to migrate user");
           }
