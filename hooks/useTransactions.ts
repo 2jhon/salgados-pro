@@ -2,7 +2,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import localforage from 'localforage';
 import { Transaction, PeriodTotals, AppSection, Note } from '../types';
-import { supabase, withRetry, withTimeout, safeStringifyError } from '../lib/supabase';
+import { supabase, withRetry, withTimeout, safeStringifyError, isNetworkError } from '../lib/supabase';
 import { normalizePhone, normalizeString, roundMoney, Z_INDEX } from '../lib/utils';
 
 export const useTransactions = (
@@ -57,7 +57,11 @@ export const useTransactions = (
     };
   }, [workspaceId]);
 
-  const addToOfflineQueue = async (action: any) => {
+  const nexusReport = useCallback((msg: string, status: 'START' | 'DONE' | 'FAIL', type: 'PROCESS' | 'NETWORK' = 'PROCESS', taskId?: string, data?: any) => {
+    if ((window as any).Nexus) (window as any).Nexus.report(msg, status, type, taskId, data);
+  }, []);
+
+  const addToOfflineQueue = useCallback(async (action: any) => {
     const newAction = {
       ...action,
       _queueId: `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -65,71 +69,7 @@ export const useTransactions = (
     };
     const currentQueue: any[] = (await localforage.getItem(`offline_actions_${workspaceId}`)) || [];
     await localforage.setItem(`offline_actions_${workspaceId}`, [...currentQueue, newAction]);
-  };
-
-  const syncOfflineQueue = async () => {
-    // Legacy support
-    const legacyQueue: any[] = JSON.parse(localStorage.getItem(`offline_tx_${workspaceId}`) || '[]');
-    if (legacyQueue.length > 0) {
-      setIsSyncing(true);
-      try {
-        await addTransactions(legacyQueue, true);
-        localStorage.removeItem(`offline_tx_${workspaceId}`);
-      } catch (e) {
-        console.error("Legacy sync error", e);
-      }
-      setIsSyncing(false);
-    }
-
-    const queue: any[] = (await localforage.getItem(`offline_actions_${workspaceId}`)) || [];
-    if (queue.length === 0) return;
-
-    setIsSyncing(true);
-    console.log(`[OfflineSync] Sincronizando ${queue.length} ações pendentes...`);
-    
-    const remainingQueue = [...queue];
-    
-    for (const action of queue) {
-      try {
-        if (action.type === 'ADD') {
-          await addTransactions(action.payload, true);
-        } else if (action.type === 'UPDATE') {
-          await updateTransaction(action.payload.id, action.payload.updates, true);
-        } else if (action.type === 'DELETE') {
-          await deleteTransaction(action.payload.id, action.payload.userName, true);
-        } else if (action.type === 'SETTLE_DEBT') {
-          await settleCustomerDebt(action.payload.customerName, action.payload.transactionIds, true);
-        } else if (action.type === 'PARTIAL_SETTLE') {
-          await partialSettleTransaction(action.payload.originalTx, action.payload.amountPaid, action.payload.targetSubCategory, true);
-        }
-        remainingQueue.shift();
-        await localforage.setItem(`offline_actions_${workspaceId}`, remainingQueue);
-      } catch (e: any) {
-        console.error(`[OfflineSync] Erro na ação ${action.type}:`, e);
-        if (e.message === 'Failed to fetch' || !navigator.onLine) {
-          break; // Stop processing on network error
-        } else {
-          // Discard action if it's a permanent error to prevent blocking the queue
-          remainingQueue.shift();
-          await localforage.setItem(`offline_actions_${workspaceId}`, remainingQueue);
-        }
-      }
-    }
-    
-    if (remainingQueue.length === 0) {
-      nexusReport("Sincronização offline concluída.", 'DONE', 'NETWORK');
-    }
-    setIsSyncing(false);
-  };
-
-  const reconnect = async () => {
-    setIsOffline(false);
-    await syncOfflineQueue();
-  };
-
-  const nexusReport = (msg: string, status: 'START' | 'DONE' | 'FAIL', type: 'PROCESS' | 'NETWORK' = 'PROCESS', taskId?: string, data?: any) => {
-    if ((window as any).Nexus) (window as any).Nexus.report(msg, status, type, taskId, data);
-  };
+  }, [workspaceId]);
 
   const mapTransaction = useCallback((t: any): Transaction => {
     const safeWorkspaceId = String(t.workspace_id || '').trim().toLowerCase();
@@ -156,43 +96,6 @@ export const useTransactions = (
       ...((t as any).__forceShow ? { __forceShow: true } : {}) 
     };
   }, []);
-
-  const fetchUserGlobalDebts = useCallback(async (userPhone: string, currentWorkspaceId: string) => {
-    if (!userPhone) return [];
-    
-    const normalized = normalizePhone(userPhone);
-    if (!normalized) return [];
-
-    const cleanWorkspace = String(currentWorkspaceId).trim().toLowerCase();
-    
-    try {
-      // Query Otimizada: Busca transações pendentes em outros workspaces
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('is_pending', true) 
-        .neq('workspace_id', cleanWorkspace);
-
-      if (error) {
-        console.error('[useTransactions] Erro ao buscar dívidas globais:', error);
-        throw error;
-      }
-      
-      if (data) {
-        // Filtra no cliente usando a normalização robusta para garantir match preciso
-        const filtered = data
-          .map(t => mapTransaction(t))
-          .filter(t => normalizePhone(t.customerPhone) === normalized);
-
-        console.log(`[useTransactions] Encontrados ${filtered.length} registros externos para ${normalized}.`);
-        return filtered.map(t => ({ ...t, isExternal: true }));
-      }
-      return [];
-    } catch (e) {
-      console.warn("[useTransactions] Exceção na consulta de dívidas globais:", e);
-      return null;
-    }
-  }, [mapTransaction]);
 
   const fetchTransactionsByWorkspace = useCallback(async (wid: string, force = false) => {
     if (!wid || (isFetchingRef.current && !force)) return;
@@ -244,39 +147,7 @@ export const useTransactions = (
     }
   }, [mapTransaction]);
 
-  useEffect(() => {
-    if (!workspaceId) return;
-    const cleanWid = String(workspaceId).trim().toLowerCase();
-
-    const txChannel = supabase
-      .channel(`tx_realtime_core_${cleanWid}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transactions', filter: `workspace_id=eq.${cleanWid}` },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newTx = mapTransaction(payload.new);
-            setTransactions(prev => {
-              if (prev.some(t => t.id === newTx.id)) return prev;
-              return [newTx, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            });
-          } 
-          else if (payload.eventType === 'UPDATE') {
-            const updatedTx = mapTransaction(payload.new);
-            setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
-          }
-          else if (payload.eventType === 'DELETE') {
-            const deletedId = String(payload.old.id);
-            setTransactions(prev => prev.filter(t => t.id !== deletedId));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(txChannel); };
-  }, [workspaceId, mapTransaction]);
-
-  const addTransactions = async (ts: Omit<Transaction, 'id' | 'date'>[], isSyncing = false) => {
+  const addTransactions = useCallback(async (ts: Omit<Transaction, 'id' | 'date'>[], isSyncing = false) => {
     if (ts.length === 0) return null;
 
     // Offline Handling
@@ -372,7 +243,7 @@ export const useTransactions = (
         return created;
       }
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         const offlineTx = ts.map(t => ({
           ...t,
           id: `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -389,9 +260,9 @@ export const useTransactions = (
       throw e;
     }
     return null;
-  };
+  }, [addToOfflineQueue, mapTransaction, addNote, nexusReport]);
 
-  const updateTransaction = async (id: string, updates: Partial<Transaction>, isSyncing = false) => {
+  const updateTransaction = useCallback(async (id: string, updates: Partial<Transaction>, isSyncing = false) => {
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'UPDATE', payload: { id, updates } });
       setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates, isOffline: true } : t));
@@ -409,16 +280,16 @@ export const useTransactions = (
       if (error) throw error;
       setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'UPDATE', payload: { id, updates } });
         setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates, isOffline: true } : t));
         return;
       }
       throw e; 
     }
-  };
+  }, [addToOfflineQueue]);
 
-  const deleteTransaction = async (id: string, userName?: string, isSyncing = false) => {
+  const deleteTransaction = useCallback(async (id: string, userName?: string, isSyncing = false) => {
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
       setTransactions(prev => prev.filter(t => t.id !== id));
@@ -444,7 +315,7 @@ export const useTransactions = (
 
       setTransactions(prev => prev.filter(t => t.id !== id));
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
         setTransactions(prev => prev.filter(t => t.id !== id));
         return;
@@ -452,9 +323,9 @@ export const useTransactions = (
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       throw e;
     }
-  };
+  }, [addToOfflineQueue, workspaceId, transactions, addNote, fetchTransactionsByWorkspace]);
 
-  const settleCustomerDebt = async (customerName: string, transactionIds: string[], isSyncing = false) => {
+  const settleCustomerDebt = useCallback(async (customerName: string, transactionIds: string[], isSyncing = false) => {
     if (transactionIds.length === 0) return;
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'SETTLE_DEBT', payload: { customerName, transactionIds } });
@@ -493,16 +364,16 @@ export const useTransactions = (
 
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'SETTLE_DEBT', payload: { customerName, transactionIds } });
         setTransactions(prev => prev.map(t => transactionIds.includes(t.id) ? { ...t, isPending: false, isOffline: true } : t));
         return;
       }
       throw e; 
     }
-  };
+  }, [addToOfflineQueue, transactions, workspaceId, fetchTransactionsByWorkspace]);
 
-  const partialSettleTransaction = async (originalTx: Transaction, amountPaid: number, targetSubCategory?: string, isSyncing = false) => {
+  const partialSettleTransaction = useCallback(async (originalTx: Transaction, amountPaid: number, targetSubCategory?: string, isSyncing = false) => {
     if (amountPaid <= 0 || amountPaid >= originalTx.value) return false;
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'PARTIAL_SETTLE', payload: { originalTx, amountPaid, targetSubCategory } });
@@ -535,7 +406,7 @@ export const useTransactions = (
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       return true;
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'PARTIAL_SETTLE', payload: { originalTx, amountPaid, targetSubCategory } });
         const remainingDebt = roundMoney(originalTx.value - amountPaid);
         setTransactions(prev => prev.map(t => t.id === originalTx.id ? { ...t, value: remainingDebt, isOffline: true } : t));
@@ -543,7 +414,99 @@ export const useTransactions = (
       }
       throw e; 
     }
-  };
+  }, [addToOfflineQueue, workspaceId, fetchTransactionsByWorkspace]);
+
+  const syncOfflineQueue = useCallback(async () => {
+    // Legacy support
+    const legacyQueue: any[] = JSON.parse(localStorage.getItem(`offline_tx_${workspaceId}`) || '[]');
+    if (legacyQueue.length > 0) {
+      setIsSyncing(true);
+      try {
+        await addTransactions(legacyQueue, true);
+        localStorage.removeItem(`offline_tx_${workspaceId}`);
+      } catch (e) {
+        console.error("Legacy sync error", e);
+      }
+      setIsSyncing(false);
+    }
+
+    const queue: any[] = (await localforage.getItem(`offline_actions_${workspaceId}`)) || [];
+    if (queue.length === 0) return;
+
+    setIsSyncing(true);
+    console.log(`[OfflineSync] Sincronizando ${queue.length} ações pendentes...`);
+    
+    const remainingQueue = [...queue];
+    
+    for (const action of queue) {
+      try {
+        if (action.type === 'ADD') {
+          await addTransactions(action.payload, true);
+        } else if (action.type === 'UPDATE') {
+          await updateTransaction(action.payload.id, action.payload.updates, true);
+        } else if (action.type === 'DELETE') {
+          await deleteTransaction(action.payload.id, action.payload.userName, true);
+        } else if (action.type === 'SETTLE_DEBT') {
+          await settleCustomerDebt(action.payload.customerName, action.payload.transactionIds, true);
+        } else if (action.type === 'PARTIAL_SETTLE') {
+          await partialSettleTransaction(action.payload.originalTx, action.payload.amountPaid, action.payload.targetSubCategory, true);
+        }
+        remainingQueue.shift();
+        await localforage.setItem(`offline_actions_${workspaceId}`, remainingQueue);
+      } catch (e: any) {
+        console.error(`[OfflineSync] Erro na ação ${action.type}:`, e);
+        if (isNetworkError(e) || !navigator.onLine) {
+          break; // Stop processing on network error
+        } else {
+          // Discard action if it's a permanent error to prevent blocking the queue
+          remainingQueue.shift();
+          await localforage.setItem(`offline_actions_${workspaceId}`, remainingQueue);
+        }
+      }
+    }
+    
+    if (remainingQueue.length === 0) {
+      nexusReport("Sincronização offline concluída.", 'DONE', 'NETWORK');
+    }
+    setIsSyncing(false);
+  }, [workspaceId, addTransactions, updateTransaction, deleteTransaction, nexusReport, settleCustomerDebt, partialSettleTransaction]);
+
+  const fetchUserGlobalDebts = useCallback(async (userPhone: string, currentWorkspaceId: string) => {
+    if (!userPhone) return [];
+    
+    const normalized = normalizePhone(userPhone);
+    if (!normalized) return [];
+
+    const cleanWorkspace = String(currentWorkspaceId).trim().toLowerCase();
+    
+    try {
+      // Query Otimizada: Busca transações pendentes em outros workspaces
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('is_pending', true) 
+        .neq('workspace_id', cleanWorkspace);
+
+      if (error) {
+        console.error('[useTransactions] Erro ao buscar dívidas globais:', error);
+        throw error;
+      }
+      
+      if (data) {
+        // Filtra no cliente usando a normalização robusta para garantir match preciso
+        const filtered = data
+          .map(t => mapTransaction(t))
+          .filter(t => normalizePhone(t.customerPhone) === normalized);
+
+        console.log(`[useTransactions] Encontrados ${filtered.length} registros externos para ${normalized}.`);
+        return filtered.map(t => ({ ...t, isExternal: true }));
+      }
+      return [];
+    } catch (e) {
+      console.warn("[useTransactions] Exceção na consulta de dívidas globais:", e);
+      return null;
+    }
+  }, [mapTransaction]);
 
   const calculateTotals = useCallback((category: string, subCategory?: string): PeriodTotals => {
     const now = new Date();
@@ -570,7 +533,7 @@ export const useTransactions = (
     };
   }, [transactions, workspaceId]);
 
-  const clearTransactions = async (period: any, wid: any, range?: any, cats?: any) => {
+  const clearTransactions = useCallback(async (period: any, wid: any, range?: any, cats?: any) => {
     const cleanWid = String(wid).trim().toLowerCase();
     try {
       let query = supabase.from('transactions').delete().eq('workspace_id', cleanWid);
@@ -580,9 +543,9 @@ export const useTransactions = (
       if (error) throw error;
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
     } catch (e: any) { throw e; }
-  };
+  }, [workspaceId, fetchTransactionsByWorkspace]);
 
-  const archiveYear = async (wid: string, year: number) => {
+  const archiveYear = useCallback(async (wid: string, year: number) => {
     const cleanWid = String(wid).trim().toLowerCase();
     const startDate = new Date(year, 0, 1).toISOString();
     const endDate = new Date(year, 11, 31, 23, 59, 59, 999).toISOString();
@@ -651,11 +614,16 @@ export const useTransactions = (
       .gte('date', startDate)
       .lte('date', endDate);
       
-    if (delError) throw delError;
-    
+      if (delError) throw delError;
+      
     if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
     return allTx.length;
-  };
+  }, [workspaceId, fetchTransactionsByWorkspace]);
+
+  const reconnect = useCallback(async () => {
+    setIsOffline(false);
+    await syncOfflineQueue();
+  }, [syncOfflineQueue]);
 
   return { transactions, setTransactions, loading, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear };
 };

@@ -19,7 +19,7 @@ import { useAds } from './hooks/useAds';
 import { useNotes } from './hooks/useNotes';
 import { useStoreProfiles } from './hooks/useStoreProfiles';
 import { useCustomers } from './hooks/useCustomers'; 
-import { supabase, checkDatabaseHealth } from './lib/supabase';
+import { supabase, checkDatabaseHealth, safeStringifyError } from './lib/supabase';
 import { ADMIN_EMAILS } from './constants';
 import { 
   LogOut, ShieldCheck, Loader2, Settings as SettingsIcon,
@@ -160,12 +160,26 @@ export const App: React.FC = () => {
     }
     setIsOffline(false);
     
-    // Proactive Health Check
-    const health = await checkDatabaseHealth(15000, 2);
-    if (!health.ok) {
-      console.error("[App] Database health check failed");
-      // Don't block the whole app, but log it
-    }
+    console.log('[App] Initializing system and database health check...');
+    
+    // Proactive Health Check (Non-blocking warning)
+    checkDatabaseHealth(60000, 2).then(health => {
+      if (!health.ok) {
+        console.error("[App] Banco de dados inacessível ou hibernando muito profundamente.");
+        toast.error("O servidor não respondeu a tempo. O banco de dados pode estar 'dormindo'.", { 
+          duration: 20000,
+          action: {
+            label: "Limpar Sessão",
+            onClick: () => {
+              localStorage.clear();
+              window.location.reload();
+            }
+          }
+        });
+      } else {
+        console.log('[App] Database health verified.');
+      }
+    });
 
     reconnectTx();
     reconnectStock();
@@ -233,26 +247,30 @@ export const App: React.FC = () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      // 1. Prioridade Máxima (Interface): Carrega configurações, equipe e perfil visual PRIMEIRO
-      await Promise.all([
-        fetchConfigByWorkspace(user.workspaceId),
-        fetchUsersByWorkspace(user.workspaceId),
-        getMyProfile(user.workspaceId).then(profile => {
-          if (profile) {
-            setCompanyProfile(profile);
-            try {
-              localStorage.setItem('cached_company_profile', JSON.stringify(profile));
-            } catch (e) {}
-          }
-        })
-      ]);
+      console.log(`[App] Loading sequential data for workspace: ${user.workspaceId}`);
+      
+      // 1. Prioridade Máxima (Interface): Sequencial para não sobrecarregar conexão fria
+      await fetchConfigByWorkspace(user.workspaceId);
+      await fetchUsersByWorkspace(user.workspaceId);
+      
+      const profile = await getMyProfile(user.workspaceId);
+      if (profile) {
+        setCompanyProfile(profile);
+        try {
+          localStorage.setItem('cached_company_profile', JSON.stringify(profile));
+        } catch (e) {}
+      }
 
       // 2. Prioridade Secundária (Dados Pesados): Carrega transações e anúncios EM SEGUIDA
       const adsPromise = fetchAds();
       const stallsPromise = fetchPublicStalls();
       const profilesPromise = fetchPublicProfiles();
+      
+      // Carrega transações (Ponto crítico de performance)
       await fetchTransactionsByWorkspace(user.workspaceId, true);
-      await Promise.all([adsPromise, stallsPromise, profilesPromise]);
+      
+      // Aguarda os outros em background
+      await Promise.allSettled([adsPromise, stallsPromise, profilesPromise]);
       
       // 3. Verificações de Fundo: Dívidas externas
       // IMPORTANTE: Passa o telefone do usuário explicitamente
@@ -310,7 +328,8 @@ export const App: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
       authListener.subscription.unsubscribe();
     };
-  }, [initSystem, currentUser, loadWorkspaceData, reconnectTx, reconnectStock]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initSystem]); // Only re-run if initSystem itself changes (which is stabilized by useCallback)
 
   const handleManualDataRefresh = async () => {
     if (currentUser) {
@@ -475,10 +494,19 @@ export const App: React.FC = () => {
                 return;
               }
               setIsProcessing(true);
+              let forceStop = false;
+              const authWatchdog = setTimeout(() => {
+                forceStop = true;
+                setIsProcessing(false);
+                setAuthError("A conexão com o servidor expirou. O banco de dados está em hibernação profunda. Clique no botão de entrar novamente para finalizar o despertar.");
+              }, 150000); // 150s safety valve
+              
               try {
                 if(authMode === 'LOGIN') {
-                   const identifier = targetType === 'COMPANY' ? email : phone;
+                   const identifier = email || phone;
                    const user = await authenticateUser(identifier, pin, targetType);
+                   if (forceStop) return;
+                   
                    if (user) {
                      if (user.isBlocked) {
                        setAuthError("Acesso negado: Sua conta foi bloqueada por violação dos termos.");
@@ -513,15 +541,27 @@ export const App: React.FC = () => {
                    }
                 }
               } catch (err: any) { 
+                if (forceStop) return;
                 console.error("[Auth] Erro capturado:", err);
-                const msg = typeof err === 'string' ? err : (err.message || "Erro na autenticação.");
-                // Se a mensagem já for amigável (via safeStringifyError no useUsers), usa ela
+                const msg = safeStringifyError(err);
                 setAuthError(msg); 
               } 
-              finally { setIsProcessing(false); }
+              finally { 
+                clearTimeout(authWatchdog);
+                setIsProcessing(false); 
+              }
             }} className="bg-white p-8 rounded-[3rem] space-y-5 text-slate-800 shadow-3xl">
               <button type="button" onClick={() => setAuthMode('IDENTIFY')} className="flex items-center gap-2 text-slate-400 font-black text-[10px] uppercase"><ArrowLeft className="w-4 h-4" /> Voltar</button>
-              {authError && <div className="p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase text-center">{authError}</div>}
+              {authError && (
+                <div className="p-4 bg-red-50 text-red-600 rounded-xl space-y-2">
+                   <div className="text-[10px] font-black uppercase text-center">{authError}</div>
+                   {authError.toLowerCase().includes('rede') || authError.toLowerCase().includes('fetch') || authError.toLowerCase().includes('conexão') ? (
+                     <div className="text-[9px] font-bold text-center text-red-400 uppercase leading-tight bg-white/50 p-2 rounded-lg">
+                        DICA: Se estiver no Wi-Fi, tente desligar e usar os Dados Móveis. Sua rede pode estar bloqueando o servidor.
+                     </div>
+                   ) : null}
+                </div>
+              )}
               {(authMode === 'CREATE_COMPANY' || authMode === 'CREATE_CUSTOMER') && (
                 <>
                   <input required value={userName} onChange={e => setUserName(e.target.value)} placeholder="NOME COMPLETO" className="w-full p-4 bg-slate-50 rounded-xl font-bold outline-none uppercase text-xs" />
@@ -529,7 +569,25 @@ export const App: React.FC = () => {
                   {authMode === 'CREATE_COMPANY' && <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-MAIL" className="w-full p-4 bg-slate-50 rounded-xl font-bold outline-none text-xs" />}
                 </>
               )}
-              {targetType === 'COMPANY' && authMode === 'LOGIN' && <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-MAIL" className="w-full p-4 bg-slate-50 rounded-xl font-bold outline-none text-xs" />}
+              {targetType === 'COMPANY' && authMode === 'LOGIN' && (
+                <input 
+                  required 
+                  type="text" 
+                  value={email || phone} 
+                  onChange={e => {
+                    const val = "trimStart" in String.prototype ? e.target.value.trimStart() : e.target.value;
+                    if (val.includes('@') || /[a-zA-Z]/.test(val)) {
+                      setEmail(val);
+                      setPhone('');
+                    } else {
+                      setPhone(formatPhone(val));
+                      setEmail('');
+                    }
+                  }} 
+                  placeholder="E-MAIL OU WHATSAPP" 
+                  className="w-full p-4 bg-slate-50 rounded-xl font-bold outline-none text-xs" 
+                />
+              )}
               {targetType === 'CUSTOMER' && authMode === 'LOGIN' && <input required type="tel" value={phone} onChange={e => setPhone(formatPhone(e.target.value))} placeholder="WHATSAPP" className="w-full p-4 bg-slate-50 rounded-xl font-bold outline-none text-xs" />}
               <div className="space-y-1">
                 <input required maxLength={6} type="password" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="PIN 6 DÍGITOS" className="w-full p-4 bg-slate-50 rounded-xl font-black text-xl text-center outline-none tracking-widest" />

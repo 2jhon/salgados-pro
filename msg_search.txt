@@ -1,0 +1,41 @@
+hooks/useNotes.ts:35:        console.warn("Tabela 'notes' não acessível ou inexistente:", error.message);
+hooks/useTransactions.ts:109:        if (e.message === 'Failed to fetch' || !navigator.onLine) {
+hooks/useTransactions.ts:333:        const errorMsg = String(result.error.message || '').toLowerCase();
+hooks/useTransactions.ts:375:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useTransactions.ts:412:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useTransactions.ts:447:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useTransactions.ts:496:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useTransactions.ts:538:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useAds.ts:48:      console.warn("Aviso useAds:", e.message);
+hooks/useUsers.ts:409:      if (authResult.error && (authResult.error.message.includes('Invalid login credentials') || authResult.error.message.includes('invalid email') || authResult.error.message.includes('not a valid email'))) {
+hooks/useUsers.ts:492:           throw new Error(`Erro Crítico Auth: O PIN de fato está certo mas a conexão bloqueou definitivamente: ${forcedAuth.error.message}`);
+hooks/useUsers.ts:594:      console.error("[Auth System] Tentativa de login falhou:", e.message || e);
+hooks/useUsers.ts:596:      const errMsg = e.message || '';
+hooks/useAppConfig.ts:439:        if (e.message === 'Failed to fetch' || !navigator.onLine) {
+hooks/useAppConfig.ts:579:      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+hooks/useCustomers.ts:113:        const msg = (error.message || '').toLowerCase();
+hooks/useCustomers.ts:190:         const msg = (error.message || '').toLowerCase();
+components/DebugAgent.tsx:31:        if (prev.length > 0 && prev[0].message === message) return prev;
+components/DebugAgent.tsx:93:            {log.message}
+components/Home.tsx:996:              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{confirmModal.message}</p>
+components/Factory.tsx:762:                      if (e.message === "IOS_NOT_SUPPORTED") {
+components/Factory.tsx:772:                        toast.error(`Erro ao imprimir: ${e.message || 'Verifique a conexão'}`, { id: toastId });
+components/Factory.tsx:1246:              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{validationError.message}</p>
+components/AuditLog.tsx:39:    log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+components/AuditLog.tsx:69:                    <p className="text-xs font-bold text-slate-800">{log.message}</p>
+components/SuperAdmin.tsx:417:      toast.error("Erro ao encerrar plano: " + (e.message || "Erro desconhecido"));
+components/AIAgent.tsx:54:            message: config.message || updatedLogs[existingIndex].message,
+components/AIAgent.tsx:68:        message: config.message || '',
+components/AIAgent.tsx:93:        message: `FALHA CRÍTICA: ${event.message}`, 
+components/AIAgent.tsx:98:      analyzeError(event.message, event.filename || 'Desconhecido', event.error?.stack);
+components/AIAgent.tsx:200:                        <p className="leading-relaxed font-bold">{log.message}</p>
+components/Stall.tsx:769:                      if (e.message === "IOS_NOT_SUPPORTED") {
+components/Stall.tsx:779:                        toast.error(`Erro ao imprimir: ${e.message || 'Verifique a conexão'}`, { id: toastId });
+components/Stall.tsx:808:              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{validationError.message}</p>
+components/ErrorBoundary.tsx:61:          errorMessage = error.message;
+components/ErrorBoundary.tsx:65:          if (anyError.message && typeof anyError.message === 'string') {
+components/ErrorBoundary.tsx:66:             errorMessage = anyError.message;
+components/Settings.tsx:1475:                      toast.error(e.message || "Erro na conexão Bluetooth.", { id: toastId });
+components/Settings.tsx:1521:              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{confirmModal.message}</p>
+components/Settings.tsx:1532:              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">{successModal.message}</p>
+App.tsx:278:        (window as any).Nexus.report(`Falha ao carregar dados do workspace: ${e instanceof Error ? e.message : String(e)}`, 'FAIL', 'NETWORK');

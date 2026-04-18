@@ -44,7 +44,17 @@ CREATE OR REPLACE FUNCTION decrement_stock(
 ) RETURNS BOOLEAN AS $$
 DECLARE
     v_current_stock NUMERIC;
+    v_my_workspace TEXT;
 BEGIN
+    -- SEGURANÇA: Verifica se o usuário tem permissão para este workspace
+    -- Usamos a função get_my_workspace_id() que já está definida
+    v_my_workspace := public.get_my_workspace_id();
+    
+    -- Admins específicos ou o próprio dono do workspace podem operar
+    IF v_my_workspace <> p_workspace_id AND NOT public.is_super_admin() THEN
+        RAISE EXCEPTION 'Acesso negado ao estoque deste workspace.';
+    END IF;
+
     -- Bloqueia a linha para atualização (evita race condition)
     SELECT quantity INTO v_current_stock 
     FROM public.inventory 

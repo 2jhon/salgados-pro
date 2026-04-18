@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import localforage from 'localforage';
 import { AppSection } from '../types';
-import { supabase, withRetry, safeStringifyError } from '../lib/supabase';
+import { supabase, withRetry, safeStringifyError, isNetworkError } from '../lib/supabase';
 import { toast } from 'sonner';
 
 const LS_CONFIG_KEY = 'salgados_app_config_v1';
@@ -34,12 +34,12 @@ export const useAppConfig = () => {
     }
   }, [activeWorkspace]);
 
-  const nexusReport = (msg: string, status: 'START' | 'DONE' | 'FAIL', type: 'PROCESS' | 'NETWORK' = 'PROCESS', taskId?: string) => {
+  const nexusReport = useCallback((msg: string, status: 'START' | 'DONE' | 'FAIL', type: 'PROCESS' | 'NETWORK' = 'PROCESS', taskId?: string) => {
     if ((window as any).Nexus) (window as any).Nexus.report(msg, status, type, taskId);
-  };
+  }, []);
 
   // Extremely Robust JSON parser that handles double-stringified JSON, object wrappers, or map-like objects
-  const parseJsonField = (field: any) => {
+  const parseJsonField = useCallback((field: any) => {
     if (!field) return [];
     if (Array.isArray(field)) return field;
     
@@ -78,7 +78,7 @@ export const useAppConfig = () => {
     }
     
     return [];
-  };
+  }, []);
 
   const mapSection = useCallback((s: any): AppSection => {
     let rawItems = parseJsonField(s.items);
@@ -134,11 +134,11 @@ export const useAppConfig = () => {
       
       lastSync: s.last_sync
     };
-  }, []);
+  }, [parseJsonField]);
 
   const fetchConfigByWorkspace = useCallback(async (workspaceId: string) => {
     if (!workspaceId) return;
-    setActiveWorkspaceId(workspaceId);
+    setActiveWorkspace(workspaceId);
     setLoading(true);
     const taskId = 'SYNC_CONFIG';
     nexusReport("Baixando configuração de abas...", 'START', 'NETWORK', taskId);
@@ -320,7 +320,7 @@ export const useAppConfig = () => {
     };
   }, [activeWorkspace, mapSection]);
 
-  const saveConfig = async (newSections: AppSection[]): Promise<boolean> => {
+  const saveConfig = useCallback(async (newSections: AppSection[]): Promise<boolean> => {
     if (newSections.length === 0 && sections.length > 0) return true;
 
     // Optimistic Update
@@ -361,10 +361,6 @@ export const useAppConfig = () => {
           latitude: s.latitude || null,
           longitude: s.longitude || null,
           last_sync: new Date().toISOString()
-          
-          // NOTE: We DO NOT send opening_hours, fulfillment_mode, etc. as top-level columns
-          // because they might not exist in the DB schema, causing 400 errors.
-          // They are stored safely inside `items` JSON via `metadataItem`.
         };
 
         return base;
@@ -385,9 +381,9 @@ export const useAppConfig = () => {
       toast.error("Erro ao salvar configuração.");
       return false;
     }
-  };
+  }, [sections]);
 
-  const deleteSection = async (sectionId: string) => {
+  const deleteSection = useCallback(async (sectionId: string) => {
     const sectionToDelete = sections.find(s => String(s.id) === String(sectionId));
     if (!sectionToDelete) return;
 
@@ -405,9 +401,9 @@ export const useAppConfig = () => {
       nexusReport(`Erro ao deletar aba: ${safeStringifyError(e)}`, 'FAIL', 'NETWORK', taskId);
       toast.error("Erro ao deletar aba.");
     }
-  };
+  }, [sections]);
 
-  const addToOfflineStockQueue = async (sectionId: string, itemUpdates: { id: string, quantity: number }[]) => {
+  const addToOfflineStockQueue = useCallback(async (sectionId: string, itemUpdates: { id: string, quantity: number }[]) => {
     if (!activeWorkspace) return;
     const newAction = {
       sectionId,
@@ -417,57 +413,9 @@ export const useAppConfig = () => {
     };
     const currentQueue: any[] = (await localforage.getItem(`offline_stock_${activeWorkspace}`)) || [];
     await localforage.setItem(`offline_stock_${activeWorkspace}`, [...currentQueue, newAction]);
-  };
-
-  const syncOfflineStockQueue = async () => {
-    if (!activeWorkspace) return;
-    const queue: any[] = (await localforage.getItem(`offline_stock_${activeWorkspace}`)) || [];
-    if (queue.length === 0) return;
-
-    setIsSyncing(true);
-    console.log(`[OfflineSync] Sincronizando ${queue.length} atualizações de estoque pendentes...`);
-    
-    const remainingQueue = [...queue];
-    
-    for (const action of queue) {
-      try {
-        await updateStockAtomic(action.sectionId, action.itemUpdates, true);
-        remainingQueue.shift();
-        await localforage.setItem(`offline_stock_${activeWorkspace}`, remainingQueue);
-      } catch (e: any) {
-        console.error(`[OfflineSync] Erro na sincronização de estoque:`, e);
-        if (e.message === 'Failed to fetch' || !navigator.onLine) {
-          break; // Stop processing on network error
-        } else {
-          // Discard action if it's a permanent error
-          remainingQueue.shift();
-          await localforage.setItem(`offline_stock_${activeWorkspace}`, remainingQueue);
-        }
-      }
-    }
-    setIsSyncing(false);
-  };
-
-  const reconnect = async () => {
-    await syncOfflineStockQueue();
-  };
-
-  // Listen for online events to trigger sync
-  useEffect(() => {
-    const handleOnline = () => {
-      syncOfflineStockQueue();
-    };
-    window.addEventListener('online', handleOnline);
-    
-    // Also try to sync immediately if online
-    if (navigator.onLine) {
-      syncOfflineStockQueue();
-    }
-    
-    return () => window.removeEventListener('online', handleOnline);
   }, [activeWorkspace]);
 
-  const updateStockAtomic = async (sectionId: string, itemUpdates: { id: string, quantity: number }[], isSyncing = false): Promise<boolean> => {
+  const updateStockAtomic = useCallback(async (sectionId: string, itemUpdates: { id: string, quantity: number }[], isSyncing = false): Promise<boolean> => {
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineStockQueue(sectionId, itemUpdates);
       
@@ -576,7 +524,7 @@ export const useAppConfig = () => {
       }
       return true;
     } catch (e: any) {
-      if (!isSyncing && (e.message === 'Failed to fetch' || !navigator.onLine)) {
+      if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineStockQueue(sectionId, itemUpdates);
         
         // Optimistic update locally
@@ -598,9 +546,42 @@ export const useAppConfig = () => {
       toast.error("Erro ao atualizar estoque.");
       return false;
     }
-  };
+  }, [activeWorkspace, isSyncing, mapSection, saveConfig, sections]);
 
-  const setActiveWorkspaceId = (id: string) => { setActiveWorkspace(id); };
+  const syncOfflineStockQueue = useCallback(async () => {
+    if (!activeWorkspace) return;
+    const queue: any[] = (await localforage.getItem(`offline_stock_${activeWorkspace}`)) || [];
+    if (queue.length === 0) return;
+
+    setIsSyncing(true);
+    console.log(`[OfflineSync] Sincronizando ${queue.length} atualizações de estoque pendentes...`);
+    
+    const remainingQueue = [...queue];
+    
+    for (const action of queue) {
+      try {
+        await updateStockAtomic(action.sectionId, action.itemUpdates, true);
+        remainingQueue.shift();
+        await localforage.setItem(`offline_stock_${activeWorkspace}`, remainingQueue);
+      } catch (e: any) {
+        console.error(`[OfflineSync] Erro na sincronização de estoque:`, e);
+        if (isNetworkError(e) || !navigator.onLine) {
+          break; // Stop processing on network error
+        } else {
+          // Discard action if it's a permanent error
+          remainingQueue.shift();
+          await localforage.setItem(`offline_stock_${activeWorkspace}`, remainingQueue);
+        }
+      }
+    }
+    setIsSyncing(false);
+  }, [activeWorkspace, updateStockAtomic]);
+
+  const setActiveWorkspaceId = useCallback((id: string) => { setActiveWorkspace(id); }, []);
+
+  const reconnect = useCallback(async () => {
+    await syncOfflineStockQueue();
+  }, [syncOfflineStockQueue]);
 
   return { sections, archives, publicStalls, saveConfig, deleteSection, updateStockAtomic, loading, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls };
 };

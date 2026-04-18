@@ -89,7 +89,7 @@ export const useCustomers = (workspaceId?: string) => {
     };
   }, [workspaceId, fetchCustomers]);
 
-  const addCustomer = async (name: string, phone?: string, type: 'CLIENT' | 'SUPPLIER' = 'CLIENT') => {
+  const addCustomer = useCallback(async (name: string, phone?: string, type: 'CLIENT' | 'SUPPLIER' = 'CLIENT') => {
     if (!workspaceId) return null;
     
     // Ensure clean phone number
@@ -163,16 +163,16 @@ export const useCustomers = (workspaceId?: string) => {
       console.error("Erro ao adicionar cliente:", safeStringifyError(err));
     }
     return null;
-  };
+  }, [workspaceId]);
 
-  const removeCustomer = async (id: string) => {
+  const removeCustomer = useCallback(async (id: string) => {
     setCustomers(prev => prev.filter(c => String(c.id) !== String(id)));
     try {
       await supabase.from('customers').delete().eq('id', id);
     } catch (e) {}
-  };
+  }, []);
 
-  const updateCustomer = async (id: string, updates: Partial<Customer>) => {
+  const updateCustomer = useCallback(async (id: string, updates: Partial<Customer>) => {
     // Atualização otimista local
     setCustomers(prev => prev.map(c => 
       String(c.id) === String(id) ? { ...c, ...updates } : c
@@ -200,7 +200,7 @@ export const useCustomers = (workspaceId?: string) => {
       console.error("Erro ao atualizar cliente no servidor:", safeStringifyError(e));
       // O realtime reverterá o estado caso necessário
     }
-  };
+  }, []);
 
   return { customers, addCustomer, removeCustomer, updateCustomer, loading };
 };

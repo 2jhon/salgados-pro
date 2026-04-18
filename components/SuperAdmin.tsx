@@ -204,23 +204,22 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     else setLoading(true);
 
     try {
-      // Se for carregamento inicial ou busca, começamos do zero. 
-      // Se for "Carregar Mais", usamos a página atual + 1.
-      const targetPage = isLoadMore ? page + 1 : 0;
+      // Use functional update to get current value without dependency
+      let targetPage = 0;
+      setPage(prev => {
+        targetPage = isLoadMore ? prev + 1 : 0;
+        return targetPage;
+      });
+
       const from = targetPage * ITEMS_PER_PAGE;
       const to = from + ITEMS_PER_PAGE - 1;
 
-      let query = supabase
+      const { data: metrics, error } = await supabase
         .from('company_metrics')
         .select('*')
         .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (search) {
-        query = query.or(`company_name.ilike.%${search}%,owner_email.ilike.%${search}%,workspace_id.ilike.%${search}%`);
-      }
-
-      const { data: metrics, error } = await query;
+        .range(from, to)
+        .or(search ? `company_name.ilike.%${search}%,owner_email.ilike.%${search}%,workspace_id.ilike.%${search}%` : 'id.neq.0'); // Dummy or if no search
 
       if (error) throw error;
 
@@ -253,29 +252,24 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
         if (isLoadMore) {
           setCompanies(prev => [...prev, ...newCompanies]);
-          setPage(targetPage);
         } else {
           setCompanies(newCompanies);
-          setPage(0);
         }
 
         setHasMore(metrics.length === ITEMS_PER_PAGE);
       }
     } catch (e) {
       console.error("Erro ao buscar empresas:", e);
-      toast.error("Erro ao carregar empresas.");
+      toast.error("Erro ao carregar empresas: " + (e as any).message);
     } finally {
       setLoading(false);
       setIsFetchingMore(false);
     }
-  }, [page]);
+  }, []); // Break the [page] loop
 
-  // Efeito para busca com debounce (Fase 3 de Performance)
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchTerm.length >= 2 || searchTerm === '') {
-        fetchCompanies(false, searchTerm);
-      }
+      fetchCompanies(false, searchTerm);
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm, fetchCompanies]);
@@ -414,8 +408,8 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       
     } catch (e: any) { 
       console.error("Erro ao encerrar plano:", e);
-      toast.error("Erro ao encerrar plano: " + (e.message || "Erro desconhecido"));
-    } finally { 
+      toast.error("Erro ao encerrar plano: " + safeStringifyError(e));
+    } finally {
       setIsSaving(false); 
     }
   };

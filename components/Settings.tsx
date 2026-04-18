@@ -10,7 +10,7 @@ import { CouponManager } from './CouponManager';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 import { GoogleGenAI } from "@google/genai";
-import { supabase } from '../lib/supabase';
+import { supabase, safeStringifyError } from '../lib/supabase';
 import { AuditLog } from './AuditLog';
 import { 
   Layout, Users, Megaphone, Settings as SettingsIcon,
@@ -307,12 +307,14 @@ export const Settings: React.FC<SettingsProps> = ({
     if (!userForm.name || !userForm.accessCode) return;
     setIsProcessing(true);
     
+    const cleanEmail = userForm.email ? userForm.email.trim().toLowerCase() : '';
+    
     try {
       if (editingUser) {
         await updateUser(editingUser.id, {
           name: userForm.name,
           phone: userForm.phone,
-          email: userForm.email,
+          email: cleanEmail,
           accessCode: userForm.accessCode,
           role: userForm.role as any,
           hideSalesValues: userForm.hideSalesValues,
@@ -343,7 +345,7 @@ export const Settings: React.FC<SettingsProps> = ({
           workspaceId: currentUser.workspaceId,
           name: userForm.name,
           phone: userForm.phone,
-          email: userForm.email,
+          email: cleanEmail,
           accessCode: userForm.accessCode,
           role: userForm.role as any,
           isAdFree: false,
@@ -367,8 +369,10 @@ export const Settings: React.FC<SettingsProps> = ({
       setShowUserModal(false);
       setEditingUser(null);
       toast.success("Colaborador salvo com sucesso!");
-    } catch(e) {
-      toast.error("Erro ao salvar usuário.");
+    } catch(e: any) {
+      console.error("Erro interno ao salvar usuário", e);
+      const errorMsg = safeStringifyError(e);
+      toast.error(errorMsg);
     } finally {
       setIsProcessing(false);
     }
@@ -936,8 +940,9 @@ export const Settings: React.FC<SettingsProps> = ({
       addNote({
         workspaceId: currentUser.workspaceId,
         createdById: 'system',
+        createdByName: 'Sistema',
         content: `Relatório de histórico (${scopeLabel}) baixado com sucesso.`,
-        type: 'system'
+        type: 'LOG'
       });
     }
   };

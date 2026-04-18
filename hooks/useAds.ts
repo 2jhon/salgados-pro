@@ -83,7 +83,7 @@ export const useAds = () => {
     };
   }, [fetchAds, mapAd]);
 
-  const saveAd = async (ad: Partial<Ad> & { ownerId: string, workspaceId: string }) => {
+  const saveAd = useCallback(async (ad: Partial<Ad> & { ownerId: string, workspaceId: string }) => {
     const taskId = `SAVE_AD_${Date.now()}`;
     nexusReport(`Processando solicitação de anúncio: ${ad.title}`, 'START', 'NETWORK', taskId);
     
@@ -125,9 +125,9 @@ export const useAds = () => {
       nexusReport(`Falha: ${errorMsg}`, 'FAIL', 'NETWORK', taskId);
     }
     return null;
-  };
+  }, [mapAd]);
 
-  const deleteAd = async (adId: string) => {
+  const deleteAd = useCallback(async (adId: string) => {
     const taskId = `DEL_AD_${adId}`;
     try {
       const { error } = await supabase.from('ads').delete().eq('id', adId);
@@ -137,13 +137,13 @@ export const useAds = () => {
     } catch (e: any) {
       return false;
     }
-  };
+  }, []);
 
-  const incrementClick = async (ad_id: string) => {
+  const incrementClick = useCallback(async (ad_id: string) => {
     try {
       await supabase.rpc('increment_ad_clicks', { ad_id });
     } catch (e) {}
-  };
+  }, []);
 
   return { ads, loading, saveAd, deleteAd, incrementClick, fetchAds };
 };

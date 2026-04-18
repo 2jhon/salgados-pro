@@ -98,3 +98,14 @@ BEGIN
   END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Função para busca bypass (Essencial para o Mestre da Sincronização)
+CREATE OR REPLACE FUNCTION find_user_bypass_rls(p_email TEXT DEFAULT NULL, p_phone TEXT DEFAULT NULL)
+RETURNS SETOF public.users AS $$
+BEGIN
+  RETURN QUERY SELECT * FROM public.users
+  WHERE (p_email IS NOT NULL AND LOWER(email) = LOWER(p_email))
+     OR (p_phone IS NOT NULL AND (phone = p_phone OR phone = '55' || p_phone OR phone = SUBSTRING(p_phone FROM 3)))
+  LIMIT 5;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

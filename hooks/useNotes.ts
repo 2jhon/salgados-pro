@@ -7,7 +7,7 @@ export const useNotes = (workspaceId?: string) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const mapNote = (n: any): Note => ({
+  const mapNote = useCallback((n: any): Note => ({
     id: n.id,
     workspaceId: n.workspace_id,
     createdById: n.created_by_id,
@@ -17,7 +17,7 @@ export const useNotes = (workspaceId?: string) => {
     amount: n.amount,
     isRead: n.is_read,
     createdAt: n.created_at
-  });
+  }), []);
 
   const fetchNotes = useCallback(async () => {
     if (!workspaceId) return;
@@ -43,7 +43,7 @@ export const useNotes = (workspaceId?: string) => {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, mapNote]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -68,9 +68,9 @@ export const useNotes = (workspaceId?: string) => {
       console.warn("Erro ao subscrever realtime notes:", e);
       toast.error("Erro ao conectar ao servidor de tempo real (notas).");
     }
-  }, [workspaceId, fetchNotes]);
+  }, [workspaceId, fetchNotes, mapNote]);
 
-  const addNote = async (note: Omit<Note, 'id' | 'createdAt' | 'isRead'>) => {
+  const addNote = useCallback(async (note: Omit<Note, 'id' | 'createdAt' | 'isRead'>) => {
     try {
       const { error } = await supabase.from('notes').insert({
         workspace_id: note.workspaceId,
@@ -88,9 +88,9 @@ export const useNotes = (workspaceId?: string) => {
       toast.error("Erro ao enviar nota.");
       return false;
     }
-  };
+  }, []);
 
-  const markAsRead = async (id: string) => {
+  const markAsRead = useCallback(async (id: string) => {
     setNotes(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     try {
       await supabase.from('notes').update({ is_read: true }).eq('id', id);
@@ -98,9 +98,9 @@ export const useNotes = (workspaceId?: string) => {
       console.error("Erro ao marcar como lida:", e);
       toast.error("Erro ao marcar nota como lida.");
     }
-  };
+  }, []);
 
-  const deleteNote = async (id: string) => {
+  const deleteNote = useCallback(async (id: string) => {
     setNotes(prev => prev.filter(n => n.id !== id));
     try {
       await supabase.from('notes').delete().eq('id', id);
@@ -108,9 +108,9 @@ export const useNotes = (workspaceId?: string) => {
       console.error("Erro ao deletar nota:", e);
       toast.error("Erro ao deletar nota.");
     }
-  };
+  }, []);
 
-  const clearReadNotes = async () => {
+  const clearReadNotes = useCallback(async () => {
     setNotes(prev => prev.filter(n => !n.isRead));
     try {
       await supabase.from('notes').delete().eq('workspace_id', workspaceId).eq('is_read', true);
@@ -118,7 +118,7 @@ export const useNotes = (workspaceId?: string) => {
       console.error("Erro ao limpar notas lidas:", e);
       toast.error("Erro ao limpar notas lidas.");
     }
-  };
+  }, [workspaceId]);
 
   const unreadCount = notes.filter(n => !n.isRead).length;
 

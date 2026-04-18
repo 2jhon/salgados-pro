@@ -1,14 +1,100 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://vvxvwntjwjzalzjiwrmm.supabase.co';
-const supabaseAnonKey = 'sb_publishable_xRQhm9rvVA2FTQUxgP8uDQ_Nwx4LwFQ'; 
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eHZ3bnRqd2p6YWx6aml3cm1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwOTkyMjcsImV4cCI6MjA4MTY3NTIyN30.HrjArI3Mq5dvsYhQXTJw-cL691J7QMhj9ixh6mzz6sI'; 
 
 console.log('[DEBUG_SUPABASE] Initializing Supabase client...');
+
+const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit | undefined): Promise<Response> => {
+  let attempts = 0;
+  const maxAttempts = 6; 
+  const url = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : '');
+  
+  while (attempts < maxAttempts) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); 
+    
+    try {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      // Se for uma chamada de refresh token e der erro de rede escondido (browser bug)
+      // ou se o status for 400 em um refresh, pode ser token expirado/chave trocada
+      if (url.includes('auth/v1/token') && response.status === 400) {
+         console.warn("[Supabase Auth] Refresh token inválido. Possível troca de chave. Limpando sessão...");
+         const projectRef = supabaseUrl.split('//')[1].split('.')[0];
+         localStorage.removeItem('supabase-auth-token');
+         localStorage.removeItem(`sb-${projectRef}-auth-token`);
+         localStorage.removeItem('logged_user');
+      }
+      
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const msg = (err?.message || String(err)).toLowerCase();
+      const errName = err?.name || 'Error';
+      
+      // Ignora erro de refresh token no log de erro crítico para não assustar o usuário
+      // O Supabase SDK lida com isso se retornarmos a falha
+      if (!url.includes('refresh_token')) {
+        console.error(`[Supabase Fetch Failure] URL: ${url} | Name: ${errName} | Msg: ${err.message}`);
+      }
+      
+      const isAbort = err.name === 'AbortError' || msg.includes('aborted') || msg.includes('timeout');
+      const isNetwork = msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('net::err') || msg.includes('dns');
+      
+      if (isAbort || isNetwork) {
+        // Se for falha de refresh token, não faz 6 tentativas, pois só atrasa o boot
+        if (url.includes('refresh_token')) {
+           console.warn("[Supabase Auth] Falha de rede no refresh token. Limpando sessão local para evitar travamento.");
+           const projectRef = supabaseUrl.split('//')[1].split('.')[0];
+           localStorage.removeItem('supabase-auth-token');
+           localStorage.removeItem(`sb-${projectRef}-auth-token`);
+           localStorage.removeItem('logged_user');
+           throw err; 
+        }
+
+        attempts++;
+        if (attempts >= maxAttempts) {
+          let reason = "Problema de Rede/DNS: O navegador não conseguiu completar a chamada HTTP.";
+          if (isAbort) reason = "Tempo Limite: O servidor demorou mais de 60s para responder (Pode estar acordando do zero).";
+          
+          const customErr = new Error(`${reason}
+          
+DICAS:
+1. Se estiver no Wi-Fi, tente Dados Móveis.
+2. Verifique se o projeto Supabase (${url}) está PAUSADO ou EXCLUÍDO no painel da Supabase.
+3. Se o erro for DNS, sua rede pode estar bloqueando domínios .supabase.co.`);
+
+          (customErr as any).code = isAbort ? 'TIMEOUT_FETCH' : 'NETWORK_ERROR';
+          (customErr as any).status = 0;
+          (customErr as any).url = url;
+          (customErr as any).originalError = err;
+          throw customErr;
+        }
+        
+        const delay = 4000 * attempts;
+        const jitter = Math.random() * 2000;
+        console.warn(`[Supabase Resilience] Falha (Tentativa ${attempts}/${maxAttempts}). Aguardando ${((delay + jitter)/1000).toFixed(1)}s... URL: ${url}`);
+        await new Promise(resolve => setTimeout(resolve, delay + jitter));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error("Erro de Conexão Crítico.");
+};
+
+// Validação básica de Sanidade das chaves
+if (supabaseAnonKey.length < 50 && !supabaseUrl.includes('localhost')) {
+  console.error('!!! AVISO CRÍTICO: Chave Anon do Supabase parece ser curta demais ou inválida. Verifique sua configuração !!!');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: true, autoRefreshToken: true },
   global: { 
     headers: { 'x-application-name': 'salgados-pro-v3' },
+    fetch: resilientFetch
   },
   db: { schema: 'public' }
 });
@@ -51,16 +137,28 @@ export function withTimeout<T>(promise: Promise<T> | PromiseLike<T>, timeoutMs =
 export const isNetworkError = (error: any): boolean => {
   if (!error) return false;
   const msg = (error.message || String(error)).toLowerCase();
-  return (
-    error instanceof TypeError || 
-    msg.includes('fetch') || 
-    msg.includes('network') || 
-    msg.includes('load failed') ||
-    msg.includes('cors') ||
-    msg.includes('net::err_blocked_by_client') ||
+  
+  if (
     msg.includes('failed to fetch') ||
-    msg.includes('connection refused')
-  );
+    msg.includes('network error') ||
+    msg.includes('load failed') ||
+    msg.includes('connection refused') ||
+    msg.includes('net::err') ||
+    msg.includes('cors') ||
+    msg.includes('offline or inacessível') ||
+    msg.includes('verifique sua conexão') ||
+    msg.includes('servidor está online') ||
+    msg.includes('inacessível')
+  ) {
+    return true;
+  }
+  
+  // Apenas TypeError relacionado a fetch deve ser considerado erro de rede
+  if (error instanceof TypeError && (msg.includes('fetch') || msg.includes('network'))) {
+    return true;
+  }
+  
+  return false;
 };
 
 export const isTimeoutError = (error: any): boolean => {
@@ -71,21 +169,37 @@ export const isTimeoutError = (error: any): boolean => {
     code === '57014' || 
     code === 'PGRST103' || 
     code === 'TIMEOUT_PROMISE' ||
+    code === 'TIMEOUT_FETCH' ||
+    msg.includes('tempo esgotado') ||
     msg.includes('timeout') || 
     msg.includes('deadline exceeded') ||
-    msg.includes('abort')
+    msg.includes('abort') ||
+    msg.includes('demorando muito')
   );
 };
 
 export const safeStringifyError = (error: any): string => {
   if (error === null || error === undefined) return "Erro desconhecido";
-  if (typeof error === 'string') return error;
   
-  if (isNetworkError(error)) return "Erro de Conexão: Verifique sua internet.";
-  if (isTimeoutError(error)) return "Tempo Esgotado: O servidor demorou a responder.";
+  // Prioriza mensagens customizadas do Nexus/ResilientFetch
+  if (error instanceof Error && ((error as any).code === 'NETWORK_ERROR' || (error as any).code === 'TIMEOUT_FETCH')) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    const low = error.toLowerCase();
+    if (low.includes('failed to fetch') || low.includes('network error')) {
+      return "Rede Inestável: O servidor está inacessível no momento. Tente novamente em instantes.";
+    }
+    return error;
+  }
+  
+  if (isNetworkError(error)) return "Problema de Conexão: Seu navegador não conseguiu falar com o servidor. Isso geralmente é bloqueio de Wi-Fi, DNS ou o servidor está em hibernação profunda. Tente usar Dados Móveis.";
+  if (isTimeoutError(error)) return "Tempo Esgotado: O servidor demorou mais de 60 segundos para responder. Clique em Limpar Sessão ou tente mais tarde.";
 
   // Handle native JS Error objects with recursive cause check
   if (error instanceof Error) {
+    if (error.message.includes('Failed to fetch')) return "Falha de Rede: Não foi possível carregar os dados. Verifique seu Wi-Fi/DNS ou mude para Dados Móveis.";
     const cause = (error as any).cause;
     const causeStr = cause ? ` (Causa: ${safeStringifyError(cause)})` : '';
     return `${error.name}: ${error.message}${causeStr}`;
@@ -142,15 +256,19 @@ export const safeStringifyError = (error: any): string => {
   return String(error);
 };
 
-export async function withRetry<T>(fn: () => Promise<T>, retries = 4, delay = 3000): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, retries = 1, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    const isRetryable = error.status === 500 || error.status === 502 || error.status === 503 || isNetworkError(error) || isTimeoutError(error);
+    // Se o erro for do resilientFetch (Network Exception), aqui damos uma última chance se retries > 0
+    const isAuthError = error.status >= 400 && error.status < 500 && error.status !== 429;
+    
+    // Permitimos o retry de NETWORK_ERROR se ainda houverem tentativas, pois o delay maior do withRetry pode ajudar
+    const isRetryable = (error.status === 500 || error.status === 502 || error.status === 503 || error.status === 429 || isNetworkError(error) || isTimeoutError(error)) && !isAuthError;
+    
     if (isRetryable && retries > 0) {
-      console.warn(`Nexus Resilience: Tentativa de reconexão em ${delay}ms... (${retries} restantes)`);
+      console.warn(`Nexus Resilience: Tentando reconexão em ${delay}ms... (${retries} restantes)`);
       await new Promise(res => setTimeout(res, delay));
-      // Exponential backoff
       return withRetry(fn, retries - 1, delay * 2);
     }
     throw error;
@@ -182,7 +300,7 @@ export const upsertInventory = async (workspaceId: string, sectionId: string, it
   }
 };
 
-export const checkDatabaseHealth = async (timeout = 25000, maxAttempts = 3) => {
+export const checkDatabaseHealth = async (timeout = 30000, maxAttempts = 3) => {
   let attempts = 0;
   
   while (attempts < maxAttempts) {
@@ -217,7 +335,11 @@ export const checkDatabaseHealth = async (timeout = 25000, maxAttempts = 3) => {
       
       if (attempts >= maxAttempts) {
         const msg = safeStringifyError(e);
-        console.error('[DEBUG_SUPABASE] DB Health FAIL:', msg);
+        if (isTimeoutError(e)) {
+          console.warn('[DEBUG_SUPABASE] DB Health Timeout:', msg);
+        } else {
+          console.error('[DEBUG_SUPABASE] DB Health FAIL:', msg);
+        }
         return { ok: false, error: e };
       }
       

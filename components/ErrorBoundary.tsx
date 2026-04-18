@@ -1,6 +1,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { safeStringifyError } from '../lib/supabase';
 
 interface Props {
   children?: ReactNode;
@@ -58,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
         if (typeof error === 'string') {
           errorMessage = error;
         } else if (error instanceof Error) {
-          errorMessage = error.message;
+          errorMessage = safeStringifyError(error);
         } else {
           // It's a non-standard error object
           const anyError = error as any;
