@@ -756,7 +756,7 @@ export const Factory: React.FC<FactoryProps> = ({
                   onClick={async () => {
                     const toastId = toast.loading("Conectando à impressora...");
                     try {
-                      await printer.printReceipt(section.name, successModal.items, successModal.total, successModal.customer);
+                      await printer.printReceipt(section.name, successModal.items, successModal.total, successModal.customer, section.workspaceId);
                       toast.success("Recibo impresso!", { id: toastId });
                     } catch (e: any) {
                       if (e.message === "IOS_NOT_SUPPORTED") {

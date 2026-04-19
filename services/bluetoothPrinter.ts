@@ -68,11 +68,23 @@ class BluetoothPrinterService {
     fullData.set(data, init.length);
     fullData.set(cut, init.length + data.length);
 
-    // Write in chunks (MTU limit is usually 20 bytes for some devices)
+    // Helper para evitar o engasgo da impressora térmica (GATT Overflow)
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // BLE DEFAULT MTU IS 20 BYTES. Não aumentar, caso contrário impressoas nativas derrubam dando erro de GATT "unknown reason"
     const chunkSize = 20;
     for (let i = 0; i < fullData.length; i += chunkSize) {
       const chunk = fullData.slice(i, i + chunkSize);
-      await this.characteristic.writeValue(chunk);
+      
+      // Tenta usar o canal sem resposta primeiro (mais leve e exigido por impressoras modernas)
+      if (this.characteristic.properties.writeWithoutResponse) {
+        await this.characteristic.writeValueWithoutResponse(chunk);
+      } else {
+        await this.characteristic.writeValue(chunk);
+      }
+      
+      // Micro-pausa de 40ms para a impressora digerir o pacote (resolve o GATT operation failed)
+      await sleep(40);
     }
   }
 
