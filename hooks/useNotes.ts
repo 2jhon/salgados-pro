@@ -100,6 +100,18 @@ export const useNotes = (workspaceId?: string) => {
     }
   }, []);
 
+  const markAllAsRead = useCallback(async () => {
+    if (!workspaceId) return;
+    setNotes(prev => prev.map(n => ({ ...n, isRead: true })));
+    try {
+      await supabase.from('notes').update({ is_read: true }).eq('workspace_id', workspaceId).eq('is_read', false);
+      toast.success("Todas lidas!");
+    } catch (e) {
+      console.error("Erro ao marcar todas como lidas:", e);
+      toast.error("Erro ao marcar todas como lidas.");
+    }
+  }, [workspaceId]);
+
   const deleteNote = useCallback(async (id: string) => {
     setNotes(prev => prev.filter(n => n.id !== id));
     try {
@@ -122,5 +134,5 @@ export const useNotes = (workspaceId?: string) => {
 
   const unreadCount = notes.filter(n => !n.isRead).length;
 
-  return { notes, loading, addNote, markAsRead, deleteNote, clearReadNotes, unreadCount };
+  return { notes, loading, addNote, markAsRead, markAllAsRead, deleteNote, clearReadNotes, unreadCount };
 };

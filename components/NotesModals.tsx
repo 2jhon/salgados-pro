@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Note } from '../types';
-import { X, Send, AlertTriangle, Info, DollarSign, Check, Bell, Trash2 } from 'lucide-react';
+import { X, Send, AlertTriangle, Info, DollarSign, Check, Bell, Trash2, CheckCheck } from 'lucide-react';
 
 interface NoteComposerProps {
   onClose: () => void;
@@ -79,11 +79,12 @@ interface NotesInboxProps {
   notes: Note[];
   onClose: () => void;
   onMarkAsRead: (id: string) => void;
+  onMarkAllAsRead?: () => void;
   onDelete?: (id: string) => void;
   onClearAll?: () => void;
 }
 
-export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAsRead, onDelete, onClearAll }) => {
+export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAsRead, onMarkAllAsRead, onDelete, onClearAll }) => {
   const formatDate = (dateStr: string) => {
     try {
       if (!dateStr) return '';
@@ -95,6 +96,7 @@ export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAs
   };
 
   const hasReadNotes = notes.some(n => n.isRead);
+  const hasUnreadNotes = notes.some(n => !n.isRead);
 
   return (
     <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
@@ -106,12 +108,20 @@ export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAs
             </div>
             <div>
               <h3 className="text-xl font-black text-slate-800 uppercase">Avisos</h3>
-              <div className="flex items-center gap-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Central de Ocorrências</p>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:block">Central de Ocorrências</p>
+                {hasUnreadNotes && onMarkAllAsRead && (
+                  <button 
+                    onClick={onMarkAllAsRead} 
+                    className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[8px] font-black uppercase flex items-center gap-1 hover:bg-emerald-100 transition-colors"
+                  >
+                    <CheckCheck size={10} /> Ler Tudo
+                  </button>
+                )}
                 {hasReadNotes && onClearAll && (
                   <button 
                     onClick={onClearAll} 
-                    className="ml-2 px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[8px] font-black uppercase flex items-center gap-1 hover:bg-red-100 transition-colors"
+                    className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[8px] font-black uppercase flex items-center gap-1 hover:bg-red-100 transition-colors"
                   >
                     <Trash2 size={10} /> Limpar Lidas
                   </button>

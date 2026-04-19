@@ -37,6 +37,22 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [reportManager, setReportManager] = useState<string | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [ghostToDelete, setGhostToDelete] = useState<string | null>(null);
+  const [isWiping, setIsWiping] = useState(false);
+
+  const wipeGhostHistory = async (name: string) => {
+    if (isWiping) return;
+    setIsWiping(true);
+    const txs = managerGroups[name];
+    if (txs) {
+      for (const t of txs) {
+        await deleteTransaction(t.id);
+      }
+    }
+    setIsWiping(false);
+    setGhostToDelete(null);
+    setExpandedManager(null);
+  };
 
   // Agrupar transações por quem criou
   const managerGroups = useMemo(() => {
@@ -51,7 +67,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
 
   // Encontrar metadados do usuário (cargo/área) baseado no nome do criadoBy
   const getManagerMeta = (name: string) => {
-    const user = users.find(u => u.name === name);
+    const user = users.find(u => typeof u.name === 'string' && typeof name === 'string' && u.name.trim().toLowerCase() === name.trim().toLowerCase());
     if (!user) return { role: 'Admin/Externo', area: 'Geral' };
     
     const roleMap: Record<string, string> = {
@@ -407,6 +423,30 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
                 <div className="px-6 pb-8 animate-in slide-in-from-top-4 duration-500">
                   <div className="h-px bg-slate-100 mb-6" />
                   
+                  {/* ZONA DE PERIGO PARA CONTAS EXCLUÍDAS/FANTASMAS */}
+                  {!users.some(u => typeof u.name === 'string' && typeof name === 'string' && u.name.trim().toLowerCase() === name.trim().toLowerCase()) 
+                    && !['Sistema/Admin', 'Empresa Parceira', 'Estoque', 'Configurações', 'Segurança', 'Sistema'].includes(name) && (
+                    <div className="mb-8 p-4 bg-rose-50/50 border border-rose-100 rounded-2xl animate-in fade-in">
+                      <div className="flex items-start gap-4">
+                        <div className="p-3 bg-white shadow-sm rounded-full text-rose-500">
+                          <AlertTriangle className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-sm font-black text-rose-800 uppercase tracking-tight mb-1">Conta Inativa (Fantasma)</h4>
+                          <p className="text-[10px] uppercase font-bold text-rose-600/70 mb-4 leading-relaxed">
+                            Este usuário não existe mais na configuração atual. Suas {managerGroups[name].length} ações antigas continuam no log histórico.
+                          </p>
+                          <button
+                            onClick={() => setGhostToDelete(name)}
+                            className="bg-white border text-[10px] border-rose-200 text-rose-600 px-4 py-2 rounded-xl font-black uppercase hover:bg-rose-600 hover:text-white transition-all shadow-sm flex items-center gap-2"
+                          >
+                            <Trash2 className="w-3 h-3" /> Limpar Histórico Desta Conta
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Seletor de Período Interno */}
                   <div className="flex bg-slate-100 p-1 rounded-2xl mb-8">
                     {(['day', 'week', 'month', 'all'] as PeriodType[]).map(p => (
@@ -558,6 +598,42 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
                 className="flex-1 py-4 bg-red-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-lg shadow-red-900/20"
               >
                 Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ghostToDelete && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="bg-rose-100 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 rotate-12">
+                <Trash2 className="w-10 h-10 text-rose-600" />
+              </div>
+              <h3 className="text-xl font-black text-rose-600 uppercase tracking-tight mb-3">Apagar o Passado?</h3>
+              <p className="text-sm font-medium text-slate-600 leading-relaxed mb-4">
+                Você está prestes a excluir <b className="text-rose-600 font-black">{managerGroups[ghostToDelete]?.length || 0} registros</b> atribuídos a <b>{ghostToDelete}</b>.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Aviso Irreversível</p>
+                <p className="text-xs text-amber-600/80 font-bold mt-1">O caixa total anterior não baterá mais se essas notas forem destruídas de vez. Ninguém poderá recuperar essa ação.</p>
+              </div>
+            </div>
+            <div className="flex p-4 gap-3 bg-slate-50 border-t border-slate-100">
+              <button 
+                onClick={() => setGhostToDelete(null)}
+                disabled={isWiping}
+                className="flex-1 py-4 bg-white text-slate-500 font-black uppercase text-[10px] tracking-widest rounded-2xl border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Manter Dados
+              </button>
+              <button 
+                onClick={() => wipeGhostHistory(ghostToDelete)}
+                disabled={isWiping}
+                className="flex-1 py-4 bg-rose-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-lg shadow-rose-900/20 hover:bg-rose-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isWiping ? 'Apagando... (Pode Levar Tempo)' : 'Destruir Registros'}
               </button>
             </div>
           </div>

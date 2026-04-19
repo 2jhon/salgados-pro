@@ -37,7 +37,7 @@ export const App: React.FC = () => {
   const { sections, archives, saveConfig, deleteSection, updateStockAtomic, fetchConfigByWorkspace, publicStalls, fetchPublicStalls, isSyncing: isStockSyncing, reconnect: reconnectStock } = useAppConfig();
   const { users, createUser, fetchUsersByWorkspace, findUserById, updateUser, removeUser, findUserByEmail, findUserByPhone, authenticateUser } = useUsers();
   
-  const { notes, unreadCount, markAsRead, deleteNote, clearReadNotes, addNote } = useNotes(currentUser?.workspaceId);
+  const { notes, unreadCount, markAsRead, markAllAsRead, deleteNote, clearReadNotes, addNote } = useNotes(currentUser?.workspaceId);
   
   const { 
     transactions, 
@@ -929,7 +929,7 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
-      {showNotesInbox && <NotesInbox notes={notes} onClose={() => setShowNotesInbox(false)} onMarkAsRead={markAsRead} onDelete={deleteNote} onClearAll={clearReadNotes} />}
+      {showNotesInbox && <NotesInbox notes={notes} onClose={() => setShowNotesInbox(false)} onMarkAsRead={markAsRead} onMarkAllAsRead={markAllAsRead} onDelete={deleteNote} onClearAll={clearReadNotes} />}
 
       {/* Modal de Confirmação de Saída */}
       {showExitConfirm && (
