@@ -131,7 +131,7 @@ export const useStoreProfiles = () => {
 
       // Only add fields if they are defined, allowing partial updates.
       // If the component passes undefined, these lines skip, and upsert (on existing row) keeps old values.
-      if (profile.name !== undefined) payload.name = (profile.name || 'Minha Loja').trim().substring(0, 100);
+      if (profile.name !== undefined) payload.name = (profile.name || '').trim().substring(0, 100);
       if (profile.description !== undefined) payload.description = (profile.description || '').trim().substring(0, 500);
       if (profile.address !== undefined) payload.address = (profile.address || '').trim().substring(0, 255);
       if (profile.whatsapp !== undefined) payload.whatsapp = (profile.whatsapp || '').replace(/\D/g, '');

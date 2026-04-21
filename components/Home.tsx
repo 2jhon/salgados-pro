@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useInterval } from '../hooks/useInterval';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
@@ -58,9 +58,11 @@ interface HomeProps {
   incrementClick: (adId: string) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   plans: SubscriptionPlan[];
+  stores: StoreProfile[];
+  stalls?: AppSection[];
 }
 
-export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections, transactions, user, onNavigate, ads, incrementClick, deleteTransaction, plans }) => {
+export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections, transactions, user, onNavigate, ads, incrementClick, deleteTransaction, plans, stores, stalls = [] }) => {
   const isOwner = user.role === 'OWNER';
   const isPro = !!user.hasProPlan;
   const isAdFree = !!user.isAdFree;
@@ -133,7 +135,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
   }, [isOwner, sections, user.assignedSectionIds]);
   
   const { customers } = useCustomers(user.workspaceId);
-  const { getMyProfile, profiles: allStores } = useStoreProfiles();
+  const { getMyProfile } = useStoreProfiles();
   const { getUserInteractions, getStoreAverageRating } = useStoreInteractions(user.id);
 
   const [userInteractions, setUserInteractions] = useState<{follows: string[], favorites: string[], ratings: any[]}>({follows: [], favorites: [], ratings: []});
@@ -146,10 +148,10 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
   }, [isOwner, getUserInteractions]);
 
   useEffect(() => {
-    if (!isOwner && allStores.length > 0) {
+    if (!isOwner && stores.length > 0) {
       const fetchRatings = async () => {
         const newRatings: Record<string, {average: number, count: number}> = {};
-        for (const store of allStores) {
+        for (const store of stores) {
           if (store.active) {
             const rating = await getStoreAverageRating(store.workspaceId);
             newRatings[store.workspaceId] = rating;
@@ -159,11 +161,24 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
       };
       fetchRatings();
     }
-  }, [isOwner, allStores, getStoreAverageRating]);
+  }, [isOwner, stores, getStoreAverageRating]);
 
   const [selectedNoteGroup, setSelectedNoteGroup] = useState<Transaction[] | null>(null);
   const [noteStore, setNoteStore] = useState<StoreProfile | null>(null);
   const [loadingNote, setLoadingNote] = useState(false);
+
+  const getStoreDisplayName = useCallback((store: StoreProfile) => {
+      const isGeneric = !store.name || store.name === 'Minha Loja' || store.name === 'Loja sem Nome';
+      
+      if (isGeneric) {
+          const stall = stalls?.find(s => s.workspaceId === store.workspaceId);
+          if (stall && stall.name && stall.name !== 'Minha Barraca' && stall.name !== 'Minha Loja') {
+              return stall.name;
+          }
+          return 'Loja Oficial';
+      }
+      return store.name;
+  }, [stalls]);
 
   // Report State
   const [reportTarget, setReportTarget] = useState<string | null>(null);
@@ -492,7 +507,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
                       </div>
                       <div className="flex gap-4 overflow-x-auto pb-4 snap-x hide-scrollbar px-2">
                           {userInteractions.favorites.map(workspaceId => {
-                              const store = allStores.find(s => s.workspaceId === workspaceId);
+                              const store = stores.find(s => s.workspaceId === workspaceId);
                               if (!store || !store.active) return null;
                               return (
                                   <button 
@@ -507,7 +522,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
                                               <div className="w-full h-full flex items-center justify-center text-slate-300"><Store size={24} /></div>
                                           )}
                                       </div>
-                                      <h4 className="font-black text-slate-800 text-sm truncate text-center">{store.name}</h4>
+                                      <h4 className="font-black text-slate-800 text-sm truncate text-center">{getStoreDisplayName(store)}</h4>
                                       <div className="flex justify-center mt-1">
                                           {storeRatings[workspaceId] && storeRatings[workspaceId].count > 0 ? (
                                               <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-500">
@@ -531,7 +546,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
                       <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Sugeridas para Você</h3>
                   </div>
                   <div className="space-y-3 px-2">
-                      {allStores
+                      {stores
                           .filter(s => s.active && !userInteractions.favorites.includes(s.workspaceId))
                           .sort((a, b) => {
                               const ratingA = storeRatings[a.workspaceId]?.average || 0;
@@ -553,7 +568,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
                                       )}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                      <h4 className="font-black text-slate-800 text-sm truncate">{store.name}</h4>
+                                      <h4 className="font-black text-slate-800 text-sm truncate">{getStoreDisplayName(store)}</h4>
                                       <p className="text-[10px] font-bold text-slate-400 truncate">{store.address || 'Loja Física'}</p>
                                   </div>
                                   <div className="flex flex-col items-end gap-1">
@@ -569,7 +584,7 @@ export const Home: React.FC<HomeProps> = ({ sections, archives, visibleSections,
                               </button>
                           ))
                       }
-                      {allStores.filter(s => s.active && !userInteractions.favorites.includes(s.workspaceId)).length === 0 && (
+                      {stores.filter(s => s.active && !userInteractions.favorites.includes(s.workspaceId)).length === 0 && (
                           <div className="text-center py-8 bg-slate-50 rounded-[2rem] border border-slate-100 border-dashed">
                               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nenhuma sugestão no momento</p>
                           </div>

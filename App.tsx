@@ -389,6 +389,7 @@ export const App: React.FC = () => {
     try {
       // Limpa local primeiro para feedback instantâneo
       localStorage.removeItem('logged_user');
+      localStorage.removeItem('active_workspace_id'); // Clear workspace context
       setCurrentUser(null);
       setAuthMode('IDENTIFY');
       setCompanyProfile(null);
@@ -400,6 +401,8 @@ export const App: React.FC = () => {
       supabase.auth.signOut().catch(e => console.warn("Sign out error:", e));
     } finally {
       setIsProcessing(false);
+      // Optional: reload to ensure clean slate
+      // window.location.reload(); 
     }
   };
 
@@ -418,10 +421,11 @@ export const App: React.FC = () => {
 
   const allowedSections = useMemo(() => {
     if (!currentUser || !sections.length) return [];
+    if (targetType === 'CUSTOMER') return [];
     if (currentUser.role === 'OWNER') return sections.filter(s => s.type !== 'STOCK_STYLE');
     const assignedIds = currentUser.assignedSectionIds || [];
     return sections.filter(s => assignedIds.includes(s.id));
-  }, [sections, currentUser]);
+  }, [sections, currentUser, targetType]);
 
   if (!currentUser) {
     return (
@@ -570,7 +574,12 @@ export const App: React.FC = () => {
                       setIsProcessing(true);
                       setAuthError(null);
                       try {
-                         const rawData = await verifyBiometryLocal();
+                          const rawData = await verifyBiometryLocal();
+                          if (rawData.userType && rawData.userType !== targetType) {
+                             const translated = rawData.userType === 'COMPANY' ? 'Empresa / Gerente' : 'Cliente';
+                             setAuthError(`Esta digital está vinculada a uma conta de ${translated}. Mude o modo de acesso para entrar.`);
+                             return;
+                          }
                          const user = await authenticateUser(rawData.identifier, rawData.pin, targetType);
                          if (user) {
                            if (user.isBlocked) { setAuthError("Acesso negado: Sua conta foi bloqueada."); return; }
@@ -741,7 +750,7 @@ export const App: React.FC = () => {
                            if (!identifier || !currentUser?.accessCode) {
                               toast.error("É necessário estar logado com PIN para ativar."); return;
                            }
-                           await registerBiometryLocal(currentUser.id, identifier, currentUser.accessCode);
+                           await registerBiometryLocal(currentUser.id, identifier, currentUser.accessCode, currentUser.userType || 'COMPANY');
                            setIsBiometryActive(true);
                            toast.success("Acesso por digital ativado!");
                         }
@@ -840,7 +849,7 @@ export const App: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <div className="p-4 pt-6 max-w-7xl mx-auto">
-          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} />}
+          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} />}
         {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={saveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} />}

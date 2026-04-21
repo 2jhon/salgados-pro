@@ -275,9 +275,13 @@ export const useUsers = () => {
         const { error } = await supabase.from('users').update(payload).eq('id', id);
         if (error) throw error;
 
-        // Se o PIN foi alterado, sincroniza com o Supabase Auth
+        // Se o PIN foi alterado, sincroniza com o Supabase Auth (Opcional, não deve travar o salvamento)
         if (updates.accessCode !== undefined) {
-          await supabase.rpc('sync_user_auth', { p_user_id: id });
+          try {
+            await supabase.rpc('sync_user_auth', { p_user_id: id });
+          } catch (rpcErr) {
+            console.warn("[Auth Sync] Falha não-bloqueante na sincronização de PIN:", rpcErr);
+          }
         }
       }
       
@@ -309,12 +313,18 @@ export const useUsers = () => {
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .ilike('email', `%${email.toLowerCase().trim()}%`)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .eq('email', email.toLowerCase().trim())
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      return (data && data.length > 0) ? mapUser(data[0]) : null;
+      if (!data || data.length === 0) return null;
+
+      const sorted = [...data].sort((a, b) => {
+        const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
+        return score(b) - score(a);
+      });
+      
+      return mapUser(sorted[0]);
     } catch (e: any) { throw e; }
   }, [mapUser]);
 
@@ -323,12 +333,9 @@ export const useUsers = () => {
     if (!cleanPhone) return null;
 
     let searchFilter = `phone.eq.${cleanPhone}`;
-    
-    // Tenta formato com 55 se tiver 10 ou 11 digitos
     if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
        searchFilter += `,phone.eq.55${cleanPhone}`;
     }
-    // Tenta formato sem 55 se começar com 55
     if (cleanPhone.startsWith('55') && cleanPhone.length > 11) {
        searchFilter += `,phone.eq.${cleanPhone.substring(2)}`;
     }
@@ -338,11 +345,17 @@ export const useUsers = () => {
         .from('users')
         .select('*')
         .or(searchFilter)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      return (data && data.length > 0) ? mapUser(data[0]) : null;
+      if (!data || data.length === 0) return null;
+
+      const sorted = [...data].sort((a, b) => {
+        const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
+        return score(b) - score(a);
+      });
+
+      return mapUser(sorted[0]);
     } catch (e: any) { throw e; }
   }, [mapUser]);
 
@@ -354,221 +367,133 @@ export const useUsers = () => {
       let isPhone = !cleanIdentifier.includes('@') && !/[a-zA-Z]/.test(cleanIdentifier);
       
       if (type === 'COMPANY' && !isPhone) {
-        console.log('[Auth] Identificado como E-mail');
         const user = await withRetry(() => findUserByEmail(cleanIdentifier)) as User | null;
         searchEmail = user?.email || cleanIdentifier.toLowerCase();
       } else {
-        console.log('[Auth] Identificado como Telefone');
         const phone = cleanIdentifier.replace(/\D/g, '');
         const user = await withRetry(() => findUserByPhone(phone)) as User | null;
-        if (user) {
-          searchEmail = user.email || `${phone}@salgados.app`;
-        } else {
-          searchEmail = `${phone}@salgados.app`;
-        }
+        searchEmail = user?.email || (phone ? `${phone}@salgados.app` : cleanIdentifier.toLowerCase());
       }
 
-      console.log('[Auth] Email de busca Auth:', searchEmail);
-
-      // 1. Try to sign in with Supabase Auth
-      console.log('[Auth] Tentando signInWithPassword...');
       let authResult = await withRetry(() => supabase.auth.signInWithPassword({
         email: searchEmail,
         password: pin,
       }));
 
-      // 2. If it fails, try the alternative
       if (authResult.error) {
-        console.warn('[Auth] Falha no primeiro login Auth:', authResult.error.message);
         const phone = cleanIdentifier.replace(/\D/g, '');
         if (phone.length >= 8) {
           const altEmail = `${phone}@salgados.app`;
           if (altEmail !== searchEmail) {
-            console.log('[Auth] Tentando login alternativo:', altEmail);
             const altResult = await withRetry(() => supabase.auth.signInWithPassword({
               email: altEmail,
               password: pin,
             }));
-            if (!altResult.error) {
-              console.log('[Auth] Login alternativo ok!');
-              authResult = altResult;
-            }
+            if (!altResult.error) authResult = altResult;
           }
         }
       }
 
-      // 3. Fallback Ironclad / Mestre da Sincronização
-      if (authResult.error && (authResult.error.message.includes('Invalid login credentials') || authResult.error.message.includes('invalid email') || authResult.error.message.includes('not a valid email') || authResult.error.message.includes('schema') || authResult.error.message.includes('finding user'))) {
-        console.log('[Auth] Credenciais Auth falharam. Executando check na base de dados (Bypass RLS)...');
-        nexusReport(`Credenciais Auth falharam. Executando check principal na base de dados...`, 'START', 'PROCESS');
-        
-        // BUSCA EXTREMA PRINCIPAL (VIA RPC PARA IGNORAR RLS)
+      if (authResult.error && (authResult.error.message.includes('Invalid login credentials') || authResult.error.message.includes('invalid email') || authResult.error.message.includes('schema') || authResult.error.message.includes('finding user'))) {
         const lowC = cleanIdentifier.toLowerCase();
         const isActuallyEmail = cleanIdentifier.includes('@');
         const phoneC = isActuallyEmail ? '' : cleanIdentifier.replace(/\D/g, '');
         
-        console.log('[Auth] Chamando RPC find_user_bypass_rls...');
-        const { data: rpcSearch, error: rpcSearchError } = await supabase.rpc('find_user_bypass_rls', {
+        const { data: rpcSearch } = await supabase.rpc('find_user_bypass_rls', {
            p_email: isActuallyEmail ? lowC : '',
            p_phone: phoneC
         });
         
-        let searchData: any[] = [];
-        if (!rpcSearchError && rpcSearch) {
-           searchData = Array.isArray(rpcSearch) ? rpcSearch : [rpcSearch];
-        }
-
+        let searchData = Array.isArray(rpcSearch) ? rpcSearch : (rpcSearch ? [rpcSearch] : []);
         if (searchData.length === 0) {
-           console.warn("[Auth] RPC Bypass falhou ou retornou vazio. Erro:", rpcSearchError);
            try {
-              const { data: q1 } = await supabase.from('users').select('*').ilike('email', `%${lowC}%`).order('user_type', { ascending: true });
-              if (q1 && q1.length > 0) searchData = [...searchData, ...q1];
-              
-              if (phoneC && phoneC.length > 5 && searchData.length === 0) {
-                const { data: q2 } = await supabase.from('users').select('*').ilike('phone', `%${phoneC}%`);
-                if (q2 && q2.length > 0) searchData = [...searchData, ...q2];
+              const { data: q1 } = await supabase.from('users').select('*').eq('email', lowC);
+              if (q1) searchData = [...searchData, ...q1];
+              if (phoneC && searchData.length === 0) {
+                const { data: q2 } = await supabase.from('users').select('*').eq('phone', phoneC);
+                if (q2) searchData = [...searchData, ...q2];
               }
            } catch(e) {}
         }
         
         let publicUser = null;
         if (searchData && searchData.length > 0) {
+           const sorted = [...searchData].sort((a, b) => {
+              const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
+              return score(b) - score(a);
+           });
            const targetRecord = type === 'COMPANY' 
-                ? (searchData.find(u => u.user_type === 'COMPANY' || u.user_type === 'EMPLOYEE') || searchData[0])
-                : (searchData.find(u => u.user_type === 'CUSTOMER') || searchData[0]);
+                ? (sorted.find(u => (u.user_type === 'COMPANY' || u.user_type === 'EMPLOYEE') && u.role !== 'CUSTOMER') || sorted[0])
+                : (sorted.find(u => u.user_type === 'CUSTOMER' || u.role === 'CUSTOMER') || sorted[0]);
            publicUser = mapUser(targetRecord);
         }
 
-        if (!publicUser) {
-           console.error('[Auth] Usuário não encontrado nem via Bypass');
-           if (authResult.error.message.includes('schema')) {
-               throw new Error(`Erro Crítico na API do Supabase (Database error querying schema). O banco de dados perdeu o sincronismo. SOLUÇÃO: Vá no painel do Supabase -> Settings -> API -> e clique no botão 'Reload' (Recarregar Schema).`);
-           }
-           throw new Error(`Nenhuma conta encontrada com a identificação: ${cleanIdentifier}. Se você é funcionário, tente digitar apenas o seu WHATSAPP.`);
+        if (!publicUser) throw new Error(`Nenhuma conta encontrada com a identificação: ${cleanIdentifier}`);
+        if (String(publicUser.accessCode).trim() !== pin.trim()) throw new Error(`PIN incorreto para ${publicUser.name}.`);
+
+        let syncedEmailResult: any = null;
+        try {
+          const { data: syncedEmail } = await supabase.rpc('sync_user_auth', { p_user_id: publicUser.id });
+          syncedEmailResult = syncedEmail;
+        } catch (rpcErr) {
+          console.warn("[Auth Sync] Falha na sincronização de email durante login:", rpcErr);
         }
-        
-        console.log('[Auth] Usuário encontrado na base:', publicUser.name, 'Comparando PIN...');
-        if (String(publicUser.accessCode).trim() !== pin.trim()) {
-           throw new Error(`O usuário foi encontrado (${publicUser.name}), mas o PIN digitado está incorreto. Use o PIN gravado no sistema.`);
-        }
+        const targetEmail = (syncedEmailResult || publicUser.email || `${publicUser.phone}@salgados.app`).toLowerCase();
 
-        console.log('[Auth] PIN confere! Forçando sincronização...');
-        const { data: syncedEmail, error: syncError } = await supabase.rpc('sync_user_auth', { p_user_id: publicUser.id });
-        if (syncError) console.warn('[Auth] Erro na RPC sync_user_auth:', syncError);
-
-        let rawTarget = syncedEmail || publicUser.email || `${publicUser.phone}@salgados.app`;
-        const targetEmail = rawTarget.trim().toLowerCase();
-
-        console.log('[Auth] Forçando novo signIn pós-sync:', targetEmail);
-        let forcedAuth = await withRetry(() => supabase.auth.signInWithPassword({
-          email: targetEmail,
-          password: pin,
-        }));
-
+        let forcedAuth = await withRetry(() => supabase.auth.signInWithPassword({ email: targetEmail, password: pin }));
         if (forcedAuth.error) {
-           console.warn('[Auth] Segundo signIn falhou. Tentando signUp (auto-registro)...');
-           forcedAuth = await withRetry(() => supabase.auth.signUp({
-             email: targetEmail,
-             password: pin,
-           }));
-
+           forcedAuth = await withRetry(() => supabase.auth.signUp({ email: targetEmail, password: pin }));
            if (forcedAuth.data?.user) {
-             console.log('[Auth] SignUp bem sucedido (Auth ID:', forcedAuth.data.user.id, '). Vinculando...');
-             const { error: relinkError } = await supabase.rpc('relink_user_auth', { 
-               p_user_id: publicUser.id, 
-               p_auth_id: forcedAuth.data.user.id, 
-               p_pin: pin.trim() 
-             });
-             if (relinkError) throw new Error(`Trava de Banco de Dados: Não foi possível reconectar a conta. Detalhe: ${relinkError.message}`);
+              await supabase.rpc('relink_user_auth', { p_user_id: publicUser.id, p_auth_id: forcedAuth.data.user.id, p_pin: pin.trim() });
            }
         }
-
-        if (forcedAuth.error) {
-           if (forcedAuth.error.message.includes('schema')) {
-               throw new Error(`O login falhou devido a um erro de esquema no banco. SOLUÇÃO: Vá no painel do Supabase -> 'Settings' > 'API' > clique em 'Reload' schema. (Detalhe: ${forcedAuth.error.message})`);
-           }
-           if (forcedAuth.error.message.includes('finding user')) {
-               throw new Error(`Erro do Supabase: "Database error finding user". A plataforma que gerencia suas senhas está com erro interno ou gatilhos (triggers) defeituosos. Reinicie seu banco no painel da Supabase.`);
-           }
-           throw new Error(`Erro Crítico Auth: A conexão bloqueou definitivamente: ${forcedAuth.error.message}`);
-        }
-
+        if (forcedAuth.error) throw new Error(`Erro Crítico Auth: ${forcedAuth.error.message}`);
         authResult = forcedAuth;
-        console.log('[Auth] Acesso restabelecido via Bypass');
-        
-      } else if (authResult.error) {
-         console.error('[Auth] Erro terminal no login Auth:', authResult.error.message);
-         if (authResult.error.message.includes('schema')) {
-             throw new Error(`Supabase API Error: "Database error querying schema". Isso é um erro interno do servidor Supabase, causado por falha no cache do banco. SOLUÇÃO OBRIGATÓRIA: Vá no Painel da Supabase -> Configurações (Settings) -> API -> Clique no botão verde "Reload" para limpar o cache do PostgREST.`);
-         }
-         if (authResult.error.message.includes('finding user')) {
-             throw new Error(`Erro Crítico do Servidor de Autenticação Supabase (Database error finding user). Verifique se você não deletou tabelas de sistema acidentalmente, e tente pausar e despausar o seu projeto no painel da Supabase.`);
-         }
-         throw authResult.error;
-      }
+      } else if (authResult.error) throw authResult.error;
 
-      // 4. Fetch public.users record
       if (authResult.data?.user) {
-         console.log('[Auth] Login Auth OK, buscando registro na tabela users...');
          let validTypes = type === 'COMPANY' ? ['COMPANY', 'EMPLOYEE'] : ['CUSTOMER'];
-         
-         const userResult = await withRetry(async () => await supabase
-           .from('users')
-           .select('*')
-           .eq('auth_id', authResult.data.user!.id)
-           .in('user_type', validTypes)
-           .order('user_type', { ascending: true })
-           .limit(1)
-           .maybeSingle());
-         
-         const { data: userData } = userResult as any;
-         
-         if (userData) {
-            console.log('[Auth] Usuário encontrado e validado:', userData.name);
-            return mapUser(userData);
+         const { data: searchDataResults } = await withRetry(async () => await supabase
+            .from('users')
+            .select('*')
+            .eq('auth_id', authResult.data.user!.id)) as any;
+          
+         if (searchDataResults && searchDataResults.length > 0) {
+            const sorted = [...searchDataResults].sort((a, b) => {
+               const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
+               return score(b) - score(a);
+            });
+            const filtered = type === 'COMPANY' 
+               ? sorted.filter(u => validTypes.includes(u.user_type) && u.role !== 'CUSTOMER')
+               : sorted.filter(u => u.user_type === 'CUSTOMER' || u.role === 'CUSTOMER');
+            
+            const target = filtered.length > 0 ? filtered[0] : sorted[0];
+            return mapUser(target);
          } else {
-            console.log('[Auth] Registro não encontrado com Auth ID, procurando orfãos...');
             const lowC = cleanIdentifier.toLowerCase();
             const phoneC = cleanIdentifier.replace(/\D/g, '');
-            
-            const { data: rpcSearch } = await supabase.rpc('find_user_bypass_rls', {
-               p_email: lowC,
-               p_phone: phoneC
-            });
-
-            let orphanRecord = null;
+            const { data: rpcSearch } = await supabase.rpc('find_user_bypass_rls', { p_email: lowC, p_phone: phoneC });
             let searchData = Array.isArray(rpcSearch) ? rpcSearch : (rpcSearch ? [rpcSearch] : []);
-            
             if (searchData.length > 0) {
-               orphanRecord = searchData.find(u => u.user_type === 'COMPANY' || u.user_type === 'EMPLOYEE') || 
-                              searchData.find(u => u.user_type === 'CUSTOMER') || 
-                              searchData[0];
-            }
-
-            if (orphanRecord && String(orphanRecord.access_code).trim() === pin.trim()) {
-               console.log('[Auth] Vinculando conta orfã encontrada:', orphanRecord.name);
-               const { error: relinkError } = await supabase.rpc('relink_user_auth', { 
-                 p_user_id: orphanRecord.id, 
-                 p_auth_id: authResult.data!.user!.id, 
-                 p_pin: pin.trim() 
+               const sorted = [...searchData].sort((a, b) => {
+                  const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
+                  return score(b) - score(a);
                });
-               if (relinkError) throw new Error(`Trava de BD: Falha na revinculação de órfão. ${relinkError.message}`);
-               
-               return mapUser(orphanRecord);
-            } else {
-               throw new Error(`Cadastro não localizado ou corrompido. Peça ao ADM para excluir o seu perfil na equipe e recriar.`);
+               const orphan = type === 'COMPANY'
+                  ? (sorted.find(u => (u.user_type === 'COMPANY' || u.user_type === 'EMPLOYEE') && u.role !== 'CUSTOMER') || sorted[0])
+                  : (sorted.find(u => u.user_type === 'CUSTOMER' || u.role === 'CUSTOMER') || sorted[0]);
+
+               if (orphan && String(orphan.access_code).trim() === pin.trim()) {
+                  await supabase.rpc('relink_user_auth', { p_user_id: orphan.id, p_auth_id: authResult.data!.user!.id, p_pin: pin.trim() });
+                  return mapUser(orphan);
+               }
             }
          }
       }
-
       throw new Error(`ERRO FATAL: O Sistema não autorizou nem localizou os dados.`);
     } catch (e: any) {
-      console.error("[Auth System] Falha crítica:", e.message || e);
-      // Re-throw if it's already a clean error message
-      if (e.message && e.message.length < 200 && !e.message.includes('AuthApiError')) {
-        throw e;
-      }
-      throw new Error(safeStringifyError(e));
+      console.error("[Auth System] Falha:", e.message || e);
+      throw e;
     }
   }, [findUserByEmail, findUserByPhone, mapUser, nexusReport]);
 

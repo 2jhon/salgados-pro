@@ -85,7 +85,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
         setIsBiometryActive(false); 
         toast.info("Biometria desativada deste aparelho."); 
       } else { 
-        await registerBiometryLocal(user.id, user.name, editUserData.accessCode || user.accessCode); 
+        await registerBiometryLocal(user.id, user.name, editUserData.accessCode || user.accessCode, user.userType || 'COMPANY'); 
         setIsBiometryActive(true); 
         toast.success("Biometria configurada com sucesso!"); 
       }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { User, AppSection, StoreProfile, PortfolioItem, SubscriptionPlan } from '../types';
@@ -83,6 +83,23 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
     }
     return item.price || 0;
   };
+
+  const getStoreDisplayName = useCallback((store: StoreProfile | null | undefined, fallback: string, prioritizeStoreName: boolean = true) => {
+    if (!store) return fallback || 'Marketplace';
+    
+    const isGenericName = !store.name || store.name === 'Minha Loja' || store.name === 'Loja sem Nome' || store.name === 'Minha Barraca';
+    
+    // Se o nome NÃO for genérico, retorna ele mesmo (preferência absoluta pela marca)
+    if (!isGenericName) return store.name;
+    
+    // Se for genérico e NÃO for pra priorizar o nome da loja (caso de barracas que querem seu próprio nome)
+    if (!prioritizeStoreName) {
+      const stall = stalls.find(s => s.workspaceId === store.workspaceId);
+      if (stall && stall.name && stall.name !== 'Minha Barraca') return stall.name;
+    }
+    
+    return fallback || 'Loja Oficial';
+  }, [stalls]);
 
   const applyCoupon = async () => {
     if (!couponCode.trim() || !activeView) return;
@@ -240,8 +257,8 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
         type: 'STALL',
         data: selectedStall,
         profile: linkedProfile,
-        displayName: linkedProfile?.name || selectedStall.name,
-        subName: linkedProfile ? selectedStall.name : 'Ponto de Venda',
+        displayName: getStoreDisplayName(linkedProfile, selectedStall.name, false),
+        subName: linkedProfile ? selectedStall.name : 'Barraca',
         whatsapp: finalWhatsapp,
         address: selectedStall.address || linkedProfile?.address,
         imageUrl: selectedStall.imageUrl || linkedProfile?.logoUrl,
@@ -259,7 +276,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
         type: 'STORE',
         data: null,
         profile: profileToUse,
-        displayName: profileToUse.name,
+        displayName: getStoreDisplayName(profileToUse, 'Loja Oficial', true),
         subName: 'Loja Oficial',
         whatsapp: profileToUse.whatsapp,
         address: profileToUse.address,
@@ -599,7 +616,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                             </div>
                          </div>
                          <div className="text-center">
-                            <p className={`text-[9px] font-bold leading-tight line-clamp-1 w-20 truncate ${isViewed ? 'text-slate-400' : 'text-slate-700'}`}>{storeData.profile.name}</p>
+                            <p className={`text-[9px] font-bold leading-tight line-clamp-1 w-20 truncate ${isViewed ? 'text-slate-400' : 'text-slate-700'}`}>{getStoreDisplayName(storeData.profile)}</p>
                             {storeData.items.length > 1 && (
                                 <p className="text-[7px] font-black text-slate-400 uppercase truncate w-20">
                                     {storeData.items.length} itens
@@ -622,9 +639,15 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
             const data = item.data;
             const distance = userCoords && data.latitude && data.longitude ? calculateDistance(userCoords.lat, userCoords.lng, data.latitude, data.longitude) : null;
             const linkedProfile = isStall ? stores.find(p => p.workspaceId === data.workspaceId) : data;
-            const displayName = linkedProfile?.name || data.name;
+            
+            // Título principal agora é sempre o nome da LOJA (Marca)
+            const displayName = getStoreDisplayName(linkedProfile, isStall ? (data.name || 'Barraca') : 'Loja Oficial', true);
             const displayImage = isStall ? (data.imageUrl || linkedProfile?.logoUrl) : data.logoUrl;
-            const subTitle = isStall ? (linkedProfile ? data.name : 'Ponto de Venda') : (data.address || 'Loja Física');
+            
+            // Subtítulo agora mostra a unidade (Barraca ou Endereço)
+            const subTitle = isStall 
+               ? (data.name && data.name !== 'Minha Barraca' ? data.name : 'Unidade Móvel / Barraca') 
+               : (data.address && data.address !== 'Sem Endereço' ? data.address : 'Loja Oficial / Matriz');
 
             return (
                <button 
@@ -634,7 +657,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                >
                   <div className="w-20 h-20 bg-slate-100 rounded-[1.8rem] overflow-hidden shrink-0 shadow-inner">
                      {displayImage ? (
-                        <img src={displayImage} className="w-full h-full object-cover" />
+                        <img src={displayImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                      ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-300">
                            {isStall ? <Smartphone /> : <Store />}
@@ -644,7 +667,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                   <div className="flex-1 min-w-0">
                      <div className="flex items-center gap-2 mb-1">
                         <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${isStall ? 'bg-blue-100 text-blue-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                           {isStall ? 'Ponto de Rua' : 'Loja'}
+                           {isStall ? 'Barraca' : 'Loja Oficial'}
                         </span>
                         {distance !== null && (
                            <span className="flex items-center gap-1 text-[8px] font-bold text-slate-400">
@@ -705,10 +728,10 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
               <div className="absolute top-4 left-0 right-0 p-4 flex justify-between items-center z-20 mt-4">
                   <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full border-2 border-white/20 overflow-hidden bg-slate-900">
-                          {activeStory.profile.logoUrl ? <img src={activeStory.profile.logoUrl} className="w-full h-full object-cover"/> : <div className="flex items-center justify-center h-full text-white font-black">{activeStory.profile.name.charAt(0)}</div>}
+                          {activeStory.profile.logoUrl ? <img src={activeStory.profile.logoUrl} className="w-full h-full object-cover"/> : <div className="flex items-center justify-center h-full text-white font-black">{getStoreDisplayName(activeStory.profile).charAt(0)}</div>}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-black text-white text-sm shadow-black drop-shadow-md leading-none">{activeStory.profile.name}</span>
+                        <span className="font-black text-white text-sm shadow-black drop-shadow-md leading-none">{getStoreDisplayName(activeStory.profile)}</span>
                         <span className="text-[8px] font-bold text-white/70 uppercase tracking-widest shadow-black drop-shadow-sm">
                             {activeStory.currentIndex + 1} de {activeStory.items.length}
                         </span>
@@ -796,7 +819,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                           </h2>
                           <div className="flex flex-wrap justify-center gap-2 mb-3">
                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${activeView.type === 'STALL' ? 'bg-blue-100 text-blue-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                                {activeView.type === 'STALL' ? 'Barraca' : 'Loja'}
+                                {activeView.type === 'STALL' ? 'Barraca' : 'Loja Oficial'}
                              </span>
                              
                              {activeView.fulfillmentMode === 'DELIVERY' && <span className="px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1"><Bike size={8} /> Apenas Entrega</span>}

@@ -8,7 +8,7 @@ function generateChallenge() {
   return challenge;
 }
 
-export const registerBiometryLocal = async (userId: string, identifier: string, pin: string) => {
+export const registerBiometryLocal = async (userId: string, identifier: string, pin: string, userType: string) => {
   if (!isWebAuthnSupported()) throw new Error('Biometria não suportada neste dispositivo.');
 
   if (window.self !== window.top) {
@@ -48,7 +48,7 @@ export const registerBiometryLocal = async (userId: string, identifier: string, 
     throw new Error('Falha ao registrar biometria.');
   }
 
-  localStorage.setItem('biometry_auth_data', JSON.stringify({ identifier, pin, userId }));
+  localStorage.setItem('biometry_auth_data', JSON.stringify({ identifier, pin, userId, userType }));
   return true;
 };
 

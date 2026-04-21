@@ -8,20 +8,36 @@ console.log('[DEBUG_SUPABASE] Initializing Supabase client...');
 const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit | undefined): Promise<Response> => {
   let attempts = 0;
   const maxAttempts = 6; 
-  const url = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : '');
+  
+  // Extrai a URL para log, lidando com Request objects
+  let url = '';
+  if (typeof input === 'string') {
+    url = input;
+  } else if (input instanceof URL) {
+    url = input.toString();
+  } else if (input instanceof Request) {
+    url = input.url;
+  }
   
   while (attempts < maxAttempts) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); 
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // Aumentado para 90s
     
     try {
-      const response = await fetch(input, { ...init, signal: controller.signal });
+      let currentInput = input;
+      if (input instanceof Request && attempts > 0) {
+        try {
+          currentInput = input.clone();
+        } catch (cloneErr) {
+          console.warn("[Supabase Fetch] Não foi possível clonar o Request para retry.");
+        }
+      }
+
+      const response = await fetch(currentInput, { ...init, signal: controller.signal });
       clearTimeout(timeoutId);
       
-      // Se for uma chamada de refresh token e der erro de rede escondido (browser bug)
-      // ou se o status for 400 em um refresh, pode ser token expirado/chave trocada
       if (url.includes('auth/v1/token') && response.status === 400) {
-         console.warn("[Supabase Auth] Refresh token inválido. Possível troca de chave. Limpando sessão...");
+         console.warn("[Supabase Auth] Refresh token inválido. Limpando sessão...");
          const projectRef = supabaseUrl.split('//')[1].split('.')[0];
          localStorage.removeItem('supabase-auth-token');
          localStorage.removeItem(`sb-${projectRef}-auth-token`);
@@ -34,19 +50,12 @@ const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit | und
       const msg = (err?.message || String(err)).toLowerCase();
       const errName = err?.name || 'Error';
       
-      // Ignora erro de refresh token no log de erro crítico para não assustar o usuário
-      // O Supabase SDK lida com isso se retornarmos a falha
-      if (!url.includes('refresh_token')) {
-        console.error(`[Supabase Fetch Failure] URL: ${url} | Name: ${errName} | Msg: ${err.message}`);
-      }
-      
       const isAbort = err.name === 'AbortError' || msg.includes('aborted') || msg.includes('timeout');
-      const isNetwork = msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('net::err') || msg.includes('dns');
+      const isNetwork = msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('net::err') || msg.includes('dns') || msg.includes('connection refused') || msg.includes('inacessível');
       
       if (isAbort || isNetwork) {
-        // Se for falha de refresh token, não faz 6 tentativas, pois só atrasa o boot
         if (url.includes('refresh_token')) {
-           console.warn("[Supabase Auth] Falha de rede no refresh token. Limpando sessão local para evitar travamento.");
+           console.warn("[Supabase Auth] Falha de rede no refresh token. Limpando sessão local.");
            const projectRef = supabaseUrl.split('//')[1].split('.')[0];
            localStorage.removeItem('supabase-auth-token');
            localStorage.removeItem(`sb-${projectRef}-auth-token`);
@@ -56,28 +65,32 @@ const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit | und
 
         attempts++;
         if (attempts >= maxAttempts) {
-          let reason = "Problema de Rede/DNS: O navegador não conseguiu completar a chamada HTTP.";
-          if (isAbort) reason = "Tempo Limite: O servidor demorou mais de 60s para responder (Pode estar acordando do zero).";
+          console.error(`[Supabase Fetch Failure] URL: ${url} | Name: ${errName} | Msg: ${err.message}`);
+          let reason = "Conexão Interrompida: O navegador não conseguiu completar a chamada.";
+          if (isAbort) reason = "Tempo Limite: O servidor demorou demais para responder (>90s).";
           
           const customErr = new Error(`${reason}
           
 DICAS:
-1. Se estiver no Wi-Fi, tente Dados Móveis.
-2. Verifique se o projeto Supabase (${url}) está PAUSADO ou EXCLUÍDO no painel da Supabase.
-3. Se o erro for DNS, sua rede pode estar bloqueando domínios .supabase.co.`);
+1. Verifique sua internet ou mude do Wi-Fi para os Dados Móveis.
+2. O servidor Supabase (${url}) pode estar em manutenção ou hibernação profunda.`);
 
           (customErr as any).code = isAbort ? 'TIMEOUT_FETCH' : 'NETWORK_ERROR';
           (customErr as any).status = 0;
           (customErr as any).url = url;
           (customErr as any).originalError = err;
           throw customErr;
+        } else {
+          // Log de aviso apenas para tentativas intermediárias
+          console.warn(`[Supabase Resilience] Tentativa ${attempts}/${maxAttempts} falhou para URL: ${url}. Retentando...`);
         }
         
-        const delay = 4000 * attempts;
-        const jitter = Math.random() * 2000;
-        console.warn(`[Supabase Resilience] Falha (Tentativa ${attempts}/${maxAttempts}). Aguardando ${((delay + jitter)/1000).toFixed(1)}s... URL: ${url}`);
+        const delay = 3000 * attempts;
+        const jitter = Math.random() * 1000;
         await new Promise(resolve => setTimeout(resolve, delay + jitter));
       } else {
+        // Erros que não são de rede ou timeout (ex: TypeError por código errado)
+        console.error(`[Supabase Fetch Error Unrecoverable] URL: ${url} | Name: ${errName} | Msg: ${err.message}`);
         throw err;
       }
     }
