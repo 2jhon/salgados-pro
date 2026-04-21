@@ -21,6 +21,7 @@ interface StallProps {
   updateTransaction: (id: string, updates: Partial<Transaction>) => Promise<void>;
   calculateTotals: (cat: string, sub?: string) => PeriodTotals;
   saveConfig: (s: AppSection[]) => Promise<boolean>;
+  updateSingleSection?: (s: AppSection) => Promise<boolean>;
   updateStockAtomic: (sectionId: string, itemUpdates: { id: string, quantity: number }[]) => Promise<boolean>;
   sections: AppSection[];
   customers: Customer[];
@@ -29,7 +30,7 @@ interface StallProps {
 
 export const Stall: React.FC<StallProps> = ({ 
   section, user, addTransactions, 
-  sections, saveConfig, updateStockAtomic, customers, addNote
+  sections, saveConfig, updateSingleSection, updateStockAtomic, customers, addNote
 }) => {
   const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS'>('VENDAS');
   const [searchTerm, setSearchTerm] = useState('');
@@ -454,8 +455,13 @@ export const Stall: React.FC<StallProps> = ({
         address: localConfig.address
       };
       
-      const newSections = sections.map(s => s.id === section.id ? updatedSection : s);
-      const success = await saveConfig(newSections);
+      let success = false;
+      if (updateSingleSection) {
+        success = await updateSingleSection(updatedSection);
+      } else {
+        const newSections = sections.map(s => String(s.id) === String(section.id) ? updatedSection : s);
+        success = await saveConfig(newSections);
+      }
       
       if (success) {
         setShowConfig(false);

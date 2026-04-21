@@ -214,12 +214,17 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       const from = targetPage * ITEMS_PER_PAGE;
       const to = from + ITEMS_PER_PAGE - 1;
 
-      const { data: metrics, error } = await supabase
+      let query = supabase
         .from('company_metrics')
         .select('*')
         .order('created_at', { ascending: false })
-        .range(from, to)
-        .or(search ? `company_name.ilike.%${search}%,owner_email.ilike.%${search}%,workspace_id.ilike.%${search}%` : 'id.neq.0'); // Dummy or if no search
+        .range(from, to);
+
+      if (search) {
+        query = query.or(`company_name.ilike.%${search}%,owner_email.ilike.%${search}%,workspace_id.ilike.%${search}%`);
+      }
+      
+      const { data: metrics, error } = await query;
 
       if (error) throw error;
 
@@ -282,7 +287,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       // fetchCompanies agora é controlado pelo useEffect do searchTerm (Fase 3)
       
       const { data: txs } = await supabase.from('transactions').select('*').eq('category', 'SISTEMA').eq('sub_category', 'SEGURANCA').eq('is_pending', true);
-      const { data: adsData } = await supabase.from('ads').select('*');
+      const { data: adsData } = await supabase.from('app_banners').select('*');
       const { data: reportsData } = await supabase.from('reports').select('*');
 
       if (reportsData) {
@@ -423,7 +428,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       const isoDate = expiresAt.toISOString();
 
       // 1. Atualiza o Anúncio
-      const { error: adError } = await supabase.from('ads')
+      const { error: adError } = await supabase.from('app_banners')
         .update({ active: true, expires_at: isoDate })
         .eq('id', adToApprove.id);
       
@@ -789,7 +794,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                        </div>
                        <div className="flex gap-2">
                           <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : 'bg-orange-500 text-white animate-pulse'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
-                          <button onClick={() => supabase.from('ads').delete().eq('id', ad.id).then(() => fetchData())} className="p-4 bg-rose-600 text-white rounded-2xl"><Trash2 size={20} /></button>
+                          <button onClick={() => supabase.from('app_banners').delete().eq('id', ad.id).then(() => fetchData())} className="p-4 bg-rose-600 text-white rounded-2xl"><Trash2 size={20} /></button>
                        </div>
                     </div>
                   );

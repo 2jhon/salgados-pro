@@ -320,67 +320,6 @@ export const useAppConfig = () => {
     };
   }, [activeWorkspace, mapSection]);
 
-  const updateSingleSection = useCallback(async (updatedSection: AppSection): Promise<boolean> => {
-    // Optimistic Update
-    setSections(prev => prev.map(s => String(s.id) === String(updatedSection.id) ? updatedSection : s));
-
-    const taskId = `SAVE_SEC_${updatedSection.id}`;
-    nexusReport("Sincronizando aba rápida com o servidor...", 'START', 'NETWORK', taskId);
-    
-    try {
-      const metadataItem = {
-          id: 'SECTION_METADATA',
-          openingHours: updatedSection.openingHours || null,
-          description: updatedSection.description || null,
-          address: updatedSection.address || null,
-          imageUrl: updatedSection.imageUrl || null,
-          whatsappMode: (updatedSection.whatsappMode || 'SYSTEM').toUpperCase(),
-          manualWhatsapp: updatedSection.manualWhatsapp || null,
-          fulfillmentMode: updatedSection.fulfillmentMode || 'PICKUP'
-      };
-
-      const itemsWithMetadata = [...(updatedSection.items || []), metadataItem];
-
-      const payload = {
-        id: updatedSection.id,
-        workspace_id: updatedSection.workspaceId,
-        name: updatedSection.name,
-        type: updatedSection.type,
-        sort_order: updatedSection.order,
-        items: itemsWithMetadata, 
-        expenses: updatedSection.expenses || [],
-        global_stock_mode: updatedSection.globalStockMode || 'GLOBAL',
-        linked_section_id: updatedSection.linkedSectionId || null,
-        is_public: updatedSection.isPublic || false,
-        latitude: updatedSection.latitude || null,
-        longitude: updatedSection.longitude || null,
-        last_sync: new Date().toISOString()
-      };
-
-      await withRetry(async () => {
-        const { error } = await supabase.from('app_config').upsert(payload, { onConflict: 'id' });
-        if (error) throw error;
-      });
-
-      // Note: Full local storage update is ideal, but relying on Optimistic state for now
-      // This solves the payload size drastically without rewriting the cache engine.
-      if (activeWorkspace) {
-        const currentQueue: any = (await localforage.getItem(`${LS_CONFIG_KEY}_${activeWorkspace}`)) || [];
-        if (Array.isArray(currentQueue)) {
-            const updatedCache = currentQueue.map(s => String(s.id) === String(updatedSection.id) ? updatedSection : s);
-            await localforage.setItem(`${LS_CONFIG_KEY}_${activeWorkspace}`, updatedCache);
-        }
-      }
-
-      nexusReport("Aba única salva eficientemente.", 'DONE', 'NETWORK', taskId);
-      return true;
-    } catch (e: any) {
-      nexusReport(`Erro ao salvar aba rápida: ${safeStringifyError(e)}`, 'FAIL', 'NETWORK', taskId);
-      toast.error("Erro ao salvar configuração da aba isolada.");
-      return false;
-    }
-  }, [activeWorkspace, nexusReport]);
-
   const saveConfig = useCallback(async (newSections: AppSection[]): Promise<boolean> => {
     if (newSections.length === 0 && sections.length > 0) return true;
 
@@ -644,5 +583,5 @@ export const useAppConfig = () => {
     await syncOfflineStockQueue();
   }, [syncOfflineStockQueue]);
 
-  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, loading, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls };
+  return { sections, archives, publicStalls, saveConfig, deleteSection, updateStockAtomic, loading, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls };
 };

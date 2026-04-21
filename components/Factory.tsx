@@ -29,6 +29,7 @@ interface FactoryProps {
   partialSettleTransaction: (t: Transaction, amount: number) => Promise<boolean>;
   calculateTotals: (cat: string, sub?: string) => PeriodTotals;
   saveConfig: (s: AppSection[]) => Promise<boolean>;
+  updateSingleSection?: (s: AppSection) => Promise<boolean>;
   updateStockAtomic: (sectionId: string, itemUpdates: { id: string, quantity: number }[]) => Promise<boolean>;
   sections: AppSection[];
   deleteTransaction?: (id: string) => Promise<void>;
@@ -41,7 +42,7 @@ interface FactoryProps {
 export const Factory: React.FC<FactoryProps> = ({ 
   section, user, addTransactions, 
   transactions, settleCustomerDebt, updateTransaction, partialSettleTransaction, deleteTransaction,
-  customers, addCustomer, saveConfig, updateStockAtomic, sections, onRefreshData, addNote
+  customers, addCustomer, saveConfig, updateSingleSection, updateStockAtomic, sections, onRefreshData, addNote
 }) => {
   const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS' | 'A_RECEBER'>('VENDAS');
   const [billsTab, setBillsTab] = useState<'RECEIVABLES' | 'PAYABLES'>('RECEIVABLES');

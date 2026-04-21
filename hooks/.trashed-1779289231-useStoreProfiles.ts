@@ -39,24 +39,16 @@ export const useStoreProfiles = () => {
     try {
       await withRetry(async () => {
         // PERFORMANCE OPTIMIZATION: Exclude heavy banner_url from list view
-        let response = await supabase
-          .from('vw_active_marketplace')
+        const { data, error } = await supabase
+          .from('store_profiles')
           .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, portfolio, fulfillment_mode')
+          .eq('active', true)
           .order('name');
-          
-        if (response.error) {
-          // Fallback if the view hasn't been created in the database yet
-          response = await supabase
-            .from('store_profiles')
-            .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, portfolio, fulfillment_mode')
-            .eq('active', true)
-            .order('name');
-        }
-
-        if (response.error) throw response.error;
         
-        if (response.data) {
-          const mapped = response.data.map(mapProfile);
+        if (error) throw error;
+        
+        if (data) {
+          const mapped = data.map(mapProfile);
           setProfiles(mapped);
           try {
             localStorage.setItem('cached_marketplace_profiles', JSON.stringify(mapped));

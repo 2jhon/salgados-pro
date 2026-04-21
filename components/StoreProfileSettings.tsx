@@ -1,12 +1,13 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
-import { StoreProfile } from '../types';
+import { StoreProfile, User } from '../types';
 import { 
   Save, Store, MapPin, Phone, Instagram, 
   Facebook, Loader2, X, Hash, Image as ImageIcon,
-  Upload, Camera, Trash2, Bike, ShoppingBag, Store as StoreIcon, Navigation
+  Upload, Camera, Trash2, Bike, ShoppingBag, Store as StoreIcon, Navigation,
+  ShieldCheck, Fingerprint, Lock, UserIcon, Edit2
 } from 'lucide-react';
+import { hasBiometryConfigured, registerBiometryLocal, removeBiometryLocal } from '../lib/webauthnUtils';
 
 interface StoreProfileSettingsProps {
   profile: StoreProfile | null;
@@ -14,9 +15,14 @@ interface StoreProfileSettingsProps {
   onClose: () => void;
   workspaceId: string;
   hasProPlan?: boolean;
+  user: User;
+  onSaveUser: (userData: Partial<User>) => Promise<void>;
+  isOwner: boolean;
 }
 
-export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ profile, onSave, onClose, workspaceId, hasProPlan }) => {
+export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ profile, onSave, onClose, workspaceId, hasProPlan, user, onSaveUser, isOwner }) => {
+  const [activeTab, setActiveTab] = useState<'USER' | 'IDENTITY' | 'LOCATION' | 'LOGISTICS'>('USER');
+  
   const [formData, setFormData] = useState<Omit<StoreProfile, 'id'>>(profile ? {
     workspaceId: profile.workspaceId,
     name: profile.name,
@@ -53,9 +59,40 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
     deliveryConfig: {}
   });
 
+  const [editUserData, setEditUserData] = useState({
+    name: user.name || '',
+    phone: user.phone || '',
+    cpf: user.cpf || '',
+    accessCode: user.accessCode || '',
+    avatarUrl: user.avatarUrl || '',
+  });
+
   const [isSaving, setIsSaving] = useState(false);
+  const [isBiometryActive, setIsBiometryActive] = useState(false);
+  
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const userAvatarInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsBiometryActive(hasBiometryConfigured());
+  }, []);
+
+  const handleToggleBiometry = async () => {
+    try {
+      if (isBiometryActive) { 
+        removeBiometryLocal(); 
+        setIsBiometryActive(false); 
+        toast.info("Biometria desativada deste aparelho."); 
+      } else { 
+        await registerBiometryLocal(user.id, user.name, editUserData.accessCode || user.accessCode); 
+        setIsBiometryActive(true); 
+        toast.success("Biometria configurada com sucesso!"); 
+      }
+    } catch(e: any) { 
+      toast.error(e.message || "Erro ao configurar biometria"); 
+    }
+  };
 
   const resizeImage = (file: File, maxWidth: number = 1200): Promise<string> => {
     return new Promise((resolve) => {
@@ -66,18 +103,15 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-
           if (width > maxWidth) {
             height *= maxWidth / width;
             width = maxWidth;
           }
-
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            // Compress to JPEG 70% quality
             resolve(canvas.toDataURL('image/jpeg', 0.7));
           } else {
             resolve(e.target?.result as string);
@@ -97,12 +131,10 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-
         if (width > maxWidth) {
           height *= maxWidth / width;
           width = maxWidth;
         }
-
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
@@ -117,14 +149,18 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
     });
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'bannerUrl') => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'bannerUrl' | 'userAvatar') => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     try {
-      const maxWidth = field === 'logoUrl' ? 400 : 1200;
-      const resized = await resizeImage(file, maxWidth);
-      setFormData(prev => ({ ...prev, [field]: resized }));
+      if (field === 'userAvatar') {
+         const resized = await resizeImage(file, 400);
+         setEditUserData(prev => ({...prev, avatarUrl: resized}));
+      } else {
+         const maxWidth = field === 'logoUrl' ? 400 : 1200;
+         const resized = await resizeImage(file, maxWidth);
+         setFormData(prev => ({ ...prev, [field]: resized }));
+      }
     } catch (e) {
       toast.error("Erro ao processar imagem.");
     }
@@ -133,51 +169,49 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Construction of payload strictly to avoid sending unchanged heavy data (images/portfolio)
-      // This prevents 500 errors (Payload Too Large / Server Timeout)
-      
-      const payload: any = {
-        workspaceId: formData.workspaceId,
-        name: formData.name,
-        description: formData.description,
-        address: formData.address,
-        whatsapp: formData.whatsapp,
-        cnpj: formData.cnpj,
-        instagram: formData.instagram,
-        facebook: formData.facebook,
-        latitude: formData.latitude,
-        longitude: formData.longitude,
-        active: formData.active,
-        fulfillmentMode: formData.fulfillmentMode,
-        deliveryConfig: formData.deliveryConfig
-      };
+      await onSaveUser(editUserData);
 
-      // 1. Process Logo - Only add to payload if changed
-      if (formData.logoUrl !== profile?.logoUrl) {
-        let finalLogo = formData.logoUrl;
-        if (finalLogo && finalLogo.startsWith('data:image') && finalLogo.length > 200000) {
-           finalLogo = await compressBase64(finalLogo, 400);
-        }
-        payload.logoUrl = finalLogo;
+      if (isOwner) {
+         const payload: any = {
+           workspaceId: formData.workspaceId,
+           name: formData.name,
+           description: formData.description,
+           address: formData.address,
+           whatsapp: formData.whatsapp,
+           cnpj: formData.cnpj,
+           instagram: formData.instagram,
+           facebook: formData.facebook,
+           latitude: formData.latitude,
+           longitude: formData.longitude,
+           active: formData.active,
+           fulfillmentMode: formData.fulfillmentMode,
+           deliveryConfig: formData.deliveryConfig
+         };
+
+         if (formData.logoUrl !== profile?.logoUrl) {
+           let finalLogo = formData.logoUrl;
+           if (finalLogo && finalLogo.startsWith('data:image') && finalLogo.length > 200000) {
+              finalLogo = await compressBase64(finalLogo, 400);
+           }
+           payload.logoUrl = finalLogo;
+         }
+
+         if (formData.bannerUrl !== profile?.bannerUrl) {
+           let finalBanner = formData.bannerUrl;
+           if (finalBanner && finalBanner.startsWith('data:image') && finalBanner.length > 300000) {
+              finalBanner = await compressBase64(finalBanner, 1000);
+           }
+           payload.bannerUrl = finalBanner;
+         }
+         await onSave(payload);
+         toast.success("Perfil e loja atualizados com sucesso!");
+      } else {
+         toast.success("Perfil atualizado com sucesso!");
       }
-
-      // 2. Process Banner - Only add to payload if changed
-      if (formData.bannerUrl !== profile?.bannerUrl) {
-        let finalBanner = formData.bannerUrl;
-        if (finalBanner && finalBanner.startsWith('data:image') && finalBanner.length > 300000) {
-           finalBanner = await compressBase64(finalBanner, 1000);
-        }
-        payload.bannerUrl = finalBanner;
-      }
-
-      // 3. Portfolio - Only add if needed (though usually handled by MarketplaceManager, here we skip it to be safe)
-      // The settings modal doesn't edit portfolio items, so we simply omit it to prevent sending the array.
-      
-      await onSave(payload);
       onClose();
     } catch (e) {
       console.error(e);
-      toast.error("Erro ao salvar perfil. Tente novamente ou use imagens menores.");
+      toast.error("Erro ao salvar perfil.");
     } finally {
       setIsSaving(false);
     }
@@ -191,17 +225,26 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
     setFormData(prev => ({ ...prev, active: !prev.active }));
   };
 
+  const TABS = [
+    { id: 'USER', label: 'Segurança e Acesso', icon: ShieldCheck, show: true },
+    { id: 'IDENTITY', label: 'Identidade da Empresa', icon: Store, show: isOwner },
+    { id: 'LOCATION', label: 'Contato e Localização', icon: MapPin, show: isOwner },
+    { id: 'LOGISTICS', label: 'Logística e Vendas', icon: Bike, show: isOwner },
+  ];
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-3xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
-        <header className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-3xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
+        
+        {/* Header */}
+        <header className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <div className="flex items-center gap-4">
-             <div className="p-3 bg-orange-100 text-orange-600 rounded-2xl">
-                <Store className="w-6 h-6" />
+             <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+                <StoreIcon className="w-6 h-6" />
              </div>
              <div>
-                <h2 className="text-xl font-black text-slate-800 tracking-tight">Perfil da Empresa</h2>
-                <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Configurações de Identidade</p>
+                <h2 className="text-xl font-black text-slate-800 tracking-tight">Painel da Conta e Loja</h2>
+                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Configurações Unificadas</p>
              </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-all">
@@ -209,273 +252,263 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
-           {/* Seção de Imagens (Banner e Logo) */}
-           <div className="space-y-4">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Imagens da Loja</label>
-              <div className="relative h-48 w-full group">
-                 {/* Banner */}
-                 <div className="w-full h-full bg-slate-100 rounded-[2rem] overflow-hidden border-2 border-dashed border-slate-200 flex items-center justify-center relative">
-                    {formData.bannerUrl ? (
-                       <img src={formData.bannerUrl} className="w-full h-full object-cover" />
-                    ) : (
-                       <div className="text-center">
-                          <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                          <p className="text-[8px] font-black text-slate-400 uppercase">Banner de Fundo</p>
+        {/* Tab Navigation */}
+        <div className="flex overflow-x-auto no-scrollbar border-b border-slate-100 px-6 pt-4 bg-slate-50/50">
+          <div className="flex gap-4">
+            {TABS.filter(t => t.show).map(tab => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex leading-none items-center gap-2 pb-4 px-2 border-b-4 transition-all whitespace-nowrap ${isActive ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                >
+                  <Icon size={16} className={isActive ? 'animate-pulse' : ''} />
+                  <span className="text-xs font-black uppercase tracking-wider">{tab.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-white no-scrollbar">
+          
+          {/* USER TAB */}
+          {activeTab === 'USER' && (
+            <div className="space-y-8 max-w-xl mx-auto">
+              <div className="flex flex-col items-center mb-8 relative">
+                 <div className="w-28 h-28 bg-slate-100 rounded-[2rem] overflow-hidden relative group cursor-pointer border-4 border-white shadow-xl" onClick={() => userAvatarInputRef.current?.click()}>
+                    {editUserData.avatarUrl ? <img src={editUserData.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><UserIcon size={32} /></div>}
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white" /></div>
+                 </div>
+                 <input type="file" ref={userAvatarInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'userAvatar')} />
+                 <h3 className="mt-4 text-lg font-black text-slate-800 tracking-tight">{user.name}</h3>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{user.role}</p>
+              </div>
+
+              <div className="bg-slate-50 p-6 rounded-[2rem] space-y-4 shadow-sm border border-slate-100">
+                 <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 mb-4"><Lock size={14}/> Segurança Reforçada</h4>
+                 
+                 <div className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between gap-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                       <div className={`p-3 rounded-xl ${isBiometryActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                          <Fingerprint size={24} />
                        </div>
-                    )}
+                       <div>
+                          <p className="text-sm font-black text-slate-800">Autenticação Biométrica</p>
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide">Use Face ID ou Digital</p>
+                       </div>
+                    </div>
                     <button 
-                       onClick={() => bannerInputRef.current?.click()}
-                       className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                      onClick={handleToggleBiometry}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${isBiometryActive ? 'bg-rose-100 text-rose-600 hover:bg-rose-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                     >
-                       <div className="p-4 bg-white/90 rounded-2xl shadow-xl flex items-center gap-2">
-                          <Camera className="w-5 h-5 text-orange-600" />
-                          <span className="text-[10px] font-black uppercase text-slate-800">Trocar Banner</span>
-                       </div>
+                      {isBiometryActive ? 'Remover' : 'Ativar'}
                     </button>
-                    <input type="file" ref={bannerInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'bannerUrl')} />
                  </div>
 
-                 {/* Logo / Foto de Perfil */}
-                 <div className="absolute -bottom-6 left-8 group/logo">
-                    <div className="w-24 h-24 bg-white rounded-[2rem] p-1 shadow-2xl border-4 border-white overflow-hidden relative">
-                       {formData.logoUrl ? (
-                          <img src={formData.logoUrl} className="w-full h-full object-cover rounded-[1.6rem]" />
-                       ) : (
-                          <div className="w-full h-full bg-orange-50 flex items-center justify-center">
-                             <Store className="w-8 h-8 text-orange-200" />
-                          </div>
-                       )}
-                       <button 
-                          onClick={() => logoInputRef.current?.click()}
-                          className="absolute inset-0 bg-orange-600/60 opacity-0 group-hover/logo:opacity-100 transition-opacity flex items-center justify-center"
-                       >
-                          <Upload className="w-6 h-6 text-white" />
-                       </button>
-                       <input type="file" ref={logoInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'logoUrl')} />
+                 <div className="space-y-1">
+                   <label className="text-[9px] font-black uppercase text-slate-400 ml-4">PIN de Acesso (6 Dígitos)</label>
+                   <input type="password" maxLength={6} value={editUserData.accessCode} onChange={e => setEditUserData({...editUserData, accessCode: e.target.value})} className="w-full p-4 bg-white border border-slate-100 rounded-2xl font-black text-center text-xl outline-none focus:border-indigo-300 transition-all" placeholder="NOVO PIN" />
+                 </div>
+              </div>
+
+              <div className="space-y-4">
+                 <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><UserIcon size={14}/> Dados Pessoais</h4>
+                 <div className="space-y-1">
+                   <label className="text-[9px] font-black uppercase text-slate-400 ml-4">Nome Completo</label>
+                   <input value={editUserData.name} onChange={e => setEditUserData({...editUserData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold uppercase text-xs outline-none focus:border-indigo-300" placeholder="NOME" />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-slate-400 ml-4">WhatsApp Pessoal</label>
+                      <input type="tel" value={editUserData.phone} onChange={e => setEditUserData({...editUserData, phone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="21999999999" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-slate-400 ml-4">CPF (Opcional)</label>
+                      <input value={editUserData.cpf} onChange={e => setEditUserData({...editUserData, cpf: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="000.000.000-00" />
                     </div>
                  </div>
               </div>
-           </div>
+            </div>
+          )}
 
-           <div className="grid sm:grid-cols-2 gap-6 mt-12">
-              <div className="space-y-1">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Nome Público da Loja</label>
-                 <div className="relative">
-                    <Store className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                    <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500" placeholder="Ex: Salgadinhos da Praça" />
-                 </div>
-              </div>
-              <div className="space-y-1">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-4">WhatsApp de Vendas</label>
-                 <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                    <input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500" placeholder="Ex: 21999999999" />
-                 </div>
-              </div>
-           </div>
+          {/* IDENTITY TAB */}
+          {activeTab === 'IDENTITY' && isOwner && (
+            <div className="space-y-8 max-w-xl mx-auto">
+               <div className="relative h-48 w-full group">
+                  {/* Banner */}
+                  <div className="w-full h-full bg-slate-100 rounded-[2rem] overflow-hidden border-2 border-dashed border-slate-200 flex items-center justify-center relative">
+                     {formData.bannerUrl ? (
+                        <img src={formData.bannerUrl} className="w-full h-full object-cover" />
+                     ) : (
+                        <div className="text-center">
+                           <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                           <p className="text-[8px] font-black text-slate-400 uppercase">Capa do seu Negócio</p>
+                        </div>
+                     )}
+                     <button onClick={() => bannerInputRef.current?.click()} className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <div className="p-4 bg-white/90 rounded-2xl shadow-xl flex items-center gap-2">
+                           <Camera className="w-5 h-5 text-indigo-600" />
+                           <span className="text-[10px] font-black uppercase text-slate-800">Trocar Capa</span>
+                        </div>
+                     </button>
+                     <input type="file" ref={bannerInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'bannerUrl')} />
+                  </div>
 
-           <div className="space-y-3">
-              <label className="text-[9px] font-black uppercase text-slate-400 ml-4 flex items-center gap-1">
-                 <Bike size={10} /> Modo de Operação
-              </label>
-              <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                 <button onClick={() => setFormData({...formData, fulfillmentMode: 'PICKUP'})} className={`py-3 rounded-xl flex flex-col items-center gap-1 transition-all ${formData.fulfillmentMode === 'PICKUP' ? 'bg-white shadow-md text-orange-600' : 'text-slate-400'}`}>
-                    <ShoppingBag size={14} />
-                    <span className="text-[7px] font-black uppercase">Retirada</span>
-                 </button>
-                 <button onClick={() => setFormData({...formData, fulfillmentMode: 'DELIVERY'})} className={`py-3 rounded-xl flex flex-col items-center gap-1 transition-all ${formData.fulfillmentMode === 'DELIVERY' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400'}`}>
-                    <Bike size={14} />
-                    <span className="text-[7px] font-black uppercase">Entrega</span>
-                 </button>
-                 <button onClick={() => setFormData({...formData, fulfillmentMode: 'BOTH'})} className={`py-3 rounded-xl flex flex-col items-center gap-1 transition-all ${formData.fulfillmentMode === 'BOTH' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-400'}`}>
-                    <StoreIcon size={14} />
-                    <span className="text-[7px] font-black uppercase">Ambos</span>
-                 </button>
+                  {/* Logo */}
+                  <div className="absolute -bottom-6 left-8 group/logo">
+                     <div className="w-24 h-24 bg-white rounded-[2rem] p-1 shadow-2xl border-4 border-white overflow-hidden relative">
+                        {formData.logoUrl ? (
+                           <img src={formData.logoUrl} className="w-full h-full object-cover rounded-[1.6rem]" />
+                        ) : (
+                           <div className="w-full h-full bg-indigo-50 flex items-center justify-center rounded-[1.6rem]">
+                              <StoreIcon className="w-8 h-8 text-indigo-200" />
+                           </div>
+                        )}
+                        <button onClick={() => logoInputRef.current?.click()} className="absolute inset-0 bg-black/30 opacity-0 group-hover/logo:opacity-100 transition-opacity flex items-center justify-center rounded-[1.6rem]">
+                           <Camera className="w-5 h-5 text-white" />
+                        </button>
+                     </div>
+                     <input type="file" ref={logoInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'logoUrl')} />
+                  </div>
+               </div>
+
+               <div className="pt-8 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Fantasia</label>
+                        <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: Salgados do João" />
+                     </div>
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">CNPJ (Opcional)</label>
+                        <input value={formData.cnpj} onChange={e => setFormData({...formData, cnpj: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="00.000.000/0001-00" />
+                     </div>
+                  </div>
+                  <div className="space-y-1">
+                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição Curta / Bio</label>
+                     <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} rows={3} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-medium text-sm outline-none focus:border-indigo-300 resize-none" placeholder="Conte um pouco sobre os seus salgados e sua história..." />
+                  </div>
                </div>
             </div>
+          )}
 
-           {/* CONFIGURAÇÃO DE ENTREGA */}
-           {(formData.fulfillmentMode === 'DELIVERY' || formData.fulfillmentMode === 'BOTH') && (
-             <div className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-2 mb-2">
-                   <Bike size={16} className="text-blue-600" />
-                   <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Regras de Entrega</h4>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Grátis Acima de (R$)</label>
-                     <input 
-                       type="number" 
-                       value={formData.deliveryConfig?.freeDeliveryThreshold || ''} 
-                       onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, freeDeliveryThreshold: Number(e.target.value) }})} 
-                       className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500" 
-                       placeholder="Ex: 50" 
-                     />
+          {/* LOCATION & SOCIAL TAB */}
+          {activeTab === 'LOCATION' && isOwner && (
+            <div className="space-y-8 max-w-xl mx-auto pt-4">
+               <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><Phone size={14}/> Contato Principal</h4>
+                  <div className="relative">
+                     <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                     <input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="WhatsApp da Loja" />
                   </div>
-                  <div className="space-y-1">
-                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Distância Máxima (Km)</label>
-                     <input 
-                       type="number" 
-                       value={formData.deliveryConfig?.maxDistance || ''} 
-                       onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, maxDistance: Number(e.target.value) }})} 
-                       className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500" 
-                       placeholder="Ex: 10" 
-                     />
-                  </div>
-                </div>
+               </div>
 
-                <div className="space-y-2">
-                   <div className="flex justify-between items-center">
-                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Taxas por Distância (Km)</label>
-                     <button 
-                       onClick={(e) => {
-                         e.preventDefault();
-                         const currentTiers = formData.deliveryConfig?.distanceTiers || [];
-                         setFormData({
-                           ...formData, 
-                           deliveryConfig: { 
-                             ...formData.deliveryConfig, 
-                             distanceTiers: [...currentTiers, { upToKm: 0, fee: 0 }] 
-                           }
-                         });
-                       }}
-                       className="text-[9px] font-bold text-blue-600 uppercase bg-blue-50 px-2 py-1 rounded-lg"
-                     >
-                       + Adicionar Faixa
-                     </button>
-                   </div>
-                   
-                   {(formData.deliveryConfig?.distanceTiers || []).map((tier, idx) => (
-                     <div key={idx} className="flex items-center gap-2">
-                       <div className="flex-1 flex items-center gap-2 bg-white p-2 border border-slate-200 rounded-xl">
-                         <span className="text-[10px] font-bold text-slate-400">Até</span>
-                         <input 
-                           type="number" 
-                           value={tier.upToKm || ''} 
-                           onChange={e => {
-                             const newTiers = [...(formData.deliveryConfig?.distanceTiers || [])];
-                             newTiers[idx].upToKm = Number(e.target.value);
-                             setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, distanceTiers: newTiers }});
-                           }}
-                           className="w-12 text-center font-black text-sm outline-none" 
-                           placeholder="Km" 
-                         />
-                         <span className="text-[10px] font-bold text-slate-400">km</span>
-                       </div>
-                       <div className="flex-1 flex items-center gap-2 bg-white p-2 border border-slate-200 rounded-xl">
-                         <span className="text-[10px] font-bold text-slate-400">R$</span>
-                         <input 
-                           type="number" 
-                           value={tier.fee || ''} 
-                           onChange={e => {
-                             const newTiers = [...(formData.deliveryConfig?.distanceTiers || [])];
-                             newTiers[idx].fee = Number(e.target.value);
-                             setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, distanceTiers: newTiers }});
-                           }}
-                           className="w-16 text-center font-black text-sm outline-none" 
-                           placeholder="Taxa" 
-                         />
-                       </div>
-                       <button 
-                         onClick={(e) => {
-                           e.preventDefault();
-                           const newTiers = [...(formData.deliveryConfig?.distanceTiers || [])];
-                           newTiers.splice(idx, 1);
-                           setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, distanceTiers: newTiers }});
-                         }}
-                         className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl"
-                       >
-                         <Trash2 size={14} />
-                       </button>
+               <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><MapPin size={14}/> Endereço Base</h4>
+                  <div className="relative">
+                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                     <input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Endereço de Retirada/Produção" />
+                  </div>
+               </div>
+
+               <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><Instagram size={14}/> Redes Sociais</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="relative">
+                        <Instagram className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pink-500" />
+                        <input value={formData.instagram} onChange={e => setFormData({...formData, instagram: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="@seuinstagram" />
                      </div>
-                   ))}
-                   {(!formData.deliveryConfig?.distanceTiers || formData.deliveryConfig.distanceTiers.length === 0) && (
-                     <p className="text-[10px] text-slate-400 italic ml-2">Nenhuma taxa configurada. A entrega será grátis.</p>
-                   )}
-                </div>
-             </div>
-           )}
+                     <div className="relative">
+                        <Facebook className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500" />
+                        <input value={formData.facebook} onChange={e => setFormData({...formData, facebook: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="/suapagina" />
+                     </div>
+                  </div>
+               </div>
 
-           <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Endereço de Retirada / Localização</label>
-              <div className="flex gap-2">
-                 <div className="relative flex-1">
-                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                    <input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500" placeholder="Rua, Número, Bairro, Cidade" />
-                 </div>
-                 <button 
-                   onClick={(e) => {
-                     e.preventDefault();
-                     if ("geolocation" in navigator) {
-                       toast.info("Obtendo sua localização atual...");
-                       navigator.geolocation.getCurrentPosition((pos) => {
-                         setFormData({
-                           ...formData,
-                           latitude: pos.coords.latitude,
-                           longitude: pos.coords.longitude
-                         });
-                         toast.success("Localização capturada com sucesso!");
-                       }, (err) => {
-                         toast.error("Não foi possível obter sua localização. Verifique as permissões do navegador.");
-                       });
-                     }
-                   }}
-                   className={`p-4 rounded-2xl border-2 transition-all flex items-center justify-center ${formData.latitude !== 0 ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-slate-50 border-transparent text-slate-400 hover:border-slate-200'}`}
-                   title="Capturar Localização Atual"
-                 >
-                   <Navigation size={20} className={formData.latitude !== 0 ? 'animate-pulse' : ''} />
-                 </button>
-              </div>
-              {formData.latitude !== 0 && (
-                <p className="text-[8px] font-bold text-blue-500 uppercase ml-4 mt-1">📍 Localização Geográfica Configurada</p>
-              )}
-           </div>
+               <div className={`p-6 rounded-[2rem] border mt-8 flex flex-col sm:flex-row items-center justify-between gap-6 transition-all ${hasProPlan ? 'bg-indigo-50 border-indigo-100' : formData.active ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200 opacity-70'}`}>
+                  <div>
+                     <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">Vitrine Online (Catálogo)</h3>
+                     <p className={`text-xs font-medium mt-1 max-w-sm ${formData.active && !hasProPlan ? 'text-orange-600 font-bold' : 'text-slate-500'}`}>
+                       {hasProPlan ? 'Permita que clientes vejam o cardápio.' : formData.active ? '⚠️ Seu plano venceu. Desative a vitrine.' : 'Exclusivo do Plano Profissional.'}
+                     </p>
+                  </div>
+                  <button onClick={toggleActive} className={`relative inline-flex h-8 w-14 shrink-0 items-center justify-center rounded-full transition-colors focus:outline-none ${!hasProPlan && !formData.active ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${formData.active ? (hasProPlan ? 'bg-indigo-600' : 'bg-orange-500') : 'bg-slate-300 shadow-inner'}`}>
+                     <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.active ? 'translate-x-3' : '-translate-x-3'}`} />
+                  </button>
+               </div>
+            </div>
+          )}
 
-           <div className="grid sm:grid-cols-2 gap-6">
-              <div className="space-y-1">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Instagram</label>
-                 <div className="relative">
-                    <Instagram className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                    <input value={formData.instagram || ''} onChange={e => setFormData({...formData, instagram: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500" placeholder="@seuperfil" />
-                 </div>
-              </div>
-              <div className="space-y-1">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-4">CNPJ (Opcional)</label>
-                 <div className="relative">
-                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                    <input value={formData.cnpj || ''} onChange={e => setFormData({...formData, cnpj: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500" placeholder="Somente números" />
-                 </div>
-              </div>
-           </div>
+          {/* LOGISTICS TAB */}
+          {activeTab === 'LOGISTICS' && isOwner && (
+            <div className="space-y-8 max-w-xl mx-auto pt-4">
+               <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-3 block">Modo de Operação</label>
+                  <div className="grid grid-cols-3 gap-3">
+                     {[
+                        { id: 'DELIVERY', label: 'Só Delivery', icon: Bike },
+                        { id: 'PICKUP', label: 'Só Retirada', icon: StoreIcon },
+                        { id: 'BOTH', label: 'Ambos', icon: ShoppingBag }
+                     ].map(mode => {
+                        const Icon = mode.icon;
+                        const isSelected = formData.fulfillmentMode === mode.id;
+                        return (
+                           <button
+                              key={mode.id}
+                              onClick={() => setFormData({...formData, fulfillmentMode: mode.id as any})}
+                              className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-slate-100 bg-white text-slate-400 hover:border-indigo-200'}`}
+                           >
+                              <Icon size={24} />
+                              <span className="text-[10px] font-black uppercase text-center">{mode.label}</span>
+                           </button>
+                        );
+                     })}
+                  </div>
+               </div>
+               
+               {formData.fulfillmentMode !== 'PICKUP' && (
+                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                     <h4 className="text-xs font-black text-slate-600 uppercase flex items-center gap-2"><Navigation size={14}/> Configurações de Entrega</h4>
+                     
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Taxa Fixa (R$)</label>
+                           <input type="number" value={formData.deliveryConfig?.fee || ''} onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, fee: Number(e.target.value) }})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: 5" />
+                        </div>
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Nº Mínimo (R$)</label>
+                           <input type="number" value={formData.deliveryConfig?.minOrder || ''} onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, minOrder: Number(e.target.value) }})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: 20" />
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Tempo (30-45)</label>
+                           <input value={formData.deliveryConfig?.estimatedMinutes || ''} onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, estimatedMinutes: e.target.value }})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="30-45 min" />
+                        </div>
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Raio Máx (KM)</label>
+                           <input type="number" value={formData.deliveryConfig?.radiusKm || ''} onChange={e => setFormData({...formData, deliveryConfig: { ...formData.deliveryConfig, radiusKm: Number(e.target.value) }})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: 5" />
+                        </div>
+                     </div>
+                  </div>
+               )}
+            </div>
+          )}
 
-           <div className="space-y-1">
-              <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Descrição do Negócio</label>
-              <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl font-bold outline-none focus:border-orange-500 h-32 resize-none" placeholder="Conte um pouco sobre a sua produção e tradição..." />
-           </div>
-
-           <div className="flex items-center gap-4 p-4 bg-emerald-50 rounded-[2rem] border border-emerald-100">
-              <button 
-                onClick={toggleActive}
-                className={`w-14 h-7 rounded-full transition-all relative ${formData.active ? 'bg-emerald-500' : 'bg-slate-300'}`}
-              >
-                <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${formData.active ? 'left-8' : 'left-1'}`} />
-              </button>
-              <div>
-                <p className="text-[10px] font-black text-emerald-800 uppercase">Loja Ativa no Marketplace</p>
-                <p className="text-[8px] font-bold text-emerald-600/60 uppercase">
-                  {hasProPlan ? 'Sua vitrine está visível no Marketplace' : 'Disponível apenas no Plano PRO'}
-                </p>
-              </div>
-           </div>
         </div>
 
-        <footer className="p-8 border-t border-slate-100 bg-slate-50">
-           <button onClick={handleSave} disabled={isSaving} className="w-full py-5 bg-orange-600 text-white rounded-[1.8rem] font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
-              {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} Salvar Perfil
-           </button>
-        </footer>
+        {/* Footer */}
+        <div className="p-6 border-t border-slate-100 bg-slate-50 flex gap-4">
+          <button onClick={onClose} className="py-4 px-8 text-slate-400 font-black uppercase text-xs hover:bg-slate-100 rounded-2xl transition-all">Cancelar</button>
+          <button onClick={handleSave} disabled={isSaving} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all">
+             {isSaving ? <Loader2 className="animate-spin" /> : <Save size={18} />} 
+             Salvar Tudo
+          </button>
+        </div>
+
       </div>
     </div>
   );

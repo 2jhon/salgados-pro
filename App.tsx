@@ -30,11 +30,12 @@ import {
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { bluetoothPrinter } from './services/bluetoothPrinter';
+import { hasBiometryConfigured, registerBiometryLocal, removeBiometryLocal, verifyBiometryLocal } from './lib/webauthnUtils';
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
-  const { sections, archives, saveConfig, deleteSection, updateStockAtomic, fetchConfigByWorkspace, publicStalls, fetchPublicStalls, isSyncing: isStockSyncing, reconnect: reconnectStock } = useAppConfig();
+  const { sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, fetchConfigByWorkspace, publicStalls, fetchPublicStalls, isSyncing: isStockSyncing, reconnect: reconnectStock } = useAppConfig();
   const { users, createUser, fetchUsersByWorkspace, findUserById, updateUser, removeUser, findUserByEmail, findUserByPhone, authenticateUser } = useUsers();
   
   const { notes, unreadCount, markAsRead, markAllAsRead, deleteNote, clearReadNotes, addNote } = useNotes(currentUser?.workspaceId);
@@ -73,7 +74,6 @@ export const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
-  const [showUserProfileEditor, setShowUserProfileEditor] = useState(false);
   const [showNotesInbox, setShowNotesInbox] = useState(false);
   const [authMode, setAuthMode] = useState<'LOGIN' | 'IDENTIFY' | 'CREATE_COMPANY' | 'CREATE_CUSTOMER' | 'RECOVERY'>('IDENTIFY');
   const [targetType, setTargetType] = useState<UserType>('COMPANY');
@@ -403,44 +403,12 @@ export const App: React.FC = () => {
     }
   };
 
+  const [isBiometryActive, setIsBiometryActive] = useState(hasBiometryConfigured());
+
   const handleOpenProfileEditor = () => {
     if (currentUser) {
-      setEditUserData({
-        name: currentUser.name || '',
-        phone: currentUser.phone || '',
-        cpf: currentUser.cpf || '',
-        accessCode: currentUser.accessCode || '',
-        avatarUrl: currentUser.avatarUrl || '',
-        bannerUrl: currentUser.bannerUrl || ''
-      });
-      if (currentUser.role === 'OWNER') setShowProfileSettings(true);
-      else setShowUserProfileEditor(true);
+      setShowProfileSettings(true);
     }
-  };
-
-  const handleSaveUserProfile = async () => {
-    if (!currentUser) return;
-    setIsProcessing(true);
-    try {
-      await updateUser(currentUser.id, editUserData);
-      const updatedUser = { ...currentUser, ...editUserData };
-      setCurrentUser(updatedUser);
-      localStorage.setItem('logged_user', JSON.stringify(updatedUser));
-      setShowUserProfileEditor(false);
-      
-      // Se alterou o telefone, recarrega dívidas globais imediatamente
-      if (editUserData.phone !== currentUser.phone) {
-         console.log('[App] Telefone atualizado, recarregando dívidas para:', editUserData.phone);
-         const debts = await fetchUserGlobalDebts(editUserData.phone, currentUser.workspaceId);
-         if (debts !== null) {
-            setTransactions(prev => {
-               const localOnly = prev.filter(t => !t.isExternal);
-               const combined = [...localOnly, ...debts];
-               return combined.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            });
-         }
-      }
-    } finally { setIsProcessing(false); }
   };
 
   const handleMarketplaceRefresh = useCallback(() => {
@@ -593,6 +561,37 @@ export const App: React.FC = () => {
                 <input required maxLength={6} type="password" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="PIN 6 DÍGITOS" className="w-full p-4 bg-slate-50 rounded-xl font-black text-xl text-center outline-none tracking-widest" />
                 <p className="text-[8px] text-center text-slate-400 font-bold uppercase tracking-tighter">Use apenas números para o seu PIN</p>
               </div>
+
+              {authMode === 'LOGIN' && hasBiometryConfigured() && (
+                 <button 
+                   type="button" 
+                   disabled={isProcessing}
+                   onClick={async () => {
+                      setIsProcessing(true);
+                      setAuthError(null);
+                      try {
+                         const rawData = await verifyBiometryLocal();
+                         const user = await authenticateUser(rawData.identifier, rawData.pin, targetType);
+                         if (user) {
+                           if (user.isBlocked) { setAuthError("Acesso negado: Sua conta foi bloqueada."); return; }
+                           localStorage.setItem('logged_user', JSON.stringify(user));
+                           setCurrentUser(user);
+                           loadWorkspaceData(user);
+                         } else {
+                           setAuthError("Credenciais biométricas incorretas.");
+                         }
+                      } catch (e: any) {
+                         setAuthError(e.message || "Autenticação biométrica cancelada ou falhou.");
+                      } finally {
+                         setIsProcessing(false);
+                      }
+                   }}
+                   className="w-full py-4 bg-slate-100 text-indigo-600 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-indigo-50 border-2 border-indigo-100 transition-all shadow-sm"
+                 >
+                    <Fingerprint size={18} /> Entrar com Digital
+                 </button>
+              )}
+
               <button type="submit" disabled={isProcessing} className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg">{isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode.startsWith('CREATE_') ? 'Criar Conta' : 'Entrar')}</button>
               
               {authMode === 'LOGIN' && (
@@ -730,6 +729,31 @@ export const App: React.FC = () => {
                 </div>
              </div>
              <div className="flex gap-2">
+                <button 
+                  onClick={async () => {
+                     try {
+                        if (isBiometryActive) {
+                           removeBiometryLocal();
+                           setIsBiometryActive(false);
+                           toast.success("Acesso por digital desativado neste aparelho.");
+                        } else {
+                           const identifier = currentUser?.email || currentUser?.phone || '';
+                           if (!identifier || !currentUser?.accessCode) {
+                              toast.error("É necessário estar logado com PIN para ativar."); return;
+                           }
+                           await registerBiometryLocal(currentUser.id, identifier, currentUser.accessCode);
+                           setIsBiometryActive(true);
+                           toast.success("Acesso por digital ativado!");
+                        }
+                     } catch(e: any) { toast.error(e.message || "Erro ao configurar biometria"); }
+                  }}
+                  className={`relative p-3 rounded-2xl transition-all active:scale-95 ${currentUser.bannerUrl || companyProfile?.bannerUrl ? (isBiometryActive ? 'bg-white/20 text-white backdrop-blur-md border border-white/30' : 'bg-white/10 text-white backdrop-blur-md border border-white/10') : (isBiometryActive ? 'bg-indigo-100 text-indigo-600 shadow-sm' : 'bg-slate-100 text-slate-500')}`}
+                  title={isBiometryActive ? "Biometria Ativada" : "Ativar Biometria"}
+                >
+                  <Fingerprint size={20} />
+                  {isBiometryActive && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />}
+                </button>
+
                 {currentUser.role === 'OWNER' && (
                   <button 
                     onClick={() => setShowNotesInbox(true)} 
@@ -833,17 +857,17 @@ export const App: React.FC = () => {
           />
         )}
         
-        {allowedSections.map(section => {
+         {allowedSections.map(section => {
            if (activeTab === section.id) {
-             if (section.type === 'FACTORY_STYLE') return <Factory key={section.id} section={section} user={currentUser} transactions={transactions} addTransactions={addTransactions} updateTransaction={updateTransaction} settleCustomerDebt={settleCustomerDebt} partialSettleTransaction={partialSettleTransaction} calculateTotals={calculateTotals} saveConfig={saveConfig} updateStockAtomic={updateStockAtomic} sections={sections} customers={customers} addCustomer={addCustomer} onRefreshData={handleManualDataRefresh} addNote={addNote} />;
-             if (section.type === 'STALL_STYLE') return <Stall key={section.id} section={section} user={currentUser} transactions={transactions} addTransactions={addTransactions} updateTransaction={updateTransaction} calculateTotals={calculateTotals} saveConfig={saveConfig} updateStockAtomic={updateStockAtomic} sections={sections} customers={customers} addNote={addNote} />;
+             if (section.type === 'FACTORY_STYLE') return <Factory key={section.id} section={section} user={currentUser} transactions={transactions} addTransactions={addTransactions} updateTransaction={updateTransaction} settleCustomerDebt={settleCustomerDebt} partialSettleTransaction={partialSettleTransaction} calculateTotals={calculateTotals} saveConfig={saveConfig} updateSingleSection={updateSingleSection} updateStockAtomic={updateStockAtomic} sections={sections} customers={customers} addCustomer={addCustomer} onRefreshData={handleManualDataRefresh} addNote={addNote} />;
+             if (section.type === 'STALL_STYLE') return <Stall key={section.id} section={section} user={currentUser} transactions={transactions} addTransactions={addTransactions} updateTransaction={updateTransaction} calculateTotals={calculateTotals} saveConfig={saveConfig} updateSingleSection={updateSingleSection} updateStockAtomic={updateStockAtomic} sections={sections} customers={customers} addNote={addNote} />;
            }
            return null;
         })}
         </div>
       </div>
 
-      {showProfileSettings && (
+      {showProfileSettings && currentUser && (
         <StoreProfileSettings 
           profile={companyProfile} 
           onSave={async (p) => {
@@ -852,82 +876,21 @@ export const App: React.FC = () => {
             return updated;
           }} 
           onClose={() => setShowProfileSettings(false)} 
-          workspaceId={currentUser.workspaceId} 
-          hasProPlan={isProActive} 
+          workspaceId={currentUser.workspaceId!} 
+          hasProPlan={isProActive}
+          user={currentUser}
+          isOwner={currentUser.role === 'OWNER'}
+          onSaveUser={async (userData) => {
+             await updateUser(currentUser.id, userData);
+             const updatedUser = { ...currentUser, ...userData };
+             setCurrentUser(updatedUser);
+             localStorage.setItem('logged_user', JSON.stringify(updatedUser));
+             // Recarrega dívidas se o telefone mudar
+             if (userData.phone && userData.phone !== currentUser.phone) {
+               handleManualDataRefresh();
+             }
+          }}
         />
-      )}
-      {showUserProfileEditor && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl overflow-y-auto max-h-[90vh] no-scrollbar">
-            <h3 className="text-xl font-black text-slate-800 mb-6 uppercase">Editar Perfil</h3>
-            <div className="space-y-4">
-              <div className="flex justify-center mb-6">
-                <div className="w-24 h-24 bg-slate-100 rounded-full overflow-hidden relative group cursor-pointer border-4 border-white shadow-xl" onClick={() => avatarInputRef.current?.click()}>
-                   {editUserData.avatarUrl ? <img src={editUserData.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><UserIcon size={32} /></div>}
-                   <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white" /></div>
-                </div>
-                <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={e => { 
-                  const f = e.target.files?.[0]; 
-                  if(f){ 
-                    const r = new FileReader(); 
-                    r.onloadend = () => {
-                      const img = new Image();
-                      img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 400;
-                        let width = img.width;
-                        let height = img.height;
-                        if (width > MAX_WIDTH) {
-                          height = (MAX_WIDTH / width) * height;
-                          width = MAX_WIDTH;
-                        }
-                        canvas.width = width;
-                        canvas.height = height;
-                        const ctx = canvas.getContext('2d');
-                        ctx?.drawImage(img, 0, 0, width, height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                        setEditUserData(prev => ({ ...prev, avatarUrl: dataUrl }));
-                      };
-                      img.src = r.result as string;
-                    }; 
-                    r.readAsDataURL(f); 
-                  } 
-                }} />
-              </div>
-              
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 ml-4">Nome Completo</label>
-                <input value={editUserData.name} onChange={e => setEditUserData({...editUserData, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none" placeholder="NOME" />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 ml-4">WhatsApp (Para vincular notas)</label>
-                <div className="relative">
-                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                  <input type="tel" value={editUserData.phone} onChange={e => setEditUserData({...editUserData, phone: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold text-xs outline-none" placeholder="21999999999" />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 ml-4">CPF (Identificação Secundária)</label>
-                <div className="relative">
-                  <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                  <input value={editUserData.cpf} onChange={e => setEditUserData({...editUserData, cpf: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold text-xs outline-none" placeholder="000.000.000-00" />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 ml-4">PIN de Acesso (6 Dígitos)</label>
-                <input type="password" maxLength={6} value={editUserData.accessCode} onChange={e => setEditUserData({...editUserData, accessCode: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-black text-center text-xl outline-none" placeholder="NOVO PIN" />
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button onClick={() => setShowUserProfileEditor(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button>
-                <button onClick={handleSaveUserProfile} disabled={isProcessing} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg flex items-center justify-center gap-2">{isProcessing ? <Loader2 className="animate-spin" /> : <Save size={16} />} Salvar</button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
       {showNotesInbox && <NotesInbox notes={notes} onClose={() => setShowNotesInbox(false)} onMarkAsRead={markAsRead} onMarkAllAsRead={markAllAsRead} onDelete={deleteNote} onClearAll={clearReadNotes} />}
 

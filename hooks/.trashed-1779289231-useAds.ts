@@ -35,7 +35,7 @@ export const useAds = () => {
   const fetchAds = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('app_banners')
+        .from('ads')
         .select('*');
       
       if (error) throw error;
@@ -59,7 +59,7 @@ export const useAds = () => {
         .channel('ads_realtime_changes')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'app_banners' },
+          { event: '*', schema: 'public', table: 'ads' },
           (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
               const newAd = mapAd(payload.new);
@@ -108,7 +108,7 @@ export const useAds = () => {
       }
 
       const { data, error } = await supabase
-        .from('app_banners')
+        .from('ads')
         .upsert(payload)
         .select();
       
@@ -130,7 +130,7 @@ export const useAds = () => {
   const deleteAd = useCallback(async (adId: string) => {
     const taskId = `DEL_AD_${adId}`;
     try {
-      const { error } = await supabase.from('app_banners').delete().eq('id', adId);
+      const { error } = await supabase.from('ads').delete().eq('id', adId);
       if (error) throw error;
       setAds(prev => prev.filter(a => String(a.id) !== String(adId)));
       return true;

@@ -4,6 +4,8 @@
   "requestFramePermissions": [
     "geolocation",
     "camera",
-    "bluetooth"
+    "bluetooth",
+    "publickey-credentials-create",
+    "publickey-credentials-get"
   ]
 }

@@ -370,14 +370,19 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
         </div>
 
         <div className="pt-8 border-t border-slate-100 space-y-6">
-           <div className={`flex items-center gap-4 p-5 rounded-[2rem] border-2 transition-all ${isPro ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-100 opacity-60'}`}>
+           <div className={`flex items-center gap-4 p-5 rounded-[2rem] border-2 transition-all ${isPro ? 'bg-emerald-50 border-emerald-100' : formData.active ? 'bg-orange-50 border-orange-200' : 'bg-slate-100 opacity-60'}`}>
               <button 
                 onClick={toggleActive}
-                className={`w-14 h-7 rounded-full relative transition-all ${formData.active ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                className={`w-14 h-7 rounded-full relative transition-all ${formData.active ? (isPro ? 'bg-emerald-500' : 'bg-orange-500') : 'bg-slate-300'} ${!isPro && !formData.active ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${formData.active ? 'left-8' : 'left-1'}`} />
               </button>
-              <div><p className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Loja Publicada</p><p className="text-[8px] font-bold text-slate-400 uppercase">{isPro ? 'Sua vitrine está visível no Marketplace' : 'Disponível apenas no Plano PRO'}</p></div>
+              <div>
+                <p className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{formData.active ? 'Loja Publicada' : 'Loja Oculta'}</p>
+                <p className={`text-[8px] font-bold uppercase ${isPro ? 'text-emerald-600' : formData.active ? 'text-orange-600' : 'text-slate-400'}`}>
+                    {isPro ? 'Sua vitrine está visível no Marketplace' : formData.active ? '⚠️ ATENÇÃO: Seu plano venceu. Desative a vitrine.' : 'Disponível apenas no Plano PRO'}
+                </p>
+              </div>
            </div>
            
            <button 

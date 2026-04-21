@@ -583,7 +583,7 @@ export const Settings: React.FC<SettingsProps> = ({
       }
 
       const { data, error } = await supabase.storage
-        .from('ads')
+        .from('app_banners')
         .upload(fileName, fileBody, {
           contentType: 'image/png',
           upsert: true
@@ -592,7 +592,7 @@ export const Settings: React.FC<SettingsProps> = ({
       if (error) throw error;
 
       const { data: { publicUrl } } = supabase.storage
-        .from('ads')
+        .from('app_banners')
         .getPublicUrl(data.path);
 
       return publicUrl;
