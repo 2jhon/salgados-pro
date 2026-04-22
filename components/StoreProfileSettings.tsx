@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
 import { StoreProfile, User } from '../types';
 import { 
   Save, Store, MapPin, Phone, Instagram, 
@@ -149,18 +150,50 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
     });
   };
 
+  // Helper para upload de storage
+  const uploadToStorage = async (base64Str: string, folder: string): Promise<string | null> => {
+    try {
+      const base64Data = base64Str.split(',')[1];
+      const type = base64Str.split(';')[0].split(':')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type });
+
+      // Nome do arquivo baseado no user e data
+      const fileName = `${user.id}/${folder}_${Date.now()}.jpg`;
+
+      const { data, error } = await supabase.storage
+        .from('app_banners')
+        .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from('app_banners').getPublicUrl(data.path);
+      return publicUrl;
+    } catch (e) {
+      console.error("Storage error:", e);
+      return null;
+    }
+  };
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'bannerUrl' | 'userAvatar') => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       if (field === 'userAvatar') {
          const resized = await resizeImage(file, 400);
-         setEditUserData(prev => ({...prev, avatarUrl: resized}));
+         const storageUrl = await uploadToStorage(resized, 'avatar');
+         setEditUserData(prev => ({...prev, avatarUrl: storageUrl || resized }));
       } else {
          const maxWidth = field === 'logoUrl' ? 400 : 1200;
          const resized = await resizeImage(file, maxWidth);
-         setFormData(prev => ({ ...prev, [field]: resized }));
+         const storageUrl = await uploadToStorage(resized, field);
+         setFormData(prev => ({ ...prev, [field]: storageUrl || resized }));
       }
+      toast.success("Imagem enviada com sucesso!");
     } catch (e) {
       toast.error("Erro ao processar imagem.");
     }
@@ -189,17 +222,19 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
          };
 
          if (formData.logoUrl !== profile?.logoUrl) {
-           let finalLogo = formData.logoUrl;
-           if (finalLogo && finalLogo.startsWith('data:image') && finalLogo.length > 200000) {
-              finalLogo = await compressBase64(finalLogo, 400);
+           let finalLogo = formData.logoUrl || '';
+           if (finalLogo.startsWith('data:image')) {
+              const url = await uploadToStorage(finalLogo, 'logo');
+              if (url) finalLogo = url;
            }
            payload.logoUrl = finalLogo;
          }
 
          if (formData.bannerUrl !== profile?.bannerUrl) {
-           let finalBanner = formData.bannerUrl;
-           if (finalBanner && finalBanner.startsWith('data:image') && finalBanner.length > 300000) {
-              finalBanner = await compressBase64(finalBanner, 1000);
+           let finalBanner = formData.bannerUrl || '';
+           if (finalBanner.startsWith('data:image')) {
+              const url = await uploadToStorage(finalBanner, 'banner');
+              if (url) finalBanner = url;
            }
            payload.bannerUrl = finalBanner;
          }
@@ -311,7 +346,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
 
                  <div className="space-y-1">
                    <label className="text-[9px] font-black uppercase text-slate-400 ml-4">PIN de Acesso (6 Dígitos)</label>
-                   <input type="password" maxLength={6} value={editUserData.accessCode} onChange={e => setEditUserData({...editUserData, accessCode: e.target.value})} className="w-full p-4 bg-white border border-slate-100 rounded-2xl font-black text-center text-xl outline-none focus:border-indigo-300 transition-all" placeholder="NOVO PIN" />
+                   <input type="password" maxLength={6} value={editUserData.accessCode || ''} onChange={e => setEditUserData({...editUserData, accessCode: e.target.value})} className="w-full p-4 bg-white border border-slate-100 rounded-2xl font-black text-center text-xl outline-none focus:border-indigo-300 transition-all" placeholder="NOVO PIN" />
                  </div>
               </div>
 
@@ -319,16 +354,16 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                  <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><UserIcon size={14}/> Dados Pessoais</h4>
                  <div className="space-y-1">
                    <label className="text-[9px] font-black uppercase text-slate-400 ml-4">Nome Completo</label>
-                   <input value={editUserData.name} onChange={e => setEditUserData({...editUserData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold uppercase text-xs outline-none focus:border-indigo-300" placeholder="NOME" />
+                   <input value={editUserData.name || ''} onChange={e => setEditUserData({...editUserData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold uppercase text-xs outline-none focus:border-indigo-300" placeholder="NOME" />
                  </div>
                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase text-slate-400 ml-4">WhatsApp Pessoal</label>
-                      <input type="tel" value={editUserData.phone} onChange={e => setEditUserData({...editUserData, phone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="21999999999" />
+                      <input type="tel" value={editUserData.phone || ''} onChange={e => setEditUserData({...editUserData, phone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="21999999999" />
                     </div>
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase text-slate-400 ml-4">CPF (Opcional)</label>
-                      <input value={editUserData.cpf} onChange={e => setEditUserData({...editUserData, cpf: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="000.000.000-00" />
+                      <input value={editUserData.cpf || ''} onChange={e => setEditUserData({...editUserData, cpf: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-xs outline-none focus:border-indigo-300" placeholder="000.000.000-00" />
                     </div>
                  </div>
               </div>
@@ -380,16 +415,16 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div className="space-y-1">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Fantasia</label>
-                        <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: Salgados do João" />
+                        <input value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Ex: Salgados do João" />
                      </div>
                      <div className="space-y-1">
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">CNPJ (Opcional)</label>
-                        <input value={formData.cnpj} onChange={e => setFormData({...formData, cnpj: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="00.000.000/0001-00" />
+                        <input value={formData.cnpj || ''} onChange={e => setFormData({...formData, cnpj: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="00.000.000/0001-00" />
                      </div>
                   </div>
                   <div className="space-y-1">
                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição Curta / Bio</label>
-                     <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} rows={3} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-medium text-sm outline-none focus:border-indigo-300 resize-none" placeholder="Conte um pouco sobre os seus salgados e sua história..." />
+                     <textarea value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} rows={3} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-medium text-sm outline-none focus:border-indigo-300 resize-none" placeholder="Conte um pouco sobre os seus salgados e sua história..." />
                   </div>
                </div>
             </div>
@@ -402,7 +437,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><Phone size={14}/> Contato Principal</h4>
                   <div className="relative">
                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                     <input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="WhatsApp da Loja" />
+                     <input value={formData.whatsapp || ''} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="WhatsApp da Loja" />
                   </div>
                </div>
 
@@ -410,7 +445,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   <h4 className="text-xs font-black text-slate-400 uppercase flex items-center gap-2 ml-2"><MapPin size={14}/> Endereço Base</h4>
                   <div className="relative">
                      <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                     <input value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Endereço de Retirada/Produção" />
+                     <input value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="Endereço de Retirada/Produção" />
                   </div>
                </div>
 
@@ -419,7 +454,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div className="relative">
                         <Instagram className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pink-500" />
-                        <input value={formData.instagram} onChange={e => setFormData({...formData, instagram: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="@seuinstagram" />
+                        <input value={formData.instagram || ''} onChange={e => setFormData({...formData, instagram: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="@seuinstagram" />
                      </div>
                      <div className="relative">
                         <Facebook className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500" />

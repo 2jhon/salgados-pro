@@ -575,7 +575,7 @@ export const Stall: React.FC<StallProps> = ({
                           <input 
                              type="number" 
                              inputMode="decimal" 
-                             value={(data as any).took} 
+                             value={(data as any).took || ''} 
                              onChange={e => handleStallInput(item.id, 'took', e.target.value)} 
                              className="w-full bg-transparent font-black text-right text-lg outline-none text-slate-700 placeholder:text-slate-300" 
                              placeholder={item.defaultQty ? String(item.defaultQty) : "0"}
@@ -586,7 +586,7 @@ export const Stall: React.FC<StallProps> = ({
                           <input 
                              type="number" 
                              inputMode="decimal" 
-                             value={(data as any).returned} 
+                             value={(data as any).returned || ''} 
                              onChange={e => handleStallInput(item.id, 'returned', e.target.value)} 
                              className="w-full bg-transparent font-black text-right text-lg outline-none text-slate-700 placeholder:text-slate-300" 
                              placeholder="0" 
@@ -716,9 +716,9 @@ export const Stall: React.FC<StallProps> = ({
 
                  <div className="space-y-3 p-4 bg-slate-50 rounded-[2rem] border border-slate-100">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Info size={12} /> Detalhes</h4>
-                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Endereço / Local</label><div className="relative"><MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input value={localConfig.address} onChange={e => setLocalConfig(prev => ({...prev, address: e.target.value}))} placeholder="Ex: Praça Central, Coreto" className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300" /></div></div>
-                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Informações / Sobre</label><textarea value={localConfig.description} onChange={e => setLocalConfig(prev => ({...prev, description: e.target.value}))} placeholder="Fale sobre seus produtos..." className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300 resize-none h-20" /></div>
-                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Horário e Dias</label><div className="relative"><Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input value={localConfig.openingHours} onChange={e => setLocalConfig(prev => ({...prev, openingHours: e.target.value}))} placeholder="Ex: Seg a Sex das 18h às 23h" className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300" /></div></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Endereço / Local</label><div className="relative"><MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input value={localConfig.address || ''} onChange={e => setLocalConfig(prev => ({...prev, address: e.target.value}))} placeholder="Ex: Praça Central, Coreto" className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300" /></div></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Informações / Sobre</label><textarea value={localConfig.description || ''} onChange={e => setLocalConfig(prev => ({...prev, description: e.target.value}))} placeholder="Fale sobre seus produtos..." className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300 resize-none h-20" /></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Horário e Dias</label><div className="relative"><Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" /><input value={localConfig.openingHours || ''} onChange={e => setLocalConfig(prev => ({...prev, openingHours: e.target.value}))} placeholder="Ex: Seg a Sex das 18h às 23h" className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-300" /></div></div>
                  </div>
 
                  <div className="space-y-2">
@@ -728,7 +728,7 @@ export const Stall: React.FC<StallProps> = ({
                        <button onClick={() => setLocalConfig(prev => ({...prev, whatsappMode: 'MANUAL'}))} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${localConfig.whatsappMode === 'MANUAL' ? 'bg-white shadow-md text-orange-600' : 'text-slate-400'}`}>Outro Número</button>
                     </div>
                     {localConfig.whatsappMode === 'MANUAL' && (
-                       <input value={localConfig.manualWhatsapp} onChange={e => setLocalConfig(prev => ({...prev, manualWhatsapp: e.target.value}))} placeholder="21999999999" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none border-2 border-orange-100 focus:border-orange-300" />
+                       <input value={localConfig.manualWhatsapp || ''} onChange={e => setLocalConfig(prev => ({...prev, manualWhatsapp: e.target.value}))} placeholder="21999999999" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none border-2 border-orange-100 focus:border-orange-300" />
                     )}
                  </div>
 

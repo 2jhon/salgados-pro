@@ -58,12 +58,24 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
   const managerGroups = useMemo(() => {
     const groups: Record<string, Transaction[]> = {};
     transactions.forEach(t => {
-      const author = t.createdBy || 'Sistema/Admin';
-      if (!groups[author]) groups[author] = [];
-      groups[author].push(t);
+      const rawAuthor = t.createdBy || 'Sistema/Admin';
+      
+      // Normalizar nome buscando oficial nos usuários cadastrados
+      let officialName = rawAuthor.trim();
+      const matchedUser = users.find(u => 
+        typeof u.name === 'string' && 
+        u.name.trim().toLowerCase() === rawAuthor.trim().toLowerCase()
+      );
+
+      if (matchedUser && matchedUser.name) {
+        officialName = matchedUser.name;
+      }
+
+      if (!groups[officialName]) groups[officialName] = [];
+      groups[officialName].push(t);
     });
     return groups;
-  }, [transactions]);
+  }, [transactions, users]);
 
   // Encontrar metadados do usuário (cargo/área) baseado no nome do criadoBy
   const getManagerMeta = (name: string) => {

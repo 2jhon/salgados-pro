@@ -7,6 +7,7 @@ import { normalizeString } from '../lib/utils';
 import { MarketplaceManager } from './MarketplaceManager';
 import { StoreProfileSettings } from './StoreProfileSettings';
 import { CouponManager } from './CouponManager';
+import { StoreInsights } from './StoreInsights';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
 import { GoogleGenAI } from "@google/genai";
@@ -19,7 +20,8 @@ import {
   ShoppingBag, Truck, Calendar, ArrowRight,
   UserPlus, CheckCircle2, AlertTriangle, LogOut, CreditCard, ToggleLeft, ToggleRight, 
   Volume2, VolumeX, Eye, EyeOff, Download, Database, Music, FileText, Zap, MessageCircle,
-  Image as ImageIcon, Upload, Camera, Wand2, Clock, Printer, Bluetooth, Sparkles
+  Image as ImageIcon, Upload, Camera, Wand2, Clock, Printer, Bluetooth, Sparkles,
+  BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { printer } from '../lib/printer';
@@ -115,12 +117,13 @@ export const Settings: React.FC<SettingsProps> = ({
   ads, saveAd, deleteAd, onNavigate,
   isGodModeUnlocked, onUnlockGodMode, addNote
 }) => {
-  const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'MARKETING' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS' | 'AUDITORIA'>('ESTRUTURA');
+  const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'INSIGHTS' | 'MARKETING' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS' | 'AUDITORIA'>('ESTRUTURA');
+  const [isMarketplaceDirty, setIsMarketplaceDirty] = useState(false);
 
   useEffect(() => {
     const pendingTab = localStorage.getItem('settings_pending_tab');
     if (pendingTab) {
-      const validTabs: any[] = ['ESTRUTURA', 'CLIENTES', 'EQUIPE', 'VITRINE', 'MARKETING', 'ANUNCIO', 'SISTEMA', 'PLANOS'];
+      const validTabs: any[] = ['ESTRUTURA', 'CLIENTES', 'EQUIPE', 'VITRINE', 'INSIGHTS', 'MARKETING', 'ANUNCIO', 'SISTEMA', 'PLANOS'];
       if (validTabs.includes(pendingTab)) {
         setActiveTab(pendingTab as any);
       }
@@ -131,6 +134,35 @@ export const Settings: React.FC<SettingsProps> = ({
   const [clientSubTab, setClientSubTab] = useState<'CLIENT' | 'SUPPLIER'>('CLIENT');
   
   const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser.workspaceId);
+  
+  // Helper para upload de storage (Produtos da Fábrica / Gerenciamento)
+  const uploadToStorage = async (base64Str: string, folder: string): Promise<string | null> => {
+    try {
+      const base64Data = base64Str.split(',')[1];
+      const type = base64Str.split(';')[0].split(':')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type });
+
+      // Nome do arquivo baseado no user e data
+      const fileName = `${currentUser.id}/config_${folder}_${Date.now()}.jpg`;
+
+      const { data, error } = await supabase.storage
+        .from('app_banners')
+        .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from('app_banners').getPublicUrl(data.path);
+      return publicUrl;
+    } catch (e) {
+      console.error("Storage error:", e);
+      return null;
+    }
+  };
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
@@ -226,6 +258,23 @@ export const Settings: React.FC<SettingsProps> = ({
   
   // Custom Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{ show: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+
+  const handleTabChange = (newTab: any) => {
+    if (activeTab === 'VITRINE' && isMarketplaceDirty && newTab !== 'VITRINE') {
+      setConfirmModal({
+        show: true,
+        title: "DADOS NÃO SALVOS",
+        message: "Você tem alterações pendentes na sua Vitrine. Se sair agora, perderá o que não foi salvo. Deseja sair mesmo assim?",
+        onConfirm: () => {
+          setIsMarketplaceDirty(false);
+          setActiveTab(newTab);
+          setConfirmModal(null);
+        }
+      });
+      return;
+    }
+    setActiveTab(newTab);
+  };
   const [promptModal, setPromptModal] = useState<{ show: boolean, title: string, placeholder: string, value: string, onConfirm: (val: string) => void } | null>(null);
   const [successModal, setSuccessModal] = useState<{ show: boolean, title: string, message: string } | null>(null);
   
@@ -257,6 +306,7 @@ export const Settings: React.FC<SettingsProps> = ({
   const [manageTab, setManageTab] = useState<'PRODUCTS' | 'EXPENSES'>('PRODUCTS');
   const [manageForm, setManageForm] = useState({ 
     name: '', 
+    category: '',
     priceVista: '', 
     pricePrazo: '', 
     imageUrl: '',
@@ -417,14 +467,30 @@ export const Settings: React.FC<SettingsProps> = ({
 
   // --- MANAGE ITEMS HANDLERS (Inside Modal) ---
 
-  const handleManageImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManageImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setManageForm(prev => ({ ...prev, imageUrl: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+      setIsProcessing(true);
+      try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64Str = reader.result as string;
+          // Upload imediato para manter payload leve
+          const storageUrl = await uploadToStorage(base64Str, 'item');
+          if (storageUrl) {
+            setManageForm(prev => ({ ...prev, imageUrl: storageUrl }));
+            toast.success("Imagem enviada para nuvem!");
+          } else {
+            setManageForm(prev => ({ ...prev, imageUrl: base64Str }));
+            toast.warning("Fallback: Imagem salva localmente.");
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch (e) {
+        toast.error("Erro ao processar imagem.");
+      } finally {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -438,13 +504,21 @@ export const Settings: React.FC<SettingsProps> = ({
         const promoV = manageForm.promoVista ? parseFloat(manageForm.promoVista.replace(',', '.')) : undefined;
         const promoP = manageForm.promoPrazo ? parseFloat(manageForm.promoPrazo.replace(',', '.')) : undefined;
 
+        let finalUrl = manageForm.imageUrl;
+        // Migração: Se ainda for base64, sobe pro storage
+        if (finalUrl && finalUrl.startsWith('data:image')) {
+            const url = await uploadToStorage(finalUrl, 'item_migration');
+            if (url) finalUrl = url;
+        }
+
         const newItem: ConfigItem = {
             id: editingItemId || `item_${Date.now()}`,
             name: manageForm.name,
+            category: manageForm.category ? manageForm.category.trim() : undefined,
             defaultPriceAVista: priceV,
             defaultPriceAPrazo: priceP,
             defaultPrice: priceV, // Fallback
-            imageUrl: manageForm.imageUrl,
+            imageUrl: finalUrl,
             promotionalPriceAVista: promoV,
             promotionalPriceAPrazo: promoP,
             promoEndsAt: manageForm.promoEndsAt || undefined,
@@ -520,6 +594,7 @@ export const Settings: React.FC<SettingsProps> = ({
     setEditingItemId(item.id);
     setManageForm({
         name: item.name,
+        category: item.category || '',
         priceVista: item.defaultPriceAVista ? String(item.defaultPriceAVista) : '',
         pricePrazo: item.defaultPriceAPrazo ? String(item.defaultPriceAPrazo) : '',
         imageUrl: item.imageUrl || '',
@@ -1057,7 +1132,7 @@ export const Settings: React.FC<SettingsProps> = ({
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => handleTabChange(tab.id as any)}
             className={`flex-1 min-w-[80px] py-4 px-2 rounded-[1.6rem] flex flex-col items-center justify-center gap-1 transition-all ${
               activeTab === tab.id ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'
             }`}
@@ -1226,7 +1301,43 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       )}
 
-      {activeTab === 'VITRINE' && <MarketplaceManager profile={companyProfile} onSave={onSaveProfile} workspaceId={currentUser.workspaceId} user={currentUser} sections={sections} />}
+      {activeTab === 'VITRINE' && (
+        <div className="space-y-6">
+          <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl w-fit mb-6">
+             <button onClick={() => handleTabChange('VITRINE')} className="px-6 py-2 bg-white shadow-sm rounded-xl text-[10px] font-black uppercase text-slate-800">Gerenciar</button>
+             <button onClick={() => handleTabChange('INSIGHTS')} className="px-6 py-2 text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-all">Inteligência / BI</button>
+          </div>
+          <MarketplaceManager 
+            profile={companyProfile} 
+            onSave={onSaveProfile} 
+            workspaceId={currentUser.workspaceId} 
+            user={currentUser} 
+            sections={sections} 
+            onDirtyChange={setIsMarketplaceDirty}
+          />
+        </div>
+      )}
+
+      {activeTab === 'INSIGHTS' && (
+        <div className="space-y-8">
+           <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl w-fit mb-6">
+              <button onClick={() => handleTabChange('VITRINE')} className="px-6 py-2 text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-all">Gerenciar</button>
+              <button onClick={() => handleTabChange('INSIGHTS')} className="px-6 py-2 bg-white shadow-sm rounded-xl text-[10px] font-black uppercase text-slate-800">Inteligência / BI</button>
+           </div>
+           
+           <div className="flex items-center justify-between mb-2 px-2">
+              <div>
+                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Análise de Performance</h2>
+                 <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Insights da sua Vitrine Online</p>
+              </div>
+              <div className="p-4 bg-indigo-50 text-indigo-600 rounded-[2rem]">
+                 <BarChart3 size={24} />
+              </div>
+           </div>
+
+           <StoreInsights workspaceId={currentUser.workspaceId} profile={companyProfile} transactions={transactions} />
+        </div>
+      )}
 
       {activeTab === 'MARKETING' && <CouponManager workspaceId={currentUser.workspaceId} />}
 
@@ -1275,17 +1386,17 @@ export const Settings: React.FC<SettingsProps> = ({
                  <div className="space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Título do Anúncio (Ex: Forneço Embalagens)</label>
                     <div className="flex gap-2">
-                      <input value={adForm.title} onChange={e => setAdForm({...adForm, title: e.target.value})} className="flex-1 p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none" />
+                      <input value={adForm.title || ''} onChange={e => setAdForm({...adForm, title: e.target.value})} className="flex-1 p-4 bg-slate-50 rounded-2xl font-bold uppercase text-xs outline-none" />
                       <button onClick={handleGenerateAdText} disabled={isGeneratingAI} className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all" title="Gerar com IA">
                         {isGeneratingAI ? <Loader2 className="animate-spin w-5 h-5" /> : <Wand2 className="w-5 h-5" />}
                       </button>
                     </div>
                  </div>
-                 <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Descrição Breve...</label><textarea value={adForm.description} onChange={e => setAdForm({...adForm, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none h-24 resize-none" /></div>
+                 <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Descrição Breve...</label><textarea value={adForm.description || ''} onChange={e => setAdForm({...adForm, description: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none h-24 resize-none" /></div>
                  <div className="flex gap-3">
                     <div className="flex-1 space-y-1">
                        <label className="text-[9px] font-black text-slate-400 uppercase ml-4">WhatsApp (DDD + Número)</label>
-                       <input type="tel" value={adForm.whatsapp} onChange={e => setAdForm({...adForm, whatsapp: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none" placeholder="21999999999" />
+                       <input type="tel" value={adForm.whatsapp || ''} onChange={e => setAdForm({...adForm, whatsapp: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-xs outline-none" placeholder="21999999999" />
                     </div>
                     <div className="flex-1 space-y-1">
                        <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Duração (Dias)</label>
@@ -1563,8 +1674,8 @@ export const Settings: React.FC<SettingsProps> = ({
             <h3 className="text-xl font-black text-slate-800 mb-6 uppercase">{editingCustomer ? 'Editar' : 'Novo'} {customerForm.type === 'CLIENT' ? 'Cliente' : 'Fornecedor'}</h3>
             <div className="space-y-4">
               <div className="bg-slate-100 p-1 rounded-xl flex mb-4"><button onClick={() => setCustomerForm({...customerForm, type: 'CLIENT'})} className={`flex-1 py-2 rounded-lg font-bold text-[10px] uppercase transition-all ${customerForm.type === 'CLIENT' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Cliente</button><button onClick={() => setCustomerForm({...customerForm, type: 'SUPPLIER'})} className={`flex-1 py-2 rounded-lg font-bold text-[10px] uppercase transition-all ${customerForm.type === 'SUPPLIER' ? 'bg-white shadow text-slate-800' : 'text-slate-400'}`}>Fornecedor</button></div>
-              <input autoFocus value={customerForm.name} onChange={e => setCustomerForm({...customerForm, name: e.target.value})} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" />
-              <input type="tel" value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} placeholder="WhatsApp (Opcional)" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" />
+              <input autoFocus value={customerForm.name || ''} onChange={e => setCustomerForm({...customerForm, name: e.target.value})} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" />
+              <input type="tel" value={customerForm.phone || ''} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} placeholder="WhatsApp (Opcional)" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" />
             </div>
             <div className="flex gap-3 mt-8"><button onClick={() => setShowCustomerModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button><button onClick={handleSaveCustomer} disabled={isProcessing || !customerForm.name} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">{isProcessing ? <Loader2 className="animate-spin mx-auto" /> : 'Salvar'}</button></div>
           </div>
@@ -1670,10 +1781,10 @@ export const Settings: React.FC<SettingsProps> = ({
 
             {/* Modal Content - Scrollable */}
             <div className="flex-1 overflow-y-auto p-8 pt-4 no-scrollbar space-y-4">
-              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Nome</label><input value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" /></div>
-              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">E-mail</label><input type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" placeholder="exemplo@gmail.com" /></div>
-              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Função</label><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none uppercase"><option value="OWNER">Proprietário</option><option value="MANAGER_FACTORY">Gerente Fábrica</option><option value="MANAGER_STALL">Gerente Barraca</option></select></div>
-              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">PIN Acesso (6 Dígitos)</label><input type="number" maxLength={6} value={userForm.accessCode} onChange={e => setUserForm({...userForm, accessCode: e.target.value})} className="w-full p-4 bg-indigo-50 border-2 border-indigo-100 rounded-xl font-black text-center text-lg outline-none text-indigo-700" placeholder="••••••" /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Nome</label><input value={userForm.name || ''} onChange={e => setUserForm({...userForm, name: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs outline-none" /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">E-mail</label><input type="email" value={userForm.email || ''} onChange={e => setUserForm({...userForm, email: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none" placeholder="exemplo@gmail.com" /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Função</label><select value={userForm.role || ''} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs outline-none uppercase"><option value="OWNER">Proprietário</option><option value="MANAGER_FACTORY">Gerente Fábrica</option><option value="MANAGER_STALL">Gerente Barraca</option></select></div>
+              <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">PIN Acesso (6 Dígitos)</label><input type="number" maxLength={6} value={userForm.accessCode || ''} onChange={e => setUserForm({...userForm, accessCode: e.target.value})} className="w-full p-4 bg-indigo-50 border-2 border-indigo-100 rounded-xl font-black text-center text-lg outline-none text-indigo-700" placeholder="••••••" /></div>
               
               {/* Dynamic Section Assignment */}
               <div className="pt-4 border-t border-slate-50 space-y-3">
@@ -1802,7 +1913,10 @@ export const Settings: React.FC<SettingsProps> = ({
                       <input type="file" ref={manageFileInputRef} hidden accept="image/*" onChange={handleManageImageUpload} />
                    </div>
                    <div className="flex-1 space-y-2">
-                      <input value={manageForm.name} onChange={e => setManageForm({...manageForm, name: e.target.value})} placeholder="NOME DO ITEM" className="w-full p-3 bg-slate-50 rounded-xl font-bold uppercase text-[10px] outline-none border border-transparent focus:border-indigo-100 focus:bg-white transition-all text-slate-700" />
+                      <div className="flex gap-2">
+                         <input value={manageForm.name || ''} onChange={e => setManageForm({...manageForm, name: e.target.value})} placeholder="NOME DO ITEM" className="flex-[2] p-3 bg-slate-50 rounded-xl font-bold uppercase text-[10px] outline-none border border-transparent focus:border-indigo-100 focus:bg-white transition-all text-slate-700" />
+                         <input value={manageForm.category || ''} onChange={e => setManageForm({...manageForm, category: e.target.value})} placeholder="CATEGORIA (EX: BEBIDAS)" className="flex-1 p-3 bg-slate-50 rounded-xl font-bold uppercase text-[10px] outline-none border border-transparent focus:border-indigo-100 focus:bg-white transition-all text-slate-700" />
+                      </div>
                       <div className="flex gap-2">
                          <div className="flex-1 relative">
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">R$</span>

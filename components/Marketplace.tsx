@@ -11,6 +11,7 @@ import {
   Plus, Minus, Trash2, Receipt, CheckCircle, Zap, Instagram, Sparkles, Loader2, Heart, Star
 } from 'lucide-react';
 import { useStoreInteractions } from '../hooks/useStoreInteractions';
+import { useAnalytics } from '../hooks/useAnalytics';
 
 // Helper to calculate distance
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -44,6 +45,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
   // The main list data is now passed via props (stores, stalls).
   const { getMyProfile } = useStoreProfiles();
   const { toggleInteraction, getUserInteractions, getStoreAverageRating, submitRating } = useStoreInteractions(user.id);
+  const { trackView, trackProductClick } = useAnalytics(user.workspaceId);
   const [userInteractions, setUserInteractions] = useState<{follows: string[], favorites: string[], ratings: any[]}>({follows: [], favorites: [], ratings: []});
   const [storeRatings, setStoreRatings] = useState<Record<string, {average: number, count: number}>>({});
   
@@ -54,7 +56,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
   const [freshProfile, setFreshProfile] = useState<StoreProfile | null>(null); // State for fresh data
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
-  
+
   // NEW: Story Viewer State (Multi-item support)
   const [activeStory, setActiveStory] = useState<{ profile: StoreProfile; items: any[]; currentIndex: number } | null>(null);
   
@@ -76,6 +78,10 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
   const [appliedCoupon, setAppliedCoupon] = useState<any | null>(null);
   const [couponError, setCouponError] = useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+
+  // Ratings State
+  const [ratingDraft, setRatingDraft] = useState<{ workspaceId: string, stars: number, comment: string } | null>(null);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
 
   const getEffectivePrice = (item: any) => {
     if (item.promotionalPrice && (!item.promoEndsAt || new Date(item.promoEndsAt).getTime() > Date.now())) {
@@ -255,6 +261,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
 
       return {
         type: 'STALL',
+        workspaceId: selectedStall.workspaceId,
         data: selectedStall,
         profile: linkedProfile,
         displayName: getStoreDisplayName(linkedProfile, selectedStall.name, false),
@@ -274,6 +281,7 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
 
       return {
         type: 'STORE',
+        workspaceId: profileToUse.workspaceId,
         data: null,
         profile: profileToUse,
         displayName: getStoreDisplayName(profileToUse, 'Loja Oficial', true),
@@ -289,6 +297,20 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
 
     return null;
   }, [selectedStall, selectedProfile, stores, freshProfile]);
+
+  // NEW: Store Analytics View Tracking
+  useEffect(() => {
+    if (activeView) {
+      trackView(activeView.workspaceId, user.id);
+    }
+  }, [activeView?.workspaceId, trackView, user.id]);
+
+  // NEW: Store Analytics Product Click Tracking
+  useEffect(() => {
+    if (selectedProduct && activeView) {
+      trackProductClick(activeView.workspaceId, selectedProduct.id, user.id);
+    }
+  }, [selectedProduct?.id, activeView?.workspaceId, trackProductClick, user.id]);
 
   // Clear cart when store changes or closes
   useEffect(() => {
@@ -347,10 +369,13 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
     if (activeView.type === 'STALL' && activeView.data?.items && activeView.data.items.length > 0) {
        return activeView.data.items.map((item: any) => ({
           name: item.name,
+          category: item.category || 'Geral', // Fallback
           description: 'Pronta Entrega',
           price: item.defaultPrice || item.defaultPriceAVista || 0,
           imageUrl: item.imageUrl,
-          id: item.id
+          id: item.id,
+          promotionalPrice: item.promotionalPriceAVista,
+          promoEndsAt: item.promoEndsAt
        }));
     }
 
@@ -360,6 +385,32 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
 
     return [];
   }, [activeView]);
+
+  const groupedItems = useMemo(() => {
+     const groups: Record<string, { display: string; items: any[] }> = {};
+     
+     displayItems.forEach(item => {
+        const rawCat = (item.category || 'Destaques').trim(); 
+        const normalizedCat = rawCat.toLowerCase();
+        
+        if (!groups[normalizedCat]) {
+           groups[normalizedCat] = { display: rawCat, items: [] };
+        }
+        groups[normalizedCat].items.push(item);
+     });
+     
+     // Ensure 'Destaques' or generic items appear first if they exist
+     const orderedGroups = Object.values(groups).sort((a, b) => {
+        if (a.display === 'Destaques') return -1;
+        if (b.display === 'Destaques') return 1;
+        return a.display.localeCompare(b.display);
+     });
+
+     return orderedGroups.map(group => ({
+        category: group.display,
+        items: group.items
+     }));
+  }, [displayItems]);
 
   // NEW: Calculate Global Stories GROUPED BY PROFILE
   const globalStories = useMemo(() => {
@@ -381,13 +432,21 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
     return grouped.sort(() => Math.random() - 0.5);
   }, [stores]);
 
+  // Helper to generate a unique token for the current story content
+  const getStoryToken = useCallback((profileId: string, items: any[]) => {
+    // We combine the store ID with IDs of all highlight items to detect content changes
+    const contentHash = items.map(i => i.id).sort().join('-');
+    return `${profileId}_${contentHash}`;
+  }, []);
+
   const handleStoryClick = (data: { profile: StoreProfile; items: any[] }) => {
     setActiveStory({ profile: data.profile, items: data.items, currentIndex: 0 });
     
-    // Mark as viewed
-    if (!viewedStories.has(data.profile.id)) {
+    // Mark as viewed using a unique content token
+    const token = getStoryToken(data.profile.id, data.items);
+    if (!viewedStories.has(token)) {
       const newSet = new Set(viewedStories);
-      newSet.add(data.profile.id);
+      newSet.add(token);
       setViewedStories(newSet);
       localStorage.setItem('viewed_stories', JSON.stringify(Array.from(newSet)));
     }
@@ -595,7 +654,8 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
               <div className="flex gap-4">
                  {globalStories.map((storeData, i) => {
                     const firstItem = storeData.items[0];
-                    const isViewed = viewedStories.has(storeData.profile.id);
+                    const storyToken = getStoryToken(storeData.profile.id, storeData.items);
+                    const isViewed = viewedStories.has(storyToken);
                     
                     return (
                       <button 
@@ -779,7 +839,13 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
       {/* MODAL DETALHES UNIFICADO */}
       {activeView && (
          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
-            <div className="bg-white w-full max-w-md h-[85vh] sm:h-auto sm:max-h-[90vh] rounded-t-[3rem] sm:rounded-[3rem] overflow-hidden flex flex-col shadow-3xl animate-in slide-in-from-bottom-10">
+            <div className="bg-white w-full max-w-5xl h-[85vh] sm:h-[90vh] rounded-t-[3rem] sm:rounded-[3rem] overflow-hidden flex flex-col shadow-3xl animate-in slide-in-from-bottom-10 relative">
+               
+               {/* BOTÃO X DE FECHAR GLOBAL (Sempre Visível) */}
+               <button onClick={() => { setSelectedStall(null); setSelectedProfile(null); }} className="absolute top-5 right-5 p-2 bg-black/40 text-white rounded-full backdrop-blur-md z-[60] shadow-xl hover:bg-black/60 transition-all border border-white/10 active:scale-90">
+                   <X size={20} />
+               </button>
+
                <div className="overflow-y-auto pb-32 relative">
                   {/* Banner Header */}
                   <div className="h-40 w-full relative bg-slate-200">
@@ -791,9 +857,6 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                       ) : (
                           <div className="w-full h-full bg-gradient-to-r from-indigo-500 to-purple-600 opacity-80" />
                       )}
-                      <button onClick={() => { setSelectedStall(null); setSelectedProfile(null); }} className="absolute top-4 right-4 p-2 bg-black/20 text-white rounded-full backdrop-blur-md z-10 hover:bg-black/30 transition-all">
-                          <X size={20} />
-                      </button>
                   </div>
 
                   <div className="px-8 relative">
@@ -982,19 +1045,20 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                                   <p className="text-xs font-bold text-slate-500 text-center">Como foi sua experiência?</p>
                                   <div className="flex items-center gap-2">
                                       {[1, 2, 3, 4, 5].map((star) => {
-                                          const currentRating = userInteractions.ratings.find(r => r.workspace_id === (activeView.data?.workspaceId || activeView.profile?.workspaceId))?.stars || 0;
+                                          const workspaceId = activeView.data?.workspaceId || activeView.profile?.workspaceId;
+                                          const existingRating = userInteractions.ratings.find(r => r.workspace_id === workspaceId);
+                                          const currentRating = ratingDraft?.workspaceId === workspaceId ? ratingDraft.stars : (existingRating?.stars || 0);
+                                          
                                           return (
                                               <button 
                                                   key={star}
-                                                  onClick={async () => {
-                                                      const workspaceId = activeView.data?.workspaceId || activeView.profile?.workspaceId;
+                                                  onClick={() => {
                                                       if (!workspaceId) return;
-                                                      await submitRating(workspaceId, star, '');
-                                                      const updated = await getUserInteractions();
-                                                      setUserInteractions(updated);
-                                                      // Refresh global ratings
-                                                      const newAvg = await getStoreAverageRating(workspaceId);
-                                                      setStoreRatings(prev => ({...prev, [workspaceId]: newAvg}));
+                                                      setRatingDraft({ 
+                                                          workspaceId, 
+                                                          stars: star, 
+                                                          comment: existingRating?.comment || '' 
+                                                      });
                                                   }}
                                                   className="p-1 transition-all active:scale-90"
                                               >
@@ -1006,47 +1070,126 @@ export const Marketplace: React.FC<MarketplaceProps> = ({ user, onLogout, stores
                                           );
                                       })}
                                   </div>
+                                  
+                                  {ratingDraft && ratingDraft.workspaceId === (activeView.data?.workspaceId || activeView.profile?.workspaceId) && (
+                                      <div className="w-full flex justify-center mt-2 w-full animate-in fade-in slide-in-from-top-2">
+                                          <div className="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-3 flex flex-col gap-2">
+                                              <textarea 
+                                                  value={ratingDraft.comment}
+                                                  onChange={e => setRatingDraft({...ratingDraft, comment: e.target.value})}
+                                                  placeholder="Deixe um comentário (opcional)..."
+                                                  className="w-full text-sm resize-none bg-slate-50 p-3 rounded-lg border-none focus:ring-1 focus:ring-emerald-500 text-slate-700 placeholder-slate-400"
+                                                  rows={2}
+                                              />
+                                              <div className="flex gap-2">
+                                                  <button
+                                                      onClick={() => setRatingDraft(null)}
+                                                      className="flex-1 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200"
+                                                      disabled={isSubmittingRating}
+                                                  >
+                                                      Cancelar
+                                                  </button>
+                                                  <button
+                                                      onClick={async () => {
+                                                          setIsSubmittingRating(true);
+                                                          await submitRating(ratingDraft.workspaceId, ratingDraft.stars, ratingDraft.comment);
+                                                          const updated = await getUserInteractions();
+                                                          setUserInteractions(updated);
+                                                          const newAvg = await getStoreAverageRating(ratingDraft.workspaceId);
+                                                          setStoreRatings(prev => ({...prev, [ratingDraft.workspaceId]: newAvg}));
+                                                          setIsSubmittingRating(false);
+                                                          setRatingDraft(null);
+                                                      }}
+                                                      className="flex-1 py-2.5 text-xs font-bold text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-50"
+                                                      disabled={isSubmittingRating}
+                                                  >
+                                                      {isSubmittingRating ? 'Enviando...' : 'Publicar'}
+                                                  </button>
+                                              </div>
+                                          </div>
+                                      </div>
+                                  )}
                               </div>
                           </div>
 
                           {displayItems.length > 0 && (
-                             <div className="mt-6">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 ml-2 flex items-center gap-2">
-                                   {isCartEnabled ? <ShoppingCart size={12} /> : <Store size={12} />} 
-                                   {activeView.type === 'STALL' ? 'Disponível na Barraca' : 'Destaques do Cardápio'}
-                                </p>
-                                <div className="space-y-3">
-                                   {displayItems.map((item: any, i: number) => (
-                                      <button 
-                                         key={i} 
-                                         onClick={() => setSelectedProduct(item)}
-                                         className="w-full flex items-center gap-4 p-4 bg-white border border-slate-100 rounded-2xl shadow-sm hover:border-emerald-200 hover:bg-emerald-50/30 transition-all text-left group"
-                                      >
-                                         <div className="w-14 h-14 bg-slate-100 rounded-xl overflow-hidden shrink-0 relative">
-                                            {item.imageUrl ? (
-                                               <img src={item.imageUrl} className="w-full h-full object-cover" />
-                                            ) : (
-                                               <div className="w-full h-full flex items-center justify-center text-slate-300">
-                                                  {isCartEnabled ? <ShoppingCart size={16} /> : <ShoppingBag size={16} />}
-                                               </div>
-                                            )}
+                             <div className="mt-8">
+                                {/* CABEÇALHO PEGAJOSO (STICKY) DE PRODUTOS COM CHIPS */}
+                                <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md pt-4 pb-3 border-b border-slate-100 mb-4 -mx-8 px-8 flex flex-col gap-3 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.05)] transition-all">
+                                   <div className="flex items-center gap-3">
+                                       <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden shrink-0 border border-slate-200 shadow-sm">
+                                           {activeView.imageUrl ? <img src={activeView.imageUrl} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Store size={16}/></div>}
+                                       </div>
+                                       <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-black text-slate-800 uppercase tracking-widest leading-tight block truncate">{activeView.displayName}</p>
+                                          <p className="text-[10px] font-bold text-slate-400 capitalize flex items-center gap-1 mt-0.5">
+                                             {isCartEnabled ? <ShoppingCart size={10} /> : <ShoppingBag size={10} />} 
+                                             {displayItems.length} Produtos
+                                          </p>
+                                       </div>
+                                   </div>
+                                   {groupedItems.length > 0 && (
+                                     <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
+                                       <button onClick={(e) => { e.preventDefault(); document.getElementById('cat-geral')?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-slate-800 text-white font-bold text-[10px] shadow-sm active:scale-95 transition-all">CATEGORIAS</button>
+                                       {groupedItems.map(g => (
+                                          <button key={g.category} onClick={(e) => { e.preventDefault(); document.getElementById(`cat-${g.category.replace(/\s+/g, '-').toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all uppercase">
+                                            {g.category}
+                                          </button>
+                                       ))}
+                                     </div>
+                                   )}
+                                </div>
+
+                                {/* LISTAGEM DE GRUPOS EM CARROSSEL HORIZONTAL */}
+                                <div className="space-y-8 pb-10" id="cat-geral">
+                                   {groupedItems.map((group, gIdx) => (
+                                      <div key={gIdx} id={`cat-${group.category.replace(/\s+/g, '-').toLowerCase()}`} className="scroll-mt-40">
+                                         <div className="px-8 flex items-center justify-between mb-3">
+                                             <h3 className="text-[12px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                                                <span className="w-1.5 h-4 rounded-full bg-emerald-500"></span>
+                                                {group.category}
+                                             </h3>
+                                             <span className="text-[10px] font-bold text-slate-400">{group.items.length} ITENS</span>
                                          </div>
-                                         <div className="flex-1">
-                                            <h4 className="font-black text-slate-700 text-xs uppercase group-hover:text-emerald-700 transition-colors">{item.name}</h4>
-                                            <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">{item.description}</p>
-                                            {item.promotionalPrice && (!item.promoEndsAt || new Date(item.promoEndsAt).getTime() > Date.now()) ? (
-                                              <div className="flex items-center gap-2 mt-1">
-                                                <p className="text-emerald-600 font-black text-sm">R$ {item.promotionalPrice.toFixed(2)}</p>
-                                                <p className="text-slate-400 font-bold text-[10px] line-through">R$ {(item.price || 0).toFixed(2)}</p>
-                                              </div>
-                                            ) : (
-                                              <p className="text-emerald-600 font-black text-sm mt-1">R$ {(item.price || 0).toFixed(2)}</p>
-                                            )}
+                                         <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory px-8 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                                            {group.items.map((item: any, i: number) => (
+                                              <button 
+                                                 key={i} 
+                                                 onClick={() => setSelectedProduct(item)}
+                                                 className="shrink-0 snap-center sm:snap-start w-64 flex flex-col p-3 bg-white border border-slate-100 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all text-left group relative focus:outline-none"
+                                              >
+                                                 <div className="w-full h-36 bg-slate-100 rounded-2xl overflow-hidden relative mb-3">
+                                                    {item.imageUrl ? (
+                                                       <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                                    ) : (
+                                                       <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                                          {isCartEnabled ? <ShoppingCart size={24} /> : <ShoppingBag size={24} />}
+                                                       </div>
+                                                    )}
+                                                 </div>
+                                                 <div className="flex-1 flex flex-col px-1">
+                                                    <h4 className="font-black text-slate-700 text-sm uppercase group-hover:text-emerald-600 transition-colors line-clamp-1">{item.name}</h4>
+                                                    <p className="text-[10px] text-slate-400 line-clamp-2 mt-1 mb-3">{item.description}</p>
+                                                    <div className="mt-auto border-t border-slate-50 pt-2 flex items-center justify-between">
+                                                      <div>
+                                                          {item.promotionalPrice && (!item.promoEndsAt || new Date(item.promoEndsAt).getTime() > Date.now()) ? (
+                                                            <div className="flex flex-col">
+                                                              <p className="text-slate-400 font-bold text-[10px] line-through leading-none">R$ {(item.price || 0).toFixed(2)}</p>
+                                                              <p className="text-emerald-600 font-black text-lg leading-none">R$ {item.promotionalPrice.toFixed(2)}</p>
+                                                            </div>
+                                                          ) : (
+                                                            <p className="text-emerald-600 font-black text-lg">R$ {(item.price || 0).toFixed(2)}</p>
+                                                          )}
+                                                      </div>
+                                                      <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white group-active:scale-90 transition-all shadow-sm">
+                                                         {isCartEnabled ? <Plus size={16} /> : <ChevronRight size={16} />}
+                                                      </div>
+                                                    </div>
+                                                 </div>
+                                              </button>
+                                            ))}
                                          </div>
-                                         <div className="p-2 bg-slate-50 text-slate-300 rounded-xl group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                                            {isCartEnabled ? <Plus size={16} /> : <ChevronRight size={16} />}
-                                         </div>
-                                      </button>
+                                      </div>
                                    ))}
                                 </div>
                              </div>

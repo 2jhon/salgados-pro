@@ -1,6 +1,7 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
 import { StoreProfile, PortfolioItem, AppSection } from '../types';
 import { 
   Save, Plus, Trash2, Edit3, 
@@ -15,9 +16,10 @@ interface MarketplaceManagerProps {
   workspaceId: string;
   user: { id: string; name: string; hasProPlan?: boolean; workspaceId: string };
   sections?: AppSection[];
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
-export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile, onSave, workspaceId, user, sections = [] }) => {
+export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile, onSave, workspaceId, user, sections = [], onDirtyChange }) => {
   const isPro = !!user.hasProPlan;
 
   const [formData, setFormData] = useState<Omit<StoreProfile, 'id'>>({
@@ -53,21 +55,106 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     }
   }, [profile]);
 
+  // Detect dirty state
+  useEffect(() => {
+    if (!onDirtyChange) return;
+    
+    const isDirty = JSON.stringify(formData) !== JSON.stringify({
+      workspaceId: profile?.workspaceId || workspaceId,
+      name: profile?.name || '',
+      description: profile?.description || '',
+      address: profile?.address || '',
+      whatsapp: profile?.whatsapp || '',
+      cnpj: profile?.cnpj || '',
+      instagram: profile?.instagram || '',
+      facebook: profile?.facebook || '',
+      logoUrl: profile?.logoUrl || '',
+      bannerUrl: profile?.bannerUrl || '',
+      latitude: profile?.latitude || 0,
+      longitude: profile?.longitude || 0,
+      active: profile?.active ?? false,
+      portfolio: profile?.portfolio || [],
+      fulfillmentMode: profile?.fulfillmentMode || 'BOTH'
+    });
+    
+    onDirtyChange(isDirty);
+  }, [formData, profile, workspaceId, onDirtyChange]);
+
   const [showItemModal, setShowItemModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedFactoryItems, setSelectedFactoryItems] = useState<string[]>([]);
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Categorization Logic
+  const categorizedPortfolio = useMemo(() => {
+    const groups: Record<string, { items: (PortfolioItem & { originalIndex: number })[] }> = {};
+    
+    formData.portfolio.forEach((item, idx) => {
+      const cat = (item.category || 'SEM CATEGORIA').toUpperCase().trim();
+      if (!groups[cat]) groups[cat] = { items: [] };
+      groups[cat].items.push({ ...item, originalIndex: idx });
+    });
+    
+    return groups;
+  }, [formData.portfolio]);
+
+  const existingCategories = useMemo(() => {
+    const cats = new Set<string>();
+    formData.portfolio.forEach(item => {
+      if (item.category) cats.add(item.category.toUpperCase().trim());
+    });
+    return Array.from(cats).sort();
+  }, [formData.portfolio]);
+
   const [newItem, setNewItem] = useState<PortfolioItem>({
     id: Date.now().toString(),
     name: '',
+    category: '',
     price: 0,
     description: '',
     imageUrl: '',
     available: true
   });
+
+  // Função para fazer upload de imagem para o Supabase Storage
+  const uploadImageToStorage = async (base64Str: string): Promise<string | null> => {
+    try {
+      // Converte Base64 para Blob
+      const base64Data = base64Str.split(',')[1];
+      const type = base64Str.split(';')[0].split(':')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type });
+
+      // Gera um nome de arquivo único
+      const fileName = `${user.id}/portfolio_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+
+      const { data, error } = await supabase.storage
+        .from('app_banners')
+        .upload(fileName, blob, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('app_banners')
+        .getPublicUrl(data.path);
+
+      return publicUrl;
+    } catch (e) {
+      console.error("Erro no upload para storage:", e);
+      return null;
+    }
+  };
 
   // Função para comprimir novas imagens (Upload)
   const resizeImage = (file: File): Promise<string> => {
@@ -145,22 +232,26 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     setSaveStatus('saving');
 
     try {
-      // Otimização Automática: Varre o portfólio em busca de imagens pesadas
+      // MIGRAÇÃO E OTIMIZAÇÃO: Varre o portfólio em busca de imagens base64 para mover para o Storage
       const optimizedPortfolio = await Promise.all(formData.portfolio.map(async (item) => {
-        // Verifica se a imagem é base64 e se é muito grande (> 200KB aprox)
-        if (item.imageUrl && item.imageUrl.startsWith('data:image') && item.imageUrl.length > 200000) {
+        // Se ainda for base64, sobe para o storage agora
+        if (item.imageUrl && item.imageUrl.startsWith('data:image')) {
             try {
-                const compressed = await compressBase64(item.imageUrl);
-                return { ...item, imageUrl: compressed };
+                // Comprime antes de subir se for muito grande
+                let toUpload = item.imageUrl;
+                if (toUpload.length > 200000) {
+                    toUpload = await compressBase64(item.imageUrl);
+                }
+                const url = await uploadImageToStorage(toUpload);
+                if (url) return { ...item, imageUrl: url };
             } catch (e) {
-                console.warn("Falha ao comprimir imagem item:", item.name);
-                return item;
+                console.warn("Falha ao migrar imagem para storage no save:", item.name);
             }
         }
         return item;
       }));
 
-      // Atualiza o estado local com as imagens otimizadas para evitar reprocessamento
+      // Atualiza o estado local com as URLs (limpa o base64 definitivamente)
       const updatedData = { ...formData, portfolio: optimizedPortfolio };
       setFormData(updatedData);
 
@@ -191,17 +282,23 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   const addOrUpdateItem = () => {
     if (!newItem.name || newItem.price <= 0) { toast.error("Preencha Nome e Valor."); return; }
     
+    // TRIMS SPACES FROM CATEGORY TO PREVENT DUPLICATE COLUMNS
+    const cleanedItem = {
+      ...newItem,
+      category: (newItem.category || '').trim()
+    };
+
     const updatedPortfolio = [...(formData.portfolio || [])];
     if (editingItemIndex !== null) {
-      updatedPortfolio[editingItemIndex] = newItem;
+      updatedPortfolio[editingItemIndex] = cleanedItem;
     } else {
-      updatedPortfolio.push({ ...newItem, id: Date.now().toString() });
+      updatedPortfolio.push({ ...cleanedItem, id: Date.now().toString() });
     }
 
     setFormData(prev => ({ ...prev, portfolio: updatedPortfolio }));
     setShowItemModal(false);
     setEditingItemIndex(null);
-    setNewItem({ id: Date.now().toString(), name: '', price: 0, description: '', imageUrl: '', available: true });
+    setNewItem({ id: Date.now().toString(), name: '', category: '', price: 0, description: '', imageUrl: '', available: true });
   };
 
   const startEditItem = (idx: number) => {
@@ -213,6 +310,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   const removeItem = (idx: number) => {
     const updated = formData.portfolio.filter((_, i) => i !== idx);
     setFormData({ ...formData, portfolio: updated });
+    setItemToDelete(null);
   };
 
   const toggleHighlight = (idx: number) => {
@@ -240,8 +338,18 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     if (!file) return;
     setIsUploadingImage(true);
     try {
-      const resized = await resizeImage(file);
-      setNewItem(prev => ({ ...prev, imageUrl: resized }));
+      const resizedBase64 = await resizeImage(file);
+      // Fazer upload imediato para o Storage para evitar carregar o payload
+      const storageUrl = await uploadImageToStorage(resizedBase64);
+      
+      if (storageUrl) {
+         setNewItem(prev => ({ ...prev, imageUrl: storageUrl }));
+         toast.success("Imagem processada com sucesso!");
+      } else {
+         // Fallback para base64 se o storage falhar (não recomendado, mas evita travar o user)
+         setNewItem(prev => ({ ...prev, imageUrl: resizedBase64 }));
+         toast.warning("Fallback: Imagem salva localmente (pode causar erro ao salvar vitrine cheia).");
+      }
     } catch (e) {
       console.error(e);
       toast.error("Erro ao processar imagem.");
@@ -264,6 +372,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     const newPortfolioItems: PortfolioItem[] = itemsToImport.map(item => ({
       id: Date.now().toString() + Math.random().toString(36).substring(7),
       name: item.name,
+      category: item.category,
       price: item.price, // Preço inicial igual ao da fábrica
       description: '', // Descrição vazia para o dono preencher
       available: true,
@@ -298,7 +407,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                 <DownloadCloud size={24} />
              </button>
              <button 
-                onClick={() => { setEditingItemIndex(null); setNewItem({ id: Date.now().toString(), name: '', price: 0, description: '', imageUrl: '', available: true }); setShowItemModal(true); }} 
+                onClick={() => { setEditingItemIndex(null); setNewItem({ id: Date.now().toString(), name: '', category: '', price: 0, description: '', imageUrl: '', available: true }); setShowItemModal(true); }} 
                 className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-all"
              >
                 <Plus size={24} />
@@ -326,46 +435,78 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
             </div>
         </div>
 
-        <div className="grid gap-4">
+        <div className="grid gap-8">
           {formData.portfolio.length === 0 ? (
             <div className="p-16 text-center bg-slate-50 rounded-[2.5rem] border-2 border-dashed border-slate-200">
                 <ShoppingBag className="w-12 h-12 text-slate-200 mx-auto mb-4" />
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Seu cardápio está vazio.</p>
             </div>
           ) : (
-            formData.portfolio.map((item, idx) => {
-              const isHighlighted = item.highlightExpiresAt && new Date(item.highlightExpiresAt).getTime() > Date.now();
-              
-              return (
-                <div key={item.id} className={`p-5 rounded-[2.5rem] border flex items-center justify-between group transition-all ${isHighlighted ? 'bg-amber-50 border-amber-200 shadow-lg shadow-amber-900/5' : 'bg-slate-50 border-slate-100 hover:bg-white hover:shadow-xl'}`}>
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-white rounded-2xl shadow-sm overflow-hidden flex-shrink-0 border border-slate-100 flex items-center justify-center relative">
-                          {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200" />}
-                          {isHighlighted && <div className="absolute inset-0 border-2 border-amber-500 rounded-2xl animate-pulse" />}
+            (Object.entries(categorizedPortfolio) as [string, { items: (PortfolioItem & { originalIndex: number })[] }][]).map(([categoryName, group]) => (
+                <div key={categoryName} className="space-y-4">
+                   <div className="flex items-center justify-between px-4">
+                      <div className="flex items-center gap-2">
+                         <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
+                         <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">{categoryName}</h3>
+                         <span className="bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full text-[8px] font-black">{group.items.length}</span>
                       </div>
-                      <div>
-                          <h4 className="font-black text-slate-800 text-xs uppercase tracking-tight flex items-center gap-1">
-                            {item.name}
-                            {isHighlighted && <Zap size={10} className="text-amber-500 fill-amber-500" />}
-                          </h4>
-                          <p className="font-black text-emerald-600 text-sm mt-1">R$ {(item.price || 0).toFixed(2)}</p>
-                          {isHighlighted && <p className="text-[8px] font-bold text-amber-600 uppercase tracking-widest mt-0.5">Destaque Ativo</p>}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
                       <button 
-                        onClick={() => toggleHighlight(idx)} 
-                        className={`p-3 rounded-xl shadow-sm border transition-all ${isHighlighted ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-300 border-slate-100 hover:text-amber-500'}`}
-                        title="Promover para Stories"
+                         onClick={() => { 
+                            setEditingItemIndex(null); 
+                            setNewItem({ id: Date.now().toString(), name: '', category: categoryName, price: 0, description: '', imageUrl: '', available: true }); 
+                            setShowItemModal(true); 
+                         }}
+                         className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-xl text-[9px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all active:scale-95"
                       >
-                        <Zap size={16} className={isHighlighted ? "fill-white" : ""} />
+                         <Plus size={12} /> Add Item
                       </button>
-                      <button onClick={() => startEditItem(idx)} className="p-3 bg-white text-blue-500 rounded-xl shadow-sm border border-slate-100"><Edit3 size={16} /></button>
-                      <button onClick={() => removeItem(idx)} className="p-3 bg-white text-rose-500 rounded-xl shadow-sm border border-slate-100"><Trash2 size={16} /></button>
-                    </div>
+                   </div>
+
+                   <div className="grid gap-3">
+                      {group.items.map((item) => {
+                        const isHighlighted = item.highlightExpiresAt && new Date(item.highlightExpiresAt).getTime() > Date.now();
+                        const idx = item.originalIndex;
+                        
+                        return (
+                          <div key={item.id} className={`p-4 rounded-[2rem] border flex items-center justify-between group transition-all ${isHighlighted ? 'bg-amber-50 border-amber-200 shadow-lg shadow-amber-900/5' : 'bg-white border-slate-100 hover:shadow-xl'}`}>
+                              <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 bg-slate-50 rounded-2xl shadow-sm overflow-hidden flex-shrink-0 border border-slate-100 flex items-center justify-center relative">
+                                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-200" />}
+                                    {isHighlighted && <div className="absolute inset-0 border-2 border-amber-500 rounded-2xl animate-pulse" />}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                      <h4 className="font-black text-slate-800 text-xs uppercase tracking-tight flex items-center gap-1">
+                                        {item.name}
+                                        {isHighlighted && <Zap size={10} className="text-amber-500 fill-amber-500" />}
+                                      </h4>
+                                    </div>
+                                    <p className="font-black text-emerald-600 text-xs">R$ {(item.price || 0).toFixed(2)}</p>
+                                    {isHighlighted && <p className="text-[8px] font-bold text-amber-600 uppercase tracking-widest mt-0.5">Destaque Ativo</p>}
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => toggleHighlight(idx)} 
+                                  className={`p-2.5 rounded-xl shadow-sm border transition-all ${isHighlighted ? 'bg-amber-500 text-white border-amber-600' : 'bg-white text-slate-300 border-slate-100 hover:text-amber-500'}`}
+                                  title="Promover para Stories"
+                                >
+                                  <Zap size={14} className={isHighlighted ? "fill-white" : ""} />
+                                </button>
+                                <button onClick={() => startEditItem(idx)} className="p-2.5 bg-white text-blue-500 rounded-xl shadow-sm border border-slate-100 hover:bg-blue-50 transition-colors"><Edit3 size={14} /></button>
+                                <button 
+                                  onClick={() => setItemToDelete(idx)} 
+                                  className="p-2.5 bg-white text-rose-300 hover:text-rose-500 rounded-xl shadow-sm border border-slate-100 hover:bg-rose-50 transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                          </div>
+                        );
+                      })}
+                   </div>
                 </div>
-              );
-            })
+            ))
           )}
         </div>
 
@@ -419,7 +560,13 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                     </div>
                     <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleFileUpload} />
                  </div>
-                 <input value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} placeholder="NOME DO SALGADO" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase outline-none" />
+                 <div className="flex gap-2">
+                   <input value={newItem.name || ''} onChange={e => setNewItem({...newItem, name: e.target.value})} placeholder="NOME DO PRODUTO" className="flex-[2] p-4 bg-slate-50 rounded-xl font-bold uppercase outline-none" />
+                   <input list="categories-list" value={newItem.category || ''} onChange={e => setNewItem({...newItem, category: e.target.value})} placeholder="CATEGORIA" className="flex-1 p-4 bg-slate-50 rounded-xl font-bold uppercase outline-none" />
+                   <datalist id="categories-list">
+                      {existingCategories.map(cat => <option key={cat} value={cat} />)}
+                   </datalist>
+                 </div>
                  <div className="grid grid-cols-2 gap-3">
                    <div className="space-y-1">
                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Preço Normal</label>
@@ -455,11 +602,31 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                      </label>
                    </div>
                  )}
-                 <textarea value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} placeholder="BREVE DESCRIÇÃO (EX: MASSA DE MANDIOCA...)" className="w-full p-4 bg-slate-50 rounded-xl font-bold h-24 resize-none outline-none" />
+                 <textarea value={newItem.description || ''} onChange={e => setNewItem({...newItem, description: e.target.value})} placeholder="BREVE DESCRIÇÃO (EX: MASSA DE MANDIOCA...)" className="w-full p-4 bg-slate-50 rounded-xl font-bold h-24 resize-none outline-none" />
               </div>
               <div className="flex gap-3">
                  <button onClick={() => setShowItemModal(false)} className="flex-1 py-4 text-slate-400 font-black uppercase text-[10px]">Cancelar</button>
                  <button onClick={addOrUpdateItem} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">Confirmar</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {itemToDelete !== null && (
+        <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl text-center border-4 border-rose-100">
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner animate-pulse"><AlertTriangle className="w-10 h-10 text-rose-600" /></div>
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tighter">Remover da Vitrine</h3>
+              <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">Deseja realmente remover "{formData.portfolio[itemToDelete]?.name}"? <br/><br/> <span className="text-[10px] uppercase font-black text-slate-400">Clique em "Salvar Vitrine" depois para confirmar definitivamente.</span></p>
+              <div className="flex gap-3">
+                <button onClick={() => setItemToDelete(null)} className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-colors">Cancelar</button>
+                <button 
+                   onClick={() => itemToDelete !== null && removeItem(itemToDelete)} 
+                   className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-900/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                   <Trash2 className="w-4 h-4" /> Confirmar
+                </button>
               </div>
            </div>
         </div>

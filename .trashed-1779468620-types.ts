@@ -96,7 +96,6 @@ export interface StoreProfile {
 export interface PortfolioItem {
   id: string;
   name: string;
-  category?: string;
   price: number;
   description: string;
   imageUrl?: string;
@@ -143,7 +142,6 @@ export interface Customer {
 export interface ConfigItem {
   id: string;
   name: string;
-  category?: string;
   order?: number;
   defaultPriceAVista?: number;
   defaultPriceAPrazo?: number;
@@ -300,21 +298,4 @@ export interface StockMovement {
   created_by?: string;
   reference_id?: string;
   created_at?: string;
-}
-
-export interface StoreAnalyticsSummary {
-  workspaceId: string;
-  totalViews: number;
-  totalClicks: number;
-  totalFollowers: number;
-  totalFavorites: number;
-  avgRating: number;
-  totalRatings: number;
-  pendingReports: number;
-}
-
-export interface ProductClickDetail {
-  productId: string;
-  productName: string;
-  clicks: number;
 }
