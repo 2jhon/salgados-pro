@@ -59,23 +59,38 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   useEffect(() => {
     if (!onDirtyChange) return;
     
-    const isDirty = JSON.stringify(formData) !== JSON.stringify({
-      workspaceId: profile?.workspaceId || workspaceId,
-      name: profile?.name || '',
-      description: profile?.description || '',
-      address: profile?.address || '',
-      whatsapp: profile?.whatsapp || '',
-      cnpj: profile?.cnpj || '',
-      instagram: profile?.instagram || '',
-      facebook: profile?.facebook || '',
-      logoUrl: profile?.logoUrl || '',
-      bannerUrl: profile?.bannerUrl || '',
-      latitude: profile?.latitude || 0,
-      longitude: profile?.longitude || 0,
-      active: profile?.active ?? false,
-      portfolio: profile?.portfolio || [],
-      fulfillmentMode: profile?.fulfillmentMode || 'BOTH'
+    // Normalization helper to compare only relevant fields and handle nulls consistently
+    const normalize = (data: any) => ({
+      workspaceId: data?.workspaceId || workspaceId,
+      name: data?.name || '',
+      description: data?.description || '',
+      address: data?.address || '',
+      whatsapp: data?.whatsapp || '',
+      cnpj: data?.cnpj || '',
+      instagram: data?.instagram || '',
+      facebook: data?.facebook || '',
+      logoUrl: data?.logoUrl || '',
+      bannerUrl: data?.bannerUrl || '',
+      latitude: data?.latitude || 0,
+      longitude: data?.longitude || 0,
+      active: data?.active ?? false,
+      portfolio: (data?.portfolio || []).map((item: any) => ({
+         name: item.name || '',
+         category: item.category || '',
+         price: item.price || 0,
+         description: item.description || '',
+         imageUrl: item.imageUrl || '',
+         available: item.available ?? true,
+         promotionalPrice: item.promotionalPrice,
+         promoEndsAt: item.promoEndsAt,
+         highlightExpiresAt: item.highlightExpiresAt,
+         linkedFactoryItemId: item.linkedFactoryItemId,
+         useFactoryPrice: item.useFactoryPrice ?? false
+      })),
+      fulfillmentMode: data?.fulfillmentMode || 'BOTH'
     });
+
+    const isDirty = JSON.stringify(normalize(formData)) !== JSON.stringify(normalize(profile));
     
     onDirtyChange(isDirty);
   }, [formData, profile, workspaceId, onDirtyChange]);
