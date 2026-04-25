@@ -14,7 +14,9 @@ import {
   ShoppingBag,
   ArrowUpRight,
   Sparkles,
-  MessageCircle
+  MessageCircle,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -29,6 +31,7 @@ import {
 import { useAnalytics } from '../hooks/useAnalytics';
 import { StoreAnalyticsSummary, ProductClickDetail, StoreProfile, Transaction, StoreRating } from '../types';
 import { supabase } from '../lib/supabase';
+import { exportToExcel, exportToPDF } from '../lib/exportUtils';
 
 interface StoreInsightsProps {
   workspaceId: string;
@@ -36,38 +39,69 @@ interface StoreInsightsProps {
   transactions: Transaction[];
 }
 
-export const StoreInsights: React.FC<StoreInsightsProps> = ({ workspaceId, profile, transactions }) => {
+export const StoreInsights: React.FC<StoreInsightsProps> = ({ workspaceId, profile = null, transactions = [] }) => {
   const { getStoreSummary, getTopProducts } = useAnalytics();
   const [summary, setSummary] = useState<StoreAnalyticsSummary | null>(null);
   const [topProducts, setTopProducts] = useState<ProductClickDetail[]>([]);
   const [recentRatings, setRecentRatings] = useState<StoreRating[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const handleExportBI = (type: 'XLSX' | 'PDF') => {
+    if (!summary) return;
+
+    if (type === 'XLSX') {
+      const data = [
+        { Metrica: 'Total de Views', Valor: summary.totalViews },
+        { Metrica: 'Total de Cliques', Valor: summary.totalClicks },
+        { Metrica: 'Seguidores', Valor: summary.totalFollowers },
+        { Metrica: 'Curtidas', Valor: summary.totalFavorites },
+        { Metrica: 'Avaliação Média', Valor: summary.avgRating },
+        { Metrica: 'Total de Avaliações', Valor: summary.totalRatings },
+      ];
+      exportToExcel(data, `BI_Summary_${workspaceId}`);
+    } else {
+      const headers = ['Métrica', 'Valor'];
+      const data = [
+        ['Total de Views', String(summary.totalViews)],
+        ['Total de Cliques', String(summary.totalClicks)],
+        ['Seguidores', String(summary.totalFollowers)],
+        ['Curtidas', String(summary.totalFavorites)],
+        ['Avaliação Média', String(summary.avgRating)],
+        ['Total de Avaliações', String(summary.totalRatings)],
+      ];
+      exportToPDF(headers, data, `BI_Summary_${workspaceId}`, `Relatório de Inteligência - ${profile?.name || 'Loja'}`);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [summaryData, productsData, ratingsRes] = await Promise.all([
-        getStoreSummary(workspaceId),
-        getTopProducts(workspaceId),
-        supabase.from('store_ratings').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(3)
-      ]);
-      
-      setSummary(summaryData);
-      if (ratingsRes.data) setRecentRatings(ratingsRes.data);
+      try {
+        const [summaryData, productsData, ratingsRes] = await Promise.all([
+          getStoreSummary(workspaceId),
+          getTopProducts(workspaceId),
+          supabase.from('store_ratings').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(3)
+        ]);
+        
+        setSummary(summaryData);
+        if (ratingsRes.data) setRecentRatings(ratingsRes.data);
 
-      // Cruzando os IDs dos produtos com os nomes no portfolio para o gráfico
-      if (profile?.portfolio) {
-        const enrichedProducts = productsData.map(p => {
-          const portfolioItem = profile.portfolio.find(i => i.id === p.productId);
-          return {
-            ...p,
-            productName: portfolioItem ? portfolioItem.name : 'Excluído'
-          };
-        }).filter(p => p.productName !== 'Excluído');
-        setTopProducts(enrichedProducts.slice(0, 5)); // Apenas Top 5
+        // Cruzando os IDs dos produtos com os nomes no portfolio para o gráfico
+        if (profile?.portfolio && Array.isArray(productsData)) {
+          const enrichedProducts = productsData.map(p => {
+            const portfolioItem = profile.portfolio.find(i => i.id === p.productId);
+            return {
+              ...p,
+              productName: portfolioItem ? portfolioItem.name : 'Excluído'
+            };
+          }).filter(p => p.productName !== 'Excluído');
+          setTopProducts(enrichedProducts.slice(0, 5)); // Apenas Top 5
+        }
+      } catch (e) {
+        console.error("[Insights] Error fetching data:", e);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     fetchData();
@@ -80,8 +114,9 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({ workspaceId, profi
 
   const topCustomers = useMemo(() => {
     const customerMap: Record<string, { name: string, total: number, count: number }> = {};
+    const safeTransactions = Array.isArray(transactions) ? transactions : [];
     
-    transactions
+    safeTransactions
       .filter(t => t.subCategory !== 'GASTOS' && !t.isPending && t.customerName)
       .forEach(t => {
         const name = t.customerName!;
@@ -122,6 +157,31 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({ workspaceId, profi
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* HEADER WITH EXPORT */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+         <div>
+            <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+               <BarChart3 className="text-indigo-600" size={24} />
+               Painel de Inteligência
+            </h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Análise de performance e engajamento</p>
+         </div>
+         <div className="flex items-center gap-2">
+            <button 
+              onClick={() => handleExportBI('XLSX')}
+              className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2"
+            >
+               <FileSpreadsheet size={14} /> XLSX
+            </button>
+            <button 
+              onClick={() => handleExportBI('PDF')}
+              className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center gap-2"
+            >
+               <Download size={14} /> PDF
+            </button>
+         </div>
+      </div>
       
       {/* KPI GRID */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -23,49 +23,56 @@ interface StoreProfileSettingsProps {
 
 export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ profile, onSave, onClose, workspaceId, hasProPlan, user, onSaveUser, isOwner }) => {
   const [activeTab, setActiveTab] = useState<'USER' | 'IDENTITY' | 'LOCATION' | 'LOGISTICS'>('USER');
-  
-  const [formData, setFormData] = useState<Omit<StoreProfile, 'id'>>(profile ? {
-    workspaceId: profile.workspaceId,
-    name: profile.name,
-    description: profile.description,
-    address: profile.address,
-    whatsapp: profile.whatsapp,
-    cnpj: profile.cnpj,
-    instagram: profile.instagram,
-    facebook: profile.facebook,
-    logoUrl: profile.logoUrl,
-    bannerUrl: profile.bannerUrl,
-    latitude: profile.latitude,
-    longitude: profile.longitude,
-    active: profile.active,
-    portfolio: profile.portfolio || [],
-    fulfillmentMode: profile.fulfillmentMode || 'BOTH',
-    deliveryConfig: profile.deliveryConfig || {}
-  } : {
-    workspaceId,
-    name: '',
-    description: '',
-    address: '',
-    whatsapp: '',
-    cnpj: '',
-    instagram: '',
-    facebook: '',
-    logoUrl: '',
-    bannerUrl: '',
-    latitude: 0,
-    longitude: 0,
-    active: true,
-    portfolio: [],
-    fulfillmentMode: 'BOTH',
-    deliveryConfig: {}
+
+  // Defensive initialization
+  const [formData, setFormData] = useState<Omit<StoreProfile, 'id'>>(() => {
+    const p = profile;
+    if (p) {
+      return {
+        workspaceId: p.workspaceId || workspaceId,
+        name: p.name || '',
+        description: p.description || '',
+        address: p.address || '',
+        whatsapp: p.whatsapp || '',
+        cnpj: p.cnpj || '',
+        instagram: p.instagram || '',
+        facebook: p.facebook || '',
+        logoUrl: p.logoUrl || '',
+        bannerUrl: p.bannerUrl || '',
+        latitude: p.latitude || 0,
+        longitude: p.longitude || 0,
+        active: p.active ?? true,
+        portfolio: p.portfolio || [],
+        fulfillmentMode: p.fulfillmentMode || 'BOTH',
+        deliveryConfig: p.deliveryConfig || {}
+      };
+    }
+    return {
+      workspaceId,
+      name: '',
+      description: '',
+      address: '',
+      whatsapp: '',
+      cnpj: '',
+      instagram: '',
+      facebook: '',
+      logoUrl: '',
+      bannerUrl: '',
+      latitude: 0,
+      longitude: 0,
+      active: true,
+      portfolio: [],
+      fulfillmentMode: 'BOTH',
+      deliveryConfig: {}
+    };
   });
 
   const [editUserData, setEditUserData] = useState({
-    name: user.name || '',
-    phone: user.phone || '',
-    cpf: user.cpf || '',
-    accessCode: user.accessCode || '',
-    avatarUrl: user.avatarUrl || '',
+    name: user?.name || '',
+    phone: user?.phone || '',
+    cpf: user?.cpf || '',
+    accessCode: user?.accessCode || '',
+    avatarUrl: user?.avatarUrl || '',
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -78,6 +85,41 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
   useEffect(() => {
     setIsBiometryActive(hasBiometryConfigured());
   }, []);
+
+  // Update form data if profile changes
+  useEffect(() => {
+    if (profile) {
+      setFormData({
+        workspaceId: profile.workspaceId || workspaceId,
+        name: profile.name || '',
+        description: profile.description || '',
+        address: profile.address || '',
+        whatsapp: profile.whatsapp || '',
+        cnpj: profile.cnpj || '',
+        instagram: profile.instagram || '',
+        facebook: profile.facebook || '',
+        logoUrl: profile.logoUrl || '',
+        bannerUrl: profile.bannerUrl || '',
+        latitude: profile.latitude || 0,
+        longitude: profile.longitude || 0,
+        active: profile.active ?? true,
+        portfolio: profile.portfolio || [],
+        fulfillmentMode: profile.fulfillmentMode || 'BOTH',
+        deliveryConfig: profile.deliveryConfig || {}
+      });
+    }
+  }, [profile, workspaceId]);
+
+  if (!user) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-[2rem] text-center">
+            <Loader2 className="animate-spin mx-auto text-indigo-600 mb-4" />
+            <p className="text-xs font-black uppercase text-slate-400">Carregando Perfil...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleToggleBiometry = async () => {
     try {

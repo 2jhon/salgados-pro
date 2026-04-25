@@ -12,12 +12,14 @@ import { Marketplace } from './components/Marketplace';
 import { StoreProfileSettings } from './components/StoreProfileSettings';
 import { SuperAdmin } from './components/SuperAdmin';
 import { NotesInbox } from './components/NotesModals';
+import { RealtimeBroker } from './components/RealtimeBroker';
 import { useAppConfig } from './hooks/useAppConfig';
 import { useTransactions } from './hooks/useTransactions';
 import { useUsers } from './hooks/useUsers';
 import { useAds } from './hooks/useAds';
 import { useNotes } from './hooks/useNotes';
 import { useStoreProfiles } from './hooks/useStoreProfiles';
+import { useAnalytics } from './hooks/useAnalytics';
 import { useCustomers } from './hooks/useCustomers'; 
 import { supabase, checkDatabaseHealth, safeStringifyError } from './lib/supabase';
 import { ADMIN_EMAILS } from './constants';
@@ -34,8 +36,25 @@ import { hasBiometryConfigured, registerBiometryLocal, removeBiometryLocal, veri
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+
+  const handleTabChangeWithGuard = (tab: any) => {
+    if (activeTab === 'CONFIG' && isSettingsDirty && tab !== 'CONFIG') {
+      if (window.confirm("Kernel: Você tem alterações de vitrine não salvas na vitrine. Sair mesmo assim?")) {
+        setIsSettingsDirty(false);
+        setActiveTab(tab);
+      }
+    } else {
+      setActiveTab(tab);
+    }
+  };
   
-  const { sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, fetchConfigByWorkspace, publicStalls, fetchPublicStalls, isSyncing: isStockSyncing, reconnect: reconnectStock } = useAppConfig();
+  const { 
+    sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, 
+    fetchConfigByWorkspace, publicStalls, fetchPublicStalls, hasMorePublic: hasMoreStalls, 
+    fetchStallById, isSyncing: isStockSyncing, reconnect: reconnectStock, loading: loadingStalls 
+  } = useAppConfig();
+
   const { users, createUser, fetchUsersByWorkspace, findUserById, updateUser, removeUser, findUserByEmail, findUserByPhone, authenticateUser } = useUsers();
   
   const { notes, unreadCount, markAsRead, markAllAsRead, deleteNote, clearReadNotes, addNote } = useNotes(currentUser?.workspaceId);
@@ -44,6 +63,7 @@ export const App: React.FC = () => {
     transactions, 
     setTransactions,
     loading,
+    hasMore: hasMoreTransactions,
     isOffline: isTxOffline,
     isSyncing: isTxSyncing,
     reconnect: reconnectTx,
@@ -55,15 +75,28 @@ export const App: React.FC = () => {
     partialSettleTransaction, 
     calculateTotals, 
     fetchTransactionsByWorkspace,
+    fetchNextTransactions,
     fetchUserGlobalDebts,
     archiveYear
   } = useTransactions(currentUser?.workspaceId, sections, saveConfig, addNote);
 
   const { ads, fetchAds, incrementClick, saveAd, deleteAd } = useAds();
-  const { profiles: marketplaceStores, fetchPublicProfiles, getMyProfile, saveProfile } = useStoreProfiles();
-  const { customers, addCustomer } = useCustomers(currentUser?.workspaceId); 
+  const { 
+    profiles: marketplaceStores, fetchPublicProfiles, getMyProfile, saveProfile, 
+    hasMore: hasMoreStores, loading: loadingProfiles 
+  } = useStoreProfiles();
+  const { customers, addCustomer } = useCustomers(currentUser?.workspaceId);
+  const { trackView, getStoreSummary, getFinancialInsights } = useAnalytics(currentUser?.workspaceId);
 
   const [activeTab, setActiveTab] = useState<string>('HOME');
+  const [financialInsights, setFinancialInsights] = useState<any[]>([]);
+
+  // Pre-fetch BI data
+  useEffect(() => {
+    if (currentUser?.workspaceId && activeTab === 'HOME') {
+       getFinancialInsights(currentUser.workspaceId).then(setFinancialInsights);
+    }
+  }, [currentUser?.workspaceId, activeTab, getFinancialInsights]);
   const [companyProfile, setCompanyProfile] = useState<StoreProfile | null>(() => {
     try {
       const saved = localStorage.getItem('cached_company_profile');
@@ -267,7 +300,7 @@ export const App: React.FC = () => {
       const profilesPromise = fetchPublicProfiles();
       
       // Carrega transações (Ponto crítico de performance)
-      await fetchTransactionsByWorkspace(user.workspaceId, true);
+      await fetchTransactionsByWorkspace(user.workspaceId, false);
       
       // Aguarda os outros em background
       await Promise.allSettled([adsPromise, stallsPromise, profilesPromise]);
@@ -352,8 +385,25 @@ export const App: React.FC = () => {
     }
   }, [currentUser, loadWorkspaceData]);
 
-  // Motor de Sincronização Omnichannel (Fase 3)
+  // Sincronização Omnichannel (Fase 3)
   useEffect(() => {
+    // Detectar retorno do Mercado Pago
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const externalRef = urlParams.get('external_reference');
+
+    if (status === 'approved') {
+      toast.success("Pagamento Aprovado! Seu pedido foi confirmado.", { duration: 10000 });
+      // Limpa os parâmetros da URL sem recarregar
+      window.history.replaceState({}, document.title, "/");
+    } else if (status === 'pending') {
+      toast.info("Pagamento Pendente. Aguardando processamento.");
+      window.history.replaceState({}, document.title, "/");
+    } else if (status === 'failure') {
+      toast.error("O pagamento não foi concluído. Tente novamente.");
+      window.history.replaceState({}, document.title, "/");
+    }
+
     if (!companyProfile?.portfolio || !sections || !currentUser?.workspaceId) return;
     
     let hasChanges = false;
@@ -414,9 +464,17 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSaveProfile = useCallback(async (profile: any) => {
+    const result = await saveProfile(profile);
+    if (result) {
+      setCompanyProfile(result);
+    }
+    return result;
+  }, [saveProfile]);
+
   const handleMarketplaceRefresh = useCallback(() => {
-    fetchPublicStalls();
-    fetchPublicProfiles();
+    fetchPublicStalls(true);
+    fetchPublicProfiles(true);
   }, [fetchPublicStalls, fetchPublicProfiles]);
 
   const allowedSections = useMemo(() => {
@@ -784,11 +842,37 @@ export const App: React.FC = () => {
       )}
 
       {/* Bottom Navigation Bar */}
+      {currentUser && (
+        <RealtimeBroker 
+          workspaceId={currentUser.workspaceId} 
+          enabledSounds={currentUser.enableSounds}
+          onNewTransaction={(newTx) => {
+            setTransactions(prev => {
+              if (prev.find(t => t.id === String(newTx.id))) return prev;
+              const mapped = {
+                id: String(newTx.id),
+                workspaceId: newTx.workspace_id,
+                date: newTx.date || newTx.created_at,
+                category: newTx.category,
+                subCategory: newTx.sub_category,
+                item: newTx.item,
+                value: Number(newTx.value),
+                quantity: newTx.quantity,
+                paymentMethod: newTx.payment_method,
+                customerName: newTx.customer_name,
+                isPending: !!newTx.is_pending,
+                createdBy: newTx.created_by
+              };
+              return [mapped, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            });
+          }}
+        />
+      )}
       {activeTab !== 'GOD_MODE' && (
         <div className="fixed bottom-6 left-0 right-0 z-[90] flex justify-center pointer-events-none">
           <div className="bg-slate-900 p-2 rounded-[2.5rem] shadow-2xl flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[92vw] pointer-events-auto border border-slate-800">
               <button 
-                onClick={() => setActiveTab('HOME')} 
+                onClick={() => handleTabChangeWithGuard('HOME')} 
                 className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles('HOME')}`}
               >
                  <HomeIcon size={18} className={activeTab === 'HOME' ? 'text-white' : 'text-slate-500/70'} /> 
@@ -800,7 +884,7 @@ export const App: React.FC = () => {
               </button>
               
               <button 
-                onClick={() => setActiveTab('MARKETPLACE')} 
+                onClick={() => handleTabChangeWithGuard('MARKETPLACE')} 
                 className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles('MARKETPLACE')}`}
               >
                  <ShoppingCart size={18} className={activeTab === 'MARKETPLACE' ? 'text-white' : 'text-emerald-500/40'} /> {activeTab === 'MARKETPLACE' && <span className="text-[10px] font-black uppercase tracking-widest">Vitrine</span>}
@@ -809,7 +893,7 @@ export const App: React.FC = () => {
               {allowedSections.map(s => (
                  <button 
                     key={s.id} 
-                    onClick={() => setActiveTab(s.id)} 
+                    onClick={() => handleTabChangeWithGuard(s.id)} 
                     className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles(s.id)}`}
                  >
                     {s.type === 'FACTORY_STYLE' ? (
@@ -824,19 +908,19 @@ export const App: React.FC = () => {
               {currentUser.role === 'OWNER' && (
                  <>
                     <button 
-                      onClick={() => setActiveTab('ESTOQUE')} 
+                      onClick={() => handleTabChangeWithGuard('ESTOQUE')} 
                       className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles('ESTOQUE')}`}
                     >
                        <Package size={18} className={activeTab === 'ESTOQUE' ? 'text-white' : 'text-amber-500/40'} /> {activeTab === 'ESTOQUE' && <span className="text-[10px] font-black uppercase tracking-widest">Estoque</span>}
                     </button>
                     <button 
-                      onClick={() => setActiveTab('ACTIVITY')} 
+                      onClick={() => handleTabChangeWithGuard('ACTIVITY')} 
                       className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles('ACTIVITY')}`}
                     >
                        <Activity size={18} className={activeTab === 'ACTIVITY' ? 'text-white' : 'text-cyan-500/40'} /> {activeTab === 'ACTIVITY' && <span className="text-[10px] font-black uppercase tracking-widest">Log</span>}
                     </button>
                     <button 
-                      onClick={() => setActiveTab('CONFIG')} 
+                      onClick={() => handleTabChangeWithGuard('CONFIG')} 
                       className={`flex items-center gap-2 px-5 py-3 rounded-[2rem] transition-all whitespace-nowrap ${getTabStyles('CONFIG')}`}
                     >
                        <SettingsIcon size={18} className={activeTab === 'CONFIG' ? 'text-white' : 'text-indigo-500/40'} /> {activeTab === 'CONFIG' && <span className="text-[10px] font-black uppercase tracking-widest">Painel</span>}
@@ -849,11 +933,11 @@ export const App: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <div className="p-4 pt-6 max-w-7xl mx-auto">
-          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} />}
-        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={saveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} />}
+          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} />}
+        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} />}
-        {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} />}
+        {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}
         {activeTab === 'MARKETPLACE' && (
           <Marketplace 
             user={currentUser} 
@@ -863,6 +947,11 @@ export const App: React.FC = () => {
             onRefresh={handleMarketplaceRefresh}
             plans={plans}
             onNavigate={setActiveTab}
+            fetchPublicProfiles={fetchPublicProfiles}
+            fetchPublicStalls={fetchPublicStalls}
+            hasMoreStores={hasMoreStores}
+            hasMoreStalls={hasMoreStalls}
+            isLoading={loadingProfiles || loadingStalls}
           />
         )}
         

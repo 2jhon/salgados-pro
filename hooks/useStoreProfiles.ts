@@ -2,6 +2,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import { StoreProfile, PortfolioItem } from '../types';
 import { supabase, withRetry, safeStringifyError, isNetworkError, withTimeout } from '../lib/supabase';
+import { toast } from 'sonner';
+
+let lastProfilesFetchTime = 0;
+const PROFILES_CACHE_TTL = 1000 * 60 * 2; // 2 minutes cache 
 
 export const useStoreProfiles = () => {
   const [profiles, setProfiles] = useState<StoreProfile[]>(() => {
@@ -12,6 +16,7 @@ export const useStoreProfiles = () => {
     return [];
   });
   const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   const mapProfile = useCallback((p: any): StoreProfile => ({
     id: p.id,
@@ -34,41 +39,67 @@ export const useStoreProfiles = () => {
     deliveryConfig: p.delivery_config || {}
   }), []);
 
-  const fetchPublicProfiles = useCallback(async () => {
-    setLoading(true);
+  const fetchPublicProfiles = useCallback(async (force: boolean = false, page: number = 0, limit: number = 50) => {
+    if (!force && page === 0 && Date.now() - lastProfilesFetchTime < PROFILES_CACHE_TTL && profiles.length > 0) {
+      return; 
+    }
+    
+    const from = page * limit;
+    const to = from + limit - 1;
+
+    if (page === 0) setLoading(true);
     try {
       await withRetry(async () => {
-        // PERFORMANCE OPTIMIZATION: Exclude heavy banner_url from list view
+        // PERFORMANCE OPTIMIZATION: Exclude heavy portfolio and banner_url from list view
         let response = await supabase
           .from('vw_active_marketplace')
-          .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, portfolio, fulfillment_mode')
-          .order('name');
+          .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, fulfillment_mode')
+          .order('name')
+          .range(from, to);
           
         if (response.error) {
-          // Fallback if the view hasn't been created in the database yet
           response = await supabase
             .from('store_profiles')
-            .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, portfolio, fulfillment_mode')
+            .select('id, workspace_id, name, description, address, whatsapp, logo_url, latitude, longitude, active, fulfillment_mode')
             .eq('active', true)
-            .order('name');
+            .order('name')
+            .range(from, to);
         }
 
         if (response.error) throw response.error;
         
         if (response.data) {
           const mapped = response.data.map(mapProfile);
-          setProfiles(mapped);
-          try {
-            localStorage.setItem('cached_marketplace_profiles', JSON.stringify(mapped));
-          } catch (e) {}
+          setHasMore(mapped.length === limit);
+          setProfiles(prev => {
+            if (page === 0) return mapped;
+            // Merge avoid duplicates
+            const existingIds = new Set(prev.map((p: any) => p.id));
+            const fresh = mapped.filter((p: any) => !existingIds.has(p.id));
+            return [...prev, ...fresh];
+          });
+          
+          if (page === 0) {
+            lastProfilesFetchTime = Date.now();
+            try {
+              localStorage.setItem('cached_marketplace_profiles', JSON.stringify(mapped));
+            } catch (e) {}
+          }
         }
       });
-    } catch (e) {
+    } catch (e: any) {
       console.warn("Nexus: Erro ao buscar vitrine pública.", e);
+      if (page === 0) {
+        toast.error("Erro ao carregar lojas em destaque. Exibindo dados em cache.");
+        try {
+          const saved = localStorage.getItem('cached_marketplace_profiles');
+          if (saved) setProfiles(JSON.parse(saved));
+        } catch {}
+      }
     } finally {
-      setLoading(false);
+      if (page === 0) setLoading(false);
     }
-  }, [mapProfile]);
+  }, [mapProfile, profiles.length]);
 
   useEffect(() => {
     const channel = supabase
@@ -174,5 +205,5 @@ export const useStoreProfiles = () => {
     }
   }, [mapProfile]);
 
-  return { profiles, loading, fetchPublicProfiles, getMyProfile, saveProfile };
+  return { profiles, loading, hasMore, fetchPublicProfiles, getMyProfile, saveProfile };
 };

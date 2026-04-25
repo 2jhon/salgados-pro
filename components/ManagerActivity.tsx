@@ -17,7 +17,8 @@ import {
   AlertTriangle,
   Download,
   X,
-  CheckCircle2
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -26,11 +27,21 @@ interface ManagerActivityProps {
   transactions: Transaction[];
   users: User[];
   deleteTransaction: (id: string) => Promise<void>;
+  hasMore: boolean;
+  fetchNext: () => Promise<void>;
+  loading: boolean;
 }
 
 type PeriodType = 'day' | 'week' | 'month' | 'all';
 
-export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, users, deleteTransaction }) => {
+export const ManagerActivity: React.FC<ManagerActivityProps> = ({ 
+  transactions, 
+  users, 
+  deleteTransaction,
+  hasMore,
+  fetchNext,
+  loading
+}) => {
   const [expandedManager, setExpandedManager] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState<PeriodType>('day');
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +50,17 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [ghostToDelete, setGhostToDelete] = useState<string | null>(null);
   const [isWiping, setIsWiping] = useState(false);
+
+  const observerRef = React.useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = React.useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore && !loading) {
+        fetchNext();
+      }
+    });
+    if (node) observerRef.current.observe(node);
+  }, [hasMore, loading, fetchNext]);
 
   const wipeGhostHistory = async (name: string) => {
     if (isWiping) return;
@@ -585,6 +607,13 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({ transactions, 
           );
         })}
       </div>
+
+      {(hasMore || loading) && (
+        <div ref={loadMoreRef} className="py-10 flex flex-col items-center justify-center gap-2">
+           <Loader2 className={`w-8 h-8 text-slate-300 animate-spin ${loading ? 'opacity-100' : 'opacity-20'}`} />
+           {loading && <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest animate-pulse">Carregando mais log...</p>}
+        </div>
+      )}
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">

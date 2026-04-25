@@ -8,11 +8,15 @@ import { toast } from 'sonner';
 const LS_CONFIG_KEY = 'salgados_app_config_v1';
 const LS_PUBLIC_STALLS_KEY = 'salgados_public_stalls_cache_v1';
 
+let lastStallsFetchTime = 0;
+const STALLS_CACHE_TTL = 1000 * 60 * 5; // 5 minutes cache to prevent backend spam on initialization
+
 export const useAppConfig = () => {
   const [sections, setSections] = useState<AppSection[]>([]);
   const [archives, setArchives] = useState<AppSection[]>([]);
   const [publicStalls, setPublicStalls] = useState<AppSection[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasMorePublic, setHasMorePublic] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
 
@@ -241,15 +245,24 @@ export const useAppConfig = () => {
     }
   }, [mapSection]);
 
-  const fetchPublicStalls = useCallback(async () => {
-    setLoading(true);
+  const fetchPublicStalls = useCallback(async (force = false, page: number = 0, limit: number = 50) => {
+    if (!force && page === 0 && Date.now() - lastStallsFetchTime < STALLS_CACHE_TTL && publicStalls.length > 0) {
+      return; 
+    }
+    
+    const from = page * limit;
+    const to = from + limit - 1;
+
+    if (page === 0) setLoading(true);
     try {
       const data = await withRetry(async () => {
         const { data, error } = await supabase
           .from('app_config')
-          .select('*')
+          .select('id, workspace_id, name, type, sort_order, is_public, latitude, longitude, items')
           .eq('type', 'STALL_STYLE')
-          .eq('is_public', true);
+          .eq('is_public', true)
+          .order('name')
+          .range(from, to);
         
         if (error) throw error;
         return data;
@@ -257,24 +270,51 @@ export const useAppConfig = () => {
       
       if (data) {
         const mapped = data.map(mapSection);
-        setPublicStalls(mapped);
-        // Update local cache
-        try { await localforage.setItem(LS_PUBLIC_STALLS_KEY, mapped); } catch {}
+        setHasMorePublic(data.length === limit);
+        setPublicStalls(prev => {
+          if (page === 0) return mapped;
+          const existingIds = new Set(prev.map((s: any) => s.id));
+          const fresh = mapped.filter((s: any) => !existingIds.has(s.id));
+          return [...prev, ...fresh];
+        });
+
+        if (page === 0) {
+          lastStallsFetchTime = Date.now();
+          // Update local cache
+          try { await localforage.setItem(LS_PUBLIC_STALLS_KEY, mapped); } catch {}
+        }
       }
     } catch (e: any) {
       console.warn("Vitrine: Falha na conexão, carregando cache local.", safeStringifyError(e));
-      toast.error("Erro ao carregar vitrine. Exibindo dados em cache.");
-      // Fallback to cache
-      try {
-        const saved: any = await localforage.getItem(LS_PUBLIC_STALLS_KEY);
-        if (saved && Array.isArray(saved)) {
-          setPublicStalls(saved);
-        }
-      } catch {}
+      if (page === 0) {
+        toast.error("Erro ao carregar vitrine. Exibindo dados em cache.");
+        try {
+          const saved: any = await localforage.getItem(LS_PUBLIC_STALLS_KEY);
+          if (saved && Array.isArray(saved)) {
+            setPublicStalls(saved);
+          }
+        } catch {}
+      }
     } finally {
-      setLoading(false);
+      if (page === 0) setLoading(false);
+    }
+  }, [mapSection, publicStalls.length]);
+
+  const fetchStallById = useCallback(async (stallId: string): Promise<AppSection | null> => {
+    try {
+       const { data, error } = await supabase
+         .from('app_config')
+         .select('*')
+         .eq('id', stallId)
+         .single();
+       if (error) throw error;
+       return data ? mapSection(data) : null;
+    } catch (e) {
+       console.error("Error fetching stall by id:", e);
+       return null;
     }
   }, [mapSection]);
+
 
   useEffect(() => {
     if (!activeWorkspace) return;
@@ -644,5 +684,5 @@ export const useAppConfig = () => {
     await syncOfflineStockQueue();
   }, [syncOfflineStockQueue]);
 
-  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, loading, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls };
+  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, loading, hasMorePublic, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls, fetchStallById };
 };

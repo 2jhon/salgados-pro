@@ -5,6 +5,9 @@ import { Transaction, PeriodTotals, AppSection, Note } from '../types';
 import { supabase, withRetry, withTimeout, safeStringifyError, isNetworkError } from '../lib/supabase';
 import { normalizePhone, normalizeString, roundMoney, Z_INDEX } from '../lib/utils';
 
+let lastTxFetchTime: Record<string, number> = {};
+const TX_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
 export const useTransactions = (
   workspaceId: string | undefined, 
   sections: AppSection[], 
@@ -30,6 +33,8 @@ export const useTransactions = (
     loadCache();
   }, [workspaceId]);
   const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const isFetchingRef = useRef(false);
@@ -97,55 +102,83 @@ export const useTransactions = (
     };
   }, []);
 
-  const fetchTransactionsByWorkspace = useCallback(async (wid: string, force = false) => {
+  const fetchTransactionsByWorkspace = useCallback(async (wid: string, force = false, pageNum = 0, limit = 15) => {
     if (!wid || (isFetchingRef.current && !force)) return;
     
     const cleanWid = String(wid).trim().toLowerCase();
-    isFetchingRef.current = true;
-    setLoading(true);
     
+    const now = Date.now();
+    // Paginação: Se for a página 0 e não for force, checar TTL
+    if (pageNum === 0 && !force && transactions.length > 0 && lastTxFetchTime[cleanWid] && (now - lastTxFetchTime[cleanWid] < TX_CACHE_TTL)) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+    if (pageNum === 0) setLoading(true);
+    
+    const from = pageNum * limit;
+    const to = from + limit - 1;
+
     try {
       const result = await withRetry(async () => {
-        // Busca transações do workspace
+        // Busca transações do workspace com range para paginação
         const { data, error } = await supabase
           .from('transactions')
           .select('*')
           .eq('workspace_id', cleanWid)
           .order('date', { ascending: false })
-          .limit(1000);
+          .range(from, to);
 
         if (error) throw error;
         return data || [];
       });
       
       if (result) {
+        if (pageNum === 0) lastTxFetchTime[cleanWid] = Date.now();
         const mapped = (result as any[]).map(mapTransaction);
+        
+        setHasMore(result.length === limit);
+        setPage(pageNum);
+
         setTransactions(prev => {
-          // Preservar dívidas externas que já foram carregadas
-          const externalOnes = prev.filter(t => t.isExternal);
-          const combined = [...externalOnes, ...mapped];
-          const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
-          const sorted = unique.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          localforage.setItem(`cached_tx_${cleanWid}`, sorted.slice(0, 500)).catch(e => {
-            console.warn('Failed to cache transactions:', e);
-          });
-          return sorted;
+          if (pageNum === 0) {
+            // No primeiro load, preservamos as externas (que vem de outro lugar) e as novas
+            const externalOnes = prev.filter(t => t.isExternal);
+            const combined = [...externalOnes, ...mapped];
+            const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+            const sorted = unique.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            localforage.setItem(`cached_tx_${cleanWid}`, sorted.slice(0, 500)).catch(e => {
+              console.warn('Failed to cache transactions:', e);
+            });
+            return sorted;
+          } else {
+            // Paginação: anexa
+            const combined = [...prev, ...mapped];
+            const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+            return unique.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          }
         });
       }
     } catch (e: any) {
       console.error("Erro Fetch Transactions:", e);
-      // FALLBACK: Se falhar a rede, tenta carregar do cache local como última esperança
-      try {
-        const cached: any = await localforage.getItem(`cached_tx_${cleanWid}`);
-        if (cached && Array.isArray(cached)) {
-          setTransactions(cached);
-        }
-      } catch (err) {}
+      if (pageNum === 0) {
+        try {
+          const cached: any = await localforage.getItem(`cached_tx_${cleanWid}`);
+          if (cached && Array.isArray(cached)) {
+            setTransactions(cached);
+          }
+        } catch (err) {}
+      }
     } finally {
-      setLoading(false);
+      if (pageNum === 0) setLoading(false);
       isFetchingRef.current = false;
     }
-  }, [mapTransaction]);
+  }, [mapTransaction, transactions.length]);
+
+  const fetchNextTransactions = useCallback(async () => {
+    if (!workspaceId || loading || !hasMore) return;
+    await fetchTransactionsByWorkspace(workspaceId, false, page + 1);
+  }, [workspaceId, loading, hasMore, page, fetchTransactionsByWorkspace]);
 
   const addTransactions = useCallback(async (ts: Omit<Transaction, 'id' | 'date'>[], isSyncing = false) => {
     if (ts.length === 0) return null;
@@ -290,13 +323,17 @@ export const useTransactions = (
   }, [addToOfflineQueue]);
 
   const deleteTransaction = useCallback(async (id: string, userName?: string, isSyncing = false) => {
-    if (!navigator.onLine && !isSyncing) {
-      await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
-      setTransactions(prev => prev.filter(t => t.id !== id));
-      return;
-    }
+    if (!workspaceId) return;
+    
+    // OPTIMISTIC UPDATE
     const dbId = Number(id) || id;
     const txToDelete = transactions.find(t => t.id === id);
+    setTransactions(prev => prev.filter(t => t.id !== id));
+
+    if (!navigator.onLine && !isSyncing) {
+      await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
+      return;
+    }
 
     try { 
       const { error } = await supabase.from('transactions').delete().eq('id', dbId);
@@ -312,12 +349,9 @@ export const useTransactions = (
           type: 'LOG'
         });
       }
-
-      setTransactions(prev => prev.filter(t => t.id !== id));
     } catch (e: any) {
       if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
-        setTransactions(prev => prev.filter(t => t.id !== id));
         return;
       }
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
@@ -327,19 +361,23 @@ export const useTransactions = (
 
   const settleCustomerDebt = useCallback(async (customerName: string, transactionIds: string[], isSyncing = false) => {
     if (transactionIds.length === 0) return;
+
+    // OPTIMISTIC UPDATE
+    const txsToSettle = transactions.filter(t => transactionIds.includes(t.id));
+    const totalPaid = txsToSettle.reduce((sum, t) => sum + t.value, 0);
+
+    setTransactions(prev => prev.map(t => 
+      transactionIds.includes(t.id) ? { ...t, isPending: false } : t
+    ));
+
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'SETTLE_DEBT', payload: { customerName, transactionIds } });
-      // Optimistic update
-      setTransactions(prev => prev.map(t => transactionIds.includes(t.id) ? { ...t, isPending: false, isOffline: true } : t));
       return;
     }
+
     try {
       const dbIds = transactionIds.map(id => isNaN(Number(id)) ? id : Number(id));
       
-      // Get the transactions to calculate total paid
-      const txsToSettle = transactions.filter(t => transactionIds.includes(t.id));
-      const totalPaid = txsToSettle.reduce((sum, t) => sum + t.value, 0);
-
       // 1. Update old transactions to not pending
       const { error } = await supabase.from('transactions').update({ is_pending: false }).in('id', dbIds);
       if (error) throw error;
@@ -366,22 +404,26 @@ export const useTransactions = (
     } catch (e: any) {
       if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'SETTLE_DEBT', payload: { customerName, transactionIds } });
-        setTransactions(prev => prev.map(t => transactionIds.includes(t.id) ? { ...t, isPending: false, isOffline: true } : t));
         return;
       }
+      // Revert if error
+      if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       throw e; 
     }
   }, [addToOfflineQueue, transactions, workspaceId, fetchTransactionsByWorkspace]);
 
   const partialSettleTransaction = useCallback(async (originalTx: Transaction, amountPaid: number, targetSubCategory?: string, isSyncing = false) => {
     if (amountPaid <= 0 || amountPaid >= originalTx.value) return false;
+    
+    // OPTIMISTIC UPDATE
+    const remainingDebt = roundMoney(originalTx.value - amountPaid);
+    setTransactions(prev => prev.map(t => t.id === originalTx.id ? { ...t, value: remainingDebt } : t));
+
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'PARTIAL_SETTLE', payload: { originalTx, amountPaid, targetSubCategory } });
-      const remainingDebt = roundMoney(originalTx.value - amountPaid);
-      setTransactions(prev => prev.map(t => t.id === originalTx.id ? { ...t, value: remainingDebt, isOffline: true } : t));
       return true;
     }
-    const remainingDebt = roundMoney(originalTx.value - amountPaid);
+
     const dbId = Number(originalTx.id) || originalTx.id;
     try {
       // 1. Update the old transaction to the remaining debt
@@ -408,10 +450,10 @@ export const useTransactions = (
     } catch (e: any) {
       if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'PARTIAL_SETTLE', payload: { originalTx, amountPaid, targetSubCategory } });
-        const remainingDebt = roundMoney(originalTx.value - amountPaid);
-        setTransactions(prev => prev.map(t => t.id === originalTx.id ? { ...t, value: remainingDebt, isOffline: true } : t));
         return true;
       }
+      // Revert if error
+      if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       throw e; 
     }
   }, [addToOfflineQueue, workspaceId, fetchTransactionsByWorkspace]);
@@ -537,10 +579,36 @@ export const useTransactions = (
     const cleanWid = String(wid).trim().toLowerCase();
     try {
       let query = supabase.from('transactions').delete().eq('workspace_id', cleanWid);
-      if (period !== 'all') query = query.eq('is_pending', false);
+      
+      if (period !== 'all') {
+         query = query.eq('is_pending', false);
+      }
+
+      const now = new Date();
+      if (period === 'day') {
+        query = query.gte('date', new Date(now.setHours(0,0,0,0)).toISOString());
+      } else if (period === 'week') {
+        const pastWeek = new Date();
+        pastWeek.setDate(pastWeek.getDate() - 7);
+        pastWeek.setHours(0,0,0,0);
+        query = query.gte('date', pastWeek.toISOString());
+      } else if (period === 'month') {
+        const pastMonth = new Date();
+        pastMonth.setMonth(pastMonth.getMonth() - 1);
+        pastMonth.setHours(0,0,0,0);
+        query = query.gte('date', pastMonth.toISOString());
+      } else if (period === 'custom' && range) {
+        if (range.start) query = query.gte('date', new Date(range.start).toISOString());
+        if (range.end) query = query.lte('date', new Date(range.end + 'T23:59:59.999Z').toISOString());
+      }
+
       if (cats && cats.length > 0) query = query.in('category', cats);
+      
       const { error } = await query;
       if (error) throw error;
+      
+      // also clear the cache
+      localforage.removeItem(`cached_tx_${cleanWid}`).catch(()=> {});
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
     } catch (e: any) { throw e; }
   }, [workspaceId, fetchTransactionsByWorkspace]);
@@ -625,5 +693,5 @@ export const useTransactions = (
     await syncOfflineQueue();
   }, [syncOfflineQueue]);
 
-  return { transactions, setTransactions, loading, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear };
+  return { transactions, setTransactions, loading, hasMore, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, fetchNextTransactions, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear };
 };

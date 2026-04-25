@@ -91,6 +91,12 @@ export interface StoreProfile {
   fulfillmentMode?: FulfillmentMode;
   pixKey?: string;
   deliveryConfig?: DeliveryConfig;
+  commissionActive?: boolean;
+  commissionRate?: number;
+  mpAccessToken?: string;
+  mpRefreshToken?: string;
+  mpUserId?: string;
+  mpPublicKey?: string;
 }
 
 export interface PortfolioItem {

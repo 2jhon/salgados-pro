@@ -82,13 +82,13 @@ export const useAnalytics = (userWorkspaceId?: string) => {
     }
   }, []);
 
-  const getTopProducts = useCallback(async (workspaceId: string): Promise<ProductClickDetail[]> => {
+  const getTopProducts = useCallback(async (workspace_id: string): Promise<ProductClickDetail[]> => {
     try {
       // Busca os cliques agrupados por produto para este workspace
       const { data, error } = await supabase
         .from('store_analytics_clicks')
         .select('product_id')
-        .eq('workspace_id', workspaceId);
+        .eq('workspace_id', workspace_id);
 
       if (error) throw error;
       if (!data) return [];
@@ -114,5 +114,24 @@ export const useAnalytics = (userWorkspaceId?: string) => {
     }
   }, []);
 
-  return { trackView, trackProductClick, getStoreSummary, getTopProducts };
+  const getFinancialInsights = useCallback(async (workspaceId: string) => {
+    try {
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+      
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('date, value, sub_category, is_pending')
+        .eq('workspace_id', workspaceId)
+        .gte('date', sevenDaysAgo);
+
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error("[Analytics] Erro ao buscar insights financeiros:", e);
+      return [];
+    }
+  }, []);
+
+  return { trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights };
 };

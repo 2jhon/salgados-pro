@@ -27,6 +27,19 @@ try {
     </React.StrictMode>
   );
   console.log('[DEBUG_START] Render command sent');
+
+  // Registro do Service Worker para PWA
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('[PWA] ServiceWorker registrado com sucesso:', registration.scope);
+        })
+        .catch((error) => {
+          console.log('[PWA] Falha ao registrar ServiceWorker:', error);
+        });
+    });
+  }
 } catch (e) {
   console.error('[DEBUG_START] Error during React mounting:', e);
 }

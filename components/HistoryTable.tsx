@@ -1,7 +1,8 @@
 
 import React, { memo, useState } from 'react';
 import { Transaction } from '../types';
-import { Trash2, AlertTriangle, X, FileText } from 'lucide-react';
+import { Trash2, AlertTriangle, X, FileText, Download, FileSpreadsheet } from 'lucide-react';
+import { exportToExcel, exportToPDF } from '../lib/exportUtils';
 
 interface HistoryTableProps {
   transactions: Transaction[];
@@ -11,6 +12,7 @@ interface HistoryTableProps {
 
 export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, onDelete, title = "Histórico Recente" }) => {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   if (!transactions || transactions.length === 0) {
     return (
@@ -50,13 +52,57 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
     }
   };
 
+  const handleExportExcel = () => {
+    const data = transactions.map(t => ({
+      Data: formatDate(t.date).date + ' ' + formatDate(t.date).time,
+      Item: t.item,
+      Categoria: t.category,
+      Subcategoria: t.subCategory,
+      Valor: t.value || 0,
+      Quantidade: t.quantity || 1,
+      Pendente: t.isPending ? 'Sim' : 'Não',
+      Cliente: t.customerName || 'N/A'
+    }));
+    exportToExcel(data, `Historico_${new Date().getTime()}`);
+  };
+
+  const handleExportPDF = () => {
+    const headers = ['Data', 'Item', 'Categoria', 'Valor', 'Cliente'];
+    const data = transactions.map(t => [
+      formatDate(t.date).date,
+      t.item || '',
+      t.subCategory || '',
+      formatCurrency(t.value),
+      t.customerName || ''
+    ]);
+    exportToPDF(headers, data, `Historico_${new Date().getTime()}`, title);
+  };
+
   return (
     <div className="mt-6 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in duration-500">
       <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
         <h3 className="font-semibold text-slate-700">{title}</h3>
-        <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
-          {transactions.length} registros
-        </span>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-200 rounded-lg p-0.5">
+            <button 
+              onClick={handleExportExcel}
+              className="p-1 px-2 text-[8px] font-black uppercase text-slate-600 hover:bg-white rounded-md transition-all flex items-center gap-1"
+              title="Exportar Excel"
+            >
+              <FileSpreadsheet size={12} /> .XLSX
+            </button>
+            <button 
+              onClick={handleExportPDF}
+              className="p-1 px-2 text-[8px] font-black uppercase text-slate-600 hover:bg-white rounded-md transition-all flex items-center gap-1"
+              title="Exportar PDF"
+            >
+              <Download size={12} /> .PDF
+            </button>
+          </div>
+          <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
+            {transactions.length} registros
+          </span>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">

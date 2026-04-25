@@ -7,7 +7,7 @@ import {
   Save, Plus, Trash2, Edit3, 
   ShoppingBag, Check, X, Loader2,
   ImageIcon, ShoppingCart, Upload, Camera,
-  Zap, Clock, DollarSign, Sparkles, MessageCircle, AlertTriangle, CheckCircle2, Bike, Store as StoreIcon, DownloadCloud
+  Zap, Clock, DollarSign, Sparkles, MessageCircle, AlertTriangle, CheckCircle2, Bike, Store as StoreIcon, DownloadCloud, Fingerprint
 } from 'lucide-react';
 
 interface MarketplaceManagerProps {
@@ -71,26 +71,29 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
       facebook: data?.facebook || '',
       logoUrl: data?.logoUrl || '',
       bannerUrl: data?.bannerUrl || '',
-      latitude: data?.latitude || 0,
-      longitude: data?.longitude || 0,
-      active: data?.active ?? false,
+      latitude: Number(data?.latitude) || 0,
+      longitude: Number(data?.longitude) || 0,
+      active: !!data?.active,
       portfolio: (data?.portfolio || []).map((item: any) => ({
          name: item.name || '',
          category: item.category || '',
-         price: item.price || 0,
+         price: Number(item.price) || 0,
          description: item.description || '',
          imageUrl: item.imageUrl || '',
          available: item.available ?? true,
-         promotionalPrice: item.promotionalPrice,
-         promoEndsAt: item.promoEndsAt,
-         highlightExpiresAt: item.highlightExpiresAt,
-         linkedFactoryItemId: item.linkedFactoryItemId,
-         useFactoryPrice: item.useFactoryPrice ?? false
+         promotionalPrice: item.promotionalPrice || null,
+         promoEndsAt: item.promoEndsAt || null,
+         highlightExpiresAt: item.highlightExpiresAt || null,
+         linkedFactoryItemId: item.linkedFactoryItemId || null,
+         useFactoryPrice: !!item.useFactoryPrice
       })),
       fulfillmentMode: data?.fulfillmentMode || 'BOTH'
     });
 
-    const isDirty = JSON.stringify(normalize(formData)) !== JSON.stringify(normalize(profile));
+    const currentNormalized = normalize(formData);
+    const profileNormalized = normalize(profile);
+
+    const isDirty = JSON.stringify(currentNormalized) !== JSON.stringify(profileNormalized);
     
     onDirtyChange(isDirty);
   }, [formData, profile, workspaceId, onDirtyChange]);
@@ -133,6 +136,34 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     imageUrl: '',
     available: true
   });
+
+  const [mpAuthUrl, setMpAuthUrl] = useState<string>('');
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!profile?.mpAccessToken && workspaceId) {
+        fetch(`/api/mercadopago/auth-url?workspaceId=${workspaceId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (isMounted && data.url) setMpAuthUrl(data.url);
+            })
+            .catch(err => console.error("Erro MP URL:", err));
+    }
+    return () => { isMounted = false; };
+  }, [workspaceId, profile?.mpAccessToken]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // In a real environment, you'd check event.origin for security
+      if (event.data === 'MP_AUTH_SUCCESS' || event.data?.type === 'MP_AUTH_SUCCESS') {
+        toast.success("Conta do Mercado Pago conectada com sucesso!");
+        // Opcional: Recarregar dados ou apenas deixar o botão mudar de cor se o profile for atualizado remotamente
+        window.location.reload(); // Recarga simples para garantir que o profile venha atualizado
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // Função para fazer upload de imagem para o Supabase Storage
   const uploadImageToStorage = async (base64Str: string): Promise<string | null> => {
@@ -448,6 +479,68 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                   <span className="text-[7px] font-black uppercase">Ambos</span>
                </button>
             </div>
+        </div>
+
+        {/* Mercado Pago Integration */}
+        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+           <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                 <div className="p-3 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/20">
+                    <Fingerprint size={20} />
+                 </div>
+                 <div>
+                    <h3 className="text-[10px] font-black text-slate-800 uppercase">Recebimentos (Mercado Pago)</h3>
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Ative o checkout automático e Pix</p>
+                 </div>
+              </div>
+              {profile?.mpAccessToken ? (
+                 <button 
+                   className="px-4 py-2 rounded-xl text-[8px] font-black uppercase transition-all flex items-center gap-2 bg-emerald-50 text-emerald-600 border border-emerald-100"
+                 >
+                   <CheckCircle2 size={12} />
+                   Conectado
+                 </button>
+              ) : (
+                 <a 
+                   href={mpAuthUrl || '#'}
+                   target={mpAuthUrl ? "_blank" : "_self"}
+                   rel="noopener noreferrer"
+                   className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase transition-all flex items-center gap-2 bg-blue-600 text-white shadow-lg focus:outline-none ${!mpAuthUrl && 'opacity-50 cursor-not-allowed'}`}
+                   onClick={(e) => {
+                       if (!mpAuthUrl) {
+                           e.preventDefault();
+                           toast.error("Gerando link de conexão, aguarde...");
+                       }
+                   }}
+                 >
+                   <Zap size={12} />
+                   Conectar Conta
+                 </a>
+              )}
+           </div>
+           
+           {!profile?.mpAccessToken && (
+             <div className="p-4 bg-white rounded-xl border border-blue-100 flex flex-col gap-3">
+                <p className="text-[8px] font-bold text-slate-500 leading-relaxed uppercase">
+                   Ao conectar sua conta, você habilita o pagamento via **Pix**, **Cartão** e **Boleto** diretamente na sua vitrine. 
+                   As vendas são creditadas na sua conta Mercado Pago instantaneamente (com dedução da taxa de marketplace se ativa).
+                </p>
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <p className="text-[8px] font-black text-rose-500 uppercase mb-2">Atenção Crítica:</p>
+                  <p className="text-[8px] font-bold text-slate-600 mb-2 normal-case leading-relaxed">
+                    Antes de clicar em "Conectar", você <strong>DEVE OBRIGATORIAMENTE</strong> copiar e colar a URL abaixo na configuração "URL de redirecionamento" do seu aplicativo no Dashboard do Mercado Pago e clicar em "Adicionar nova URL":
+                  </p>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={`${window.location.origin}/api/mercadopago/callback`}
+                      className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-[9px] font-mono text-slate-700 select-all"
+                    />
+                  </div>
+                </div>
+             </div>
+           )}
         </div>
 
         <div className="grid gap-8">

@@ -8,7 +8,7 @@ import {
   CheckCircle2, XCircle, Search, Zap, ExternalLink, 
   UserCheck, Building2, Loader2, Phone, KeyRound, BarChart3, Plus, Edit2, DollarSign,
   Settings as SettingsIcon, Save, AlertTriangle, Check, EyeOff, Megaphone, ShoppingCart,
-  ImageIcon, Trash2, Clock, Calendar, X, Star, LogOut, Ban, History
+  ImageIcon, Trash2, Clock, Calendar, X, Star, LogOut, Ban, History, Store
 } from 'lucide-react';
 
 interface GlobalCompany {
@@ -35,6 +35,9 @@ interface GlobalCompany {
   customProPrice?: number;
   activePlanId?: string;
   freeAdsUsedThisMonth?: number;
+  commissionActive?: boolean;
+  commissionRate?: number;
+  mpConnected?: boolean;
 }
 
 interface SystemSettings {
@@ -163,6 +166,34 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
   const [approvalDays, setApprovalDays] = useState(30);
 
+  // States for Marketplace Commission
+  const [commissionTarget, setCommissionTarget] = useState<GlobalCompany | null>(null);
+  const [tempCommissionActive, setTempCommissionActive] = useState(false);
+  const [tempCommissionRate, setTempCommissionRate] = useState(0);
+
+  const handleUpdateCommission = async () => {
+    if (!commissionTarget) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('store_profiles')
+        .update({ 
+          commission_active: tempCommissionActive,
+          commission_rate: tempCommissionRate
+        })
+        .eq('workspace_id', commissionTarget.workspaceId);
+
+      if (error) throw error;
+      toast.success("Configurações de comissão atualizadas.");
+      setCommissionTarget(null);
+      fetchCompanies(false, searchTerm);
+    } catch (e: any) {
+      toast.error("Erro ao atualizar comissão: " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Força atualização da UI a cada minuto para verificar expirações em tempo real
   const [timeTick, setTimeTick] = useState(Date.now());
   useEffect(() => {
@@ -252,7 +283,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
           customAdPrice: m.custom_ad_price,
           customProPrice: m.custom_pro_price,
           activePlanId: m.active_plan_id,
-          freeAdsUsedThisMonth: m.free_ads_used_this_month
+          freeAdsUsedThisMonth: m.free_ads_used_this_month,
+          commissionActive: !!m.commission_active,
+          commissionRate: m.commission_rate || 0,
+          mpConnected: !!m.mp_connected
         }));
 
         if (isLoadMore) {
@@ -715,7 +749,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                       </button>
                       <a href={`https://wa.me/55${c.ownerPhone.replace(/\D/g, '')}`} target="_blank" className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><Phone size={18} /></a>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <button onClick={() => handlePlanClick(c, 'hasProPlan')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isProActive ? 'bg-amber-500 border-amber-600 text-slate-950 shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                         <ShoppingCart size={18} />
                         <span className="text-[7px] font-black uppercase">Plano Pro</span>
@@ -730,6 +764,16 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                         <Megaphone size={18} />
                         <span className="text-[7px] font-black uppercase">Anunciante</span>
                         {isAdvertiserActive && <AdTimer expiresAt={c.advertiserExpiresAt!} lightMode />}
+                      </button>
+                      <button onClick={() => {
+                        setCommissionTarget(c);
+                        setTempCommissionActive(c.commissionActive || false);
+                        setTempCommissionRate(c.commissionRate || 0);
+                      }} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${c.commissionActive ? 'bg-indigo-600 border-indigo-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                        <Store size={18} />
+                        <span className="text-[7px] font-black uppercase">Marketplace</span>
+                        {c.commissionActive && <span className="text-[10px] font-black">{c.commissionRate}%</span>}
+                        {c.mpConnected && <span className="text-[6px] font-bold text-indigo-200 uppercase">MP OK</span>}
                       </button>
                     </div>
                   </div>
@@ -1420,6 +1464,76 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                 </div>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* Modal de Comissão / Marketplace */}
+      {commissionTarget && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl text-center space-y-6">
+            <div className="w-20 h-20 bg-indigo-100 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4">
+              <Store size={40} />
+            </div>
+            
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Marketplace: {commissionTarget.name}</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Configurar taxa de intermediação das vendas</p>
+            </div>
+
+            <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex flex-col gap-6">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 uppercase">Status da Comissão</span>
+                <button 
+                  onClick={() => setTempCommissionActive(!tempCommissionActive)}
+                  className={`w-14 h-8 rounded-full transition-all flex items-center p-1 ${tempCommissionActive ? 'bg-indigo-600 justify-end' : 'bg-slate-300 justify-start'}`}
+                >
+                  <div className="w-6 h-6 bg-white rounded-full shadow-lg" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase px-2">
+                  <span>Percentual de Taxa</span>
+                  <span className="text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">{tempCommissionRate}%</span>
+                </div>
+                <input 
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={tempCommissionRate}
+                  onChange={(e) => setTempCommissionRate(Number(e.target.value))}
+                  className="w-full accent-indigo-600"
+                />
+                <p className="text-[8px] font-bold text-slate-400 text-center uppercase tracking-tighter">O valor será deduzido automaticamente via Mercado Pago</p>
+              </div>
+              
+              <div className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-100">
+                 <div className={`w-3 h-3 rounded-full ${commissionTarget.mpConnected ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-slate-300'}`} />
+                 <span className="text-[9px] font-black text-slate-600 uppercase">
+                    {commissionTarget.mpConnected ? 'Vendedor Conectado' : 'Vendedor Não Conectado'}
+                 </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button 
+                onClick={() => setCommissionTarget(null)} 
+                className="py-5 rounded-[2rem] font-black uppercase text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                disabled={isSaving}
+              >
+                Voltar
+              </button>
+              <button 
+                onClick={handleUpdateCommission}
+                disabled={isSaving}
+                className="py-5 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-xs shadow-xl shadow-indigo-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                {isSaving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                Salvar Taxa
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
