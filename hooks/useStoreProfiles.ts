@@ -36,7 +36,11 @@ export const useStoreProfiles = () => {
     portfolio: p.portfolio || [],
     fulfillmentMode: p.fulfillment_mode || 'BOTH',
     pixKey: p.pix_key || '',
-    deliveryConfig: p.delivery_config || {}
+    deliveryConfig: p.delivery_config || {},
+    mpAccessToken: p.mp_access_token,
+    mpRefreshToken: p.mp_refresh_token,
+    mpUserId: p.mp_user_id,
+    mpPublicKey: p.mp_public_key
   }), []);
 
   const fetchPublicProfiles = useCallback(async (force: boolean = false, page: number = 0, limit: number = 50) => {
@@ -180,6 +184,11 @@ export const useStoreProfiles = () => {
       if (profile.fulfillmentMode !== undefined) payload.fulfillment_mode = profile.fulfillmentMode;
       if (profile.pixKey !== undefined) payload.pix_key = (profile.pixKey || '').trim();
       if (profile.deliveryConfig !== undefined) payload.delivery_config = profile.deliveryConfig;
+      
+      if (profile.mpAccessToken !== undefined) payload.mp_access_token = profile.mpAccessToken;
+      if (profile.mpRefreshToken !== undefined) payload.mp_refresh_token = profile.mpRefreshToken;
+      if (profile.mpUserId !== undefined) payload.mp_user_id = profile.mpUserId;
+      if (profile.mpPublicKey !== undefined) payload.mp_public_key = profile.mpPublicKey;
       
       // Optimization: Only send portfolio if it was actually included in the update object
       if (profile.portfolio !== undefined) {
