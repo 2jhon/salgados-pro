@@ -470,7 +470,9 @@ export const useMarketplaceLogic = ({
     } catch (mpError: any) {
       console.error("Erro no Mercado Pago:", mpError);
       toast.dismiss();
-      toast.error("Erro no pagamento. Enviando via WhatsApp...");
+      
+      const errorMessage = mpError.message || "Erro no pagamento";
+      toast.error(`Falha no Checkout Seguro: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}. Tentando via WhatsApp.`);
       // Se o MP falhar por qualquer motivo (ex: credenciais), o código continua para o WhatsApp abaixo
     }
 

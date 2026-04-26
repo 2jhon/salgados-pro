@@ -91,6 +91,25 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('HOME');
   const [financialInsights, setFinancialInsights] = useState<any[]>([]);
 
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false);
+      toast.success("Conexão estabelecida! O sistema está operando online.");
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+      toast.warning("Modo Offline Ativado. Você pode visualizar dados, mas algumas ações exigem internet.");
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // Pre-fetch BI data
   useEffect(() => {
     if (currentUser?.workspaceId && activeTab === 'HOME') {
@@ -578,6 +597,9 @@ export const App: React.FC = () => {
                    } else { setAuthError("Credenciais incorretas ou usuário não existe."); }
                 } else {
                    const wsId = authMode === 'CREATE_COMPANY' ? `ws_${Date.now()}` : `ws_cust_${Date.now()}`;
+                   const identifier = email || phone;
+                   
+                   // 1. Criar o usuário na tabela public.users
                    const newUser = await createUser({ 
                      workspaceId: wsId, 
                      name: userName, 
@@ -592,8 +614,35 @@ export const App: React.FC = () => {
                      enableSounds: true, 
                      userType: targetType 
                    });
-                   if (newUser) { 
-                     if (authMode === 'CREATE_COMPANY') await saveProfile({ workspaceId: wsId, name: userName, description: '', address: '', whatsapp: phone, latitude: 0, longitude: 0, active: false, portfolio: [] });
+
+                   if (newUser) {
+                     // 2. Autenticar imediatamente para criar a conta no Supabase Auth e obter sessão
+                     // Isso é CRITICO para que o RLS permita o saveProfile subsequente
+                     try {
+                        await authenticateUser(identifier, pin, targetType);
+                     } catch (authErr) {
+                        console.warn("[Auth] Erro ao autenticar após criar, tentando prosseguir de qualquer forma:", authErr);
+                     }
+
+                     // 3. Criar perfil da loja se for OWNER
+                     if (authMode === 'CREATE_COMPANY') {
+                        try {
+                           await saveProfile({ 
+                             workspaceId: wsId, 
+                             name: userName, 
+                             description: '', 
+                             address: '', 
+                             whatsapp: phone, 
+                             latitude: 0, 
+                             longitude: 0, 
+                             active: false, 
+                             portfolio: [] 
+                           });
+                        } catch (profileErr) {
+                           console.error("[Auth] Erro ao criar store_profile inicial:", profileErr);
+                        }
+                     }
+
                      localStorage.setItem('logged_user', JSON.stringify(newUser));
                      setCurrentUser(newUser); 
                      if (newUser.role === 'CUSTOMER') setActiveTab('MARKETPLACE');

@@ -13,15 +13,19 @@ let supabaseAdmin: any = null;
 
 function getSupabaseAdmin() {
   if (!supabaseAdmin) {
-    // Fallback to the same ones used in frontend if not provided in process.env
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://vvxvwntjwjzalzjiwrmm.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eHZ3bnRqd2p6YWx6aml3cm1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwOTkyMjcsImV4cCI6MjA4MTY3NTIyN30.HrjArI3Mq5dvsYhQXTJw-cL691J7QMhj9ixh6mzz6sI';
+    // Forçamos a URL e a Service Key do projeto para garantir consistência total
+    const supabaseUrl = 'https://vvxvwntjwjzalzjiwrmm.supabase.co';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eHZ3bnRqd2p6YWx6aml3cm1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjA5OTIyNywiZXhwIjoyMDgxNjc1MjI3fQ.KGjXwoLbnfycQOdHLSy564ujtnx2LopIgAGNg1Vo63E';
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      // Retorna null em vez de crashar, permitindo o servidor subir
+    try {
+      supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+      console.log("[Kernel] Supabase Admin inicializado.");
+    } catch (e) {
+      console.error("[Kernel] Erro ao instanciar Supabase Client:", e);
       return null;
     }
-    supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
   }
   return supabaseAdmin;
 }
@@ -59,16 +63,48 @@ async function startServer() {
          return res.status(500).json({ error: "Serviço de banco de dados não configurado no servidor." });
       }
 
-      // 1. Buscar configurações da loja no Supabase (comissão e token)
-      const { data: storeProfile, error: storeError } = await supabase
-        .from('store_profiles')
-        .select('mp_access_token, commission_active, commission_rate')
-        .eq('workspace_id', workspace_id)
-        .single();
+      console.log(`[MP] Criando preferência para workspace: ${workspace_id}`);
 
-      if (storeError || !storeProfile) {
-        console.error("[MP] Perfil da loja não encontrado:", workspace_id);
-        return res.status(404).json({ error: "Configurações de pagamento da loja não encontradas." });
+      if (!workspace_id) {
+        console.error("[MP] workspace_id não fornecido");
+        return res.status(400).json({ error: "Identificador da loja (workspace_id) não fornecido." });
+      }
+
+      // 1. Buscar configurações da loja no Supabase (comissão e token)
+      // Forçamos a conversão para string e tratamos possíveis erros de conexão
+      let storeProfile: any = null;
+      let storeError: any = null;
+
+      try {
+        const response = await supabase
+          .from('store_profiles')
+          .select('*')
+          .eq('workspace_id', String(workspace_id).trim())
+          .limit(1);
+        
+        storeProfile = response.data?.[0] || null;
+        storeError = response.error;
+      } catch (err: any) {
+        console.error("[MP] Exceção ao consultar Supabase:", err);
+        return res.status(500).json({ 
+          error: "Erro na comunicação com o banco de dados.",
+          details: err.message || String(err)
+        });
+      }
+
+      if (storeError) {
+        console.error("[MP] Erro retornado pelo Supabase:", storeError);
+        return res.status(500).json({ 
+          error: "Erro interno no banco de dados ao buscar perfil da loja.", 
+          details: storeError.message,
+          code: storeError.code,
+          hint: storeError.hint
+        });
+      }
+
+      if (!storeProfile) {
+        console.error("[MP] Perfil da loja não encontrado no DB para workspace_id:", workspace_id);
+        return res.status(404).json({ error: "Configurações de pagamento da loja não encontradas. Verifique se o perfil da loja foi criado corretamente no painel." });
       }
 
       // 2. Determinar qual token usar (da loja ou do admin)
@@ -76,7 +112,8 @@ async function startServer() {
       const sellerAccessToken = storeProfile.mp_access_token || process.env.MP_ACCESS_TOKEN;
       
       if (!sellerAccessToken) {
-        return res.status(500).json({ error: "Loja não está conectada ao Mercado Pago." });
+        console.error("[MP] Nenhum token disponível para workspace:", workspace_id);
+        return res.status(400).json({ error: "Esta loja ainda não habilitou pagamentos ou o sistema global não está configurado." });
       }
 
       const client = new MercadoPagoConfig({ accessToken: sellerAccessToken });
@@ -101,6 +138,20 @@ async function startServer() {
       const body: any = {
         items,
         external_reference: external_reference || `REF_${Date.now()}`,
+        payer: {
+          email: "comprador_salgados@email.com",
+          first_name: "Cliente",
+          last_name: "Marketplace",
+          identification: {
+            type: "CPF",
+            number: "19100000000"
+          }
+        },
+        payment_methods: {
+          excluded_payment_methods: [],
+          excluded_payment_types: [],
+          installments: 12,
+        },
         back_urls: {
           success: `${baseUrl}/`,
           failure: `${baseUrl}/`,
@@ -228,15 +279,17 @@ async function startServer() {
       });
 
       // Atualizar o store_profile com os novos tokens
+      // Usamos upsert para o caso de o perfil não ter sido criado corretamente no registro
       const { error } = await supabase
         .from('store_profiles')
-        .update({
+        .upsert({
+          workspace_id: workspaceId,
           mp_access_token: response.access_token,
           mp_refresh_token: response.refresh_token,
           mp_user_id: String(response.user_id),
-          mp_public_key: response.public_key
-        })
-        .eq('workspace_id', workspaceId);
+          mp_public_key: response.public_key,
+          active: true // Forçamos ativação ao conectar pagamento
+        }, { onConflict: 'workspace_id' });
 
       // Pode falhar silenciosamente se o servidor não tiver a SERVICE_ROLE_KEY
       if (error) console.error("Database update error:", error);

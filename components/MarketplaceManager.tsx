@@ -156,22 +156,36 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     const handleMessage = (event: MessageEvent) => {
       // In a real environment, you'd check event.origin for security
       if (event.data === 'MP_AUTH_SUCCESS' || event.data?.type === 'MP_AUTH_SUCCESS') {
-        const payload = event.data?.payload;
-        if (payload && onSave) {
+        const raw = event.data?.payload;
+        if (raw && onSave) {
+           const mappedPayload = {
+             mpAccessToken: raw.mp_access_token,
+             mpRefreshToken: raw.mp_refresh_token,
+             mpUserId: String(raw.mp_user_id),
+             mpPublicKey: raw.mp_public_key
+           };
            // Merge the existing profile fields to ensure NOT NULL columns are present during upsert
-           onSave({ ...(profile || {}), ...payload, workspaceId }).then(() => {
-              toast.success("Conta do Mercado Pago conectada com sucesso!");
-              setTimeout(() => window.location.reload(), 1500);
+           onSave({ ...(profile || {}), ...mappedPayload, workspaceId }).then((result) => {
+              if (result) {
+                toast.success("Conta do Mercado Pago conectada com sucesso!");
+                setTimeout(() => window.location.reload(), 1000);
+              } else {
+                toast.error("Falha ao salvar conta conectada.");
+              }
+           }).catch(err => {
+              console.error("Erro ao salvar MP Auth via postMessage:", err);
+              toast.error("Erro interno ao salvar Mercado Pago.");
            });
         } else {
-           toast.success("Conta do Mercado Pago conectada com sucesso!");
-           window.location.reload(); 
+           // Fallback for simple success message without payload
+           toast.success("Conta do Mercado Pago conectada!");
+           setTimeout(() => window.location.reload(), 1000); 
         }
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onSave, workspaceId]);
+  }, [onSave, workspaceId, profile]);
 
   // Função para fazer upload de imagem para o Supabase Storage
   const uploadImageToStorage = async (base64Str: string): Promise<string | null> => {

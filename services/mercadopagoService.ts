@@ -38,7 +38,12 @@ export const createMPPreference = async (
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error('API Error details:', errorData);
-      throw new Error(errorData.error || `Erro ${response.status}: Falha ao criar preferência`);
+      
+      let errorMessage = errorData.error || `Erro ${response.status}: Falha ao criar preferência`;
+      if (errorData.details) errorMessage += `\nDetalhes: ${errorData.details}`;
+      if (errorData.code) errorMessage += `\nCódigo: ${errorData.code}`;
+      
+      throw new Error(errorMessage);
     }
 
     return await response.json();

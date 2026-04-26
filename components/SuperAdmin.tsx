@@ -388,11 +388,14 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       if (!error) {
         // ATIVAÇÃO AUTOMÁTICA DA VITRINE SE FOR PLANO PRO
         if (planToApprove.field === 'hasProPlan') {
-          console.log("Ativando vitrine automaticamente...");
+          console.log("Ativando vitrine automaticamente via Upsert...");
           await supabase
             .from('store_profiles')
-            .update({ active: true })
-            .eq('workspace_id', planToApprove.company.workspaceId);
+            .upsert({ 
+              workspace_id: planToApprove.company.workspaceId,
+              active: true,
+              name: planToApprove.company.name || 'Minha Loja'
+            }, { onConflict: 'workspace_id' });
         }
 
         setCompanies(prev => prev.map(c => c.workspaceId === planToApprove.company.workspaceId ? { 
