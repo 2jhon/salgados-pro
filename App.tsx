@@ -140,16 +140,16 @@ export const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const mpAuthRaw = params.get('mp_auth');
     if (mpAuthRaw && currentUser?.workspaceId && companyProfile) {
+       // Limpa a URL imediatamente para evitar duplo disparo
+       params.delete('mp_auth');
+       const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+       window.history.replaceState({}, document.title, newUrl);
+
        try {
          const payload = JSON.parse(decodeURIComponent(mpAuthRaw));
          saveProfile({ ...payload, workspaceId: currentUser.workspaceId }).then((result) => {
            if (result) setCompanyProfile(result);
            toast.success("Integração concluída com sucesso!");
-           
-           // Limpa a URL
-           params.delete('mp_auth');
-           const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
-           window.history.replaceState({}, document.title, newUrl);
          });
        } catch(e) {
          console.error('Erro ao processar MP payload', e);

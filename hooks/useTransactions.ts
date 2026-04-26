@@ -132,7 +132,7 @@ export const useTransactions = (
         // CRÍTICO: Se for a primeira página, buscamos TODAS as pendentes para garantir que a "Fábrica" tenha todas as notas!
         const pendingPromise = pageNum === 0 
           ? supabase.from('transactions').select('*').eq('workspace_id', cleanWid).eq('is_pending', true)
-          : Promise.resolve({ data: [] });
+          : Promise.resolve({ data: [], error: null });
 
         const [historyRes, pendingRes] = await Promise.all([historyPromise, pendingPromise]);
 

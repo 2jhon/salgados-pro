@@ -195,12 +195,17 @@ async function startServer() {
 
       const oauth = new OAuth(getMPClient()!);
       
-      let baseUrl = process.env.APP_URL || '';
-      if (!baseUrl) {
-        const host = req.headers['x-forwarded-host'] || req.get('host');
-        baseUrl = `https://${host}`;
-        if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
-          baseUrl = `http://${host}`;
+      let baseUrl = '';
+      if (parts.length > 1) {
+        baseUrl = decodeURIComponent(parts[1]);
+      } else {
+        baseUrl = process.env.APP_URL || '';
+        if (!baseUrl) {
+          const host = req.headers['x-forwarded-host'] || req.get('host');
+          baseUrl = `https://${host}`;
+          if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+            baseUrl = `http://${host}`;
+          }
         }
       }
       
@@ -245,8 +250,15 @@ async function startServer() {
               <p>Concluindo configuração... Aguarde.</p>
               <script>
                 setTimeout(() => {
+                  const payloadRaw = encodeURIComponent(JSON.stringify({
+                       mpAccessToken: "${response.access_token}",
+                       mpRefreshToken: "${response.refresh_token}",
+                       mpUserId: "${response.user_id}",
+                       mpPublicKey: "${response.public_key}"
+                  }));
+                  
                   try {
-                    if (window.opener) {
+                    if (window.opener && !window.opener.closed) {
                       window.opener.postMessage({ 
                          type: 'MP_AUTH_SUCCESS', 
                          payload: {
@@ -258,23 +270,16 @@ async function startServer() {
                       }, '*');
                       window.close();
                     }
-                    
-                    const payloadRaw = encodeURIComponent(JSON.stringify({
-                       mpAccessToken: "${response.access_token}",
-                       mpRefreshToken: "${response.refresh_token}",
-                       mpUserId: "${response.user_id}",
-                       mpPublicKey: "${response.public_key}"
-                    }));
-                    
-                    // Fallback visual se não fechar a janela
-                    setTimeout(() => {
-                       document.body.innerHTML += '<div style="margin-top: 2rem;"><a href="/?mp_auth=' + payloadRaw + '" style="background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a></div>';
-                    }, 1000);
-
                   } catch (e) {
                     console.error("Erro no proxy client-side", e);
                   }
-                }, 1000);
+                  
+                  // Fallback visual caso window.close() falhe (cross origin isolado) ou aba tenha sido aberta em webview
+                  setTimeout(() => {
+                     window.location.href = '/?mp_auth=' + payloadRaw;
+                  }, 1000);
+                  
+                }, 500);
               </script>
             </div>
           </body>
