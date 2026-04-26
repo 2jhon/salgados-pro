@@ -145,9 +145,13 @@ async function startServer() {
       }
     }
     
-    // Remove trailing slash if present
-    if (baseUrl.endsWith('/')) {
-        baseUrl = baseUrl.slice(0, -1);
+    // Normalize to ensure valid url
+    try {
+        const parsedBase = new URL(baseUrl);
+        baseUrl = parsedBase.origin; // e.g. https://domain.com without trailing slashes
+    } catch (e) {
+        // Remove trailing slash if present
+        baseUrl = baseUrl.replace(/\/+$/, '');
     }
     
     const redirectUri = `${baseUrl}/api/mercadopago/callback`;
@@ -200,8 +204,11 @@ async function startServer() {
         }
       }
       
-      if (baseUrl.endsWith('/')) {
-        baseUrl = baseUrl.slice(0, -1);
+      try {
+          const parsedBase = new URL(baseUrl);
+          baseUrl = parsedBase.origin;
+      } catch (e) {
+          baseUrl = baseUrl.replace(/\/+$/, '');
       }
       
       const redirectUri = `${baseUrl}/api/mercadopago/callback`;

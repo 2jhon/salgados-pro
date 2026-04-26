@@ -122,20 +122,34 @@ export const useTransactions = (
     try {
       const result = await withRetry(async () => {
         // Busca transações do workspace com range para paginação
-        const { data, error } = await supabase
+        const historyPromise = supabase
           .from('transactions')
           .select('*')
           .eq('workspace_id', cleanWid)
           .order('date', { ascending: false })
           .range(from, to);
 
-        if (error) throw error;
-        return data || [];
+        // CRÍTICO: Se for a primeira página, buscamos TODAS as pendentes para garantir que a "Fábrica" tenha todas as notas!
+        const pendingPromise = pageNum === 0 
+          ? supabase.from('transactions').select('*').eq('workspace_id', cleanWid).eq('is_pending', true)
+          : Promise.resolve({ data: [] });
+
+        const [historyRes, pendingRes] = await Promise.all([historyPromise, pendingPromise]);
+
+        if (historyRes.error) throw historyRes.error;
+        if (pendingRes.error) throw pendingRes.error;
+
+        const combined = [...(historyRes.data || []), ...(pendingRes.data || [])];
+        
+        // Remove duplicatas 
+        const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+        
+        return { data: unique, length: historyRes.data?.length || 0 };
       });
       
       if (result) {
         if (pageNum === 0) lastTxFetchTime[cleanWid] = Date.now();
-        const mapped = (result as any[]).map(mapTransaction);
+        const mapped = result.data.map(mapTransaction);
         
         setHasMore(result.length === limit);
         setPage(pageNum);
