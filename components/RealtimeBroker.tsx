@@ -9,13 +9,15 @@ interface RealtimeBrokerProps {
   onNewTransaction?: (tx: any) => void;
   onNewNote?: (note: any) => void;
   enabledSounds?: boolean;
+  currentUserName?: string;
 }
 
 export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({ 
   workspaceId, 
   onNewTransaction, 
   onNewNote,
-  enabledSounds = true 
+  enabledSounds = true,
+  currentUserName
 }) => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const onNewTransactionRef = useRef(onNewTransaction);
@@ -95,29 +97,33 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
         (payload) => {
           console.log('[RealtimeBroker] Nova Transação:', payload.new);
           
-          // Se for uma venda externa (do Marketplace) ou feita por outro usuário
-          // No momento não temos 'userId' na transação mas temos 'created_by'
-          playNotificationSound();
-          
           const tx = payload.new;
-          const isVenda = tx.sub_category === 'VENDAS' || tx.sub_category === 'A_RECEBER';
+
+          // Se a transação foi criada pelo próprio usuário nesta sessão/dispositivo, não toca som nem exibe toast
+          const isSelfMade = currentUserName && tx.created_by && (String(tx.created_by).trim() === String(currentUserName).trim());
           
-          toast.success(
-            <div className="flex items-center gap-3">
-              <div className={isVenda ? "bg-emerald-100 p-2 rounded-lg" : "bg-rose-100 p-2 rounded-lg"}>
-                {isVenda ? <ShoppingBag className="text-emerald-600" size={18} /> : <TrendingUp className="text-rose-600" size={18} />}
-              </div>
-              <div>
-                <p className="font-bold text-xs uppercase tracking-tight">
-                  {isVenda ? 'Novo Pedido / Venda' : 'Novo Lançamento'}
-                </p>
-                <p className="text-[10px] text-slate-500">
-                  {tx.item} - R$ {Number(tx.value).toFixed(2)}
-                </p>
-              </div>
-            </div>,
-            { duration: 5000 }
-          );
+          if (!isSelfMade) {
+            playNotificationSound();
+            
+            const isVenda = tx.sub_category === 'VENDAS' || tx.sub_category === 'A_RECEBER';
+            
+            toast.success(
+              <div className="flex items-center gap-3">
+                <div className={isVenda ? "bg-emerald-100 p-2 rounded-lg" : "bg-rose-100 p-2 rounded-lg"}>
+                  {isVenda ? <ShoppingBag className="text-emerald-600" size={18} /> : <TrendingUp className="text-rose-600" size={18} />}
+                </div>
+                <div>
+                  <p className="font-bold text-xs uppercase tracking-tight">
+                    {isVenda ? 'Novo Pedido / Venda' : 'Novo Lançamento'}
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    {tx.item} - R$ {Number(tx.value).toFixed(2)}
+                  </p>
+                </div>
+              </div>,
+              { duration: 5000 }
+            );
+          }
 
           if (onNewTransactionRef.current) onNewTransactionRef.current(tx);
         }

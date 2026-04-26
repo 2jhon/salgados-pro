@@ -156,14 +156,21 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     const handleMessage = (event: MessageEvent) => {
       // In a real environment, you'd check event.origin for security
       if (event.data === 'MP_AUTH_SUCCESS' || event.data?.type === 'MP_AUTH_SUCCESS') {
-        toast.success("Conta do Mercado Pago conectada com sucesso!");
-        // Opcional: Recarregar dados ou apenas deixar o botão mudar de cor se o profile for atualizado remotamente
-        window.location.reload(); // Recarga simples para garantir que o profile venha atualizado
+        const payload = event.data?.payload;
+        if (payload && onSave) {
+           onSave({ ...payload, workspaceId }).then(() => {
+              toast.success("Conta do Mercado Pago conectada com sucesso!");
+              setTimeout(() => window.location.reload(), 1500);
+           });
+        } else {
+           toast.success("Conta do Mercado Pago conectada com sucesso!");
+           window.location.reload(); 
+        }
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [onSave, workspaceId]);
 
   // Função para fazer upload de imagem para o Supabase Storage
   const uploadImageToStorage = async (base64Str: string): Promise<string | null> => {

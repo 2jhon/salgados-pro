@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, BarChart3, History, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, BarChart3, History, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { Transaction, AppSection, User } from '../../types';
 import { formatCurrency } from '../../lib/utils';
@@ -20,16 +20,46 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   financialInsights = []
 }) => {
   const isOwner = user.role === 'OWNER';
+  
+  const [expandedCard, setExpandedCard] = useState<'sales' | 'expenses' | null>(null);
 
-  const stats = useMemo(() => {
+  const { stats, breakdowns } = useMemo(() => {
     const dataSource = (financialInsights && financialInsights.length > 0) ? financialInsights : (transactions || []);
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const todayTrans = dataSource.filter(t => new Date(t.date).getTime() >= startOfDay);
-    const sales = todayTrans.filter(t => t.sub_category !== 'GASTOS' && t.subCategory !== 'GASTOS' && !t.isPending && !t.is_pending).reduce((acc, t) => acc + t.value, 0);
-    const expenses = todayTrans.filter(t => (t.sub_category === 'GASTOS' || t.subCategory === 'GASTOS') && !t.isPending && !t.is_pending).reduce((acc, t) => acc + t.value, 0);
     
-    return { sales, expenses };
+    let sales = 0;
+    let expenses = 0;
+    
+    const salesBreakdown: Record<string, number> = {};
+    const expensesBreakdown: Record<string, number> = {};
+
+    todayTrans.forEach(t => {
+      if (t.isPending || t.is_pending) return;
+
+      const isGasto = t.sub_category === 'GASTOS' || t.subCategory === 'GASTOS';
+      const val = Number(t.value) || 0;
+      
+      // Attempt to identify the origin/section by category
+      const part = t.category || 'Geral';
+
+      if (isGasto) {
+        expenses += val;
+        expensesBreakdown[part] = (expensesBreakdown[part] || 0) + val;
+      } else {
+        sales += val;
+        salesBreakdown[part] = (salesBreakdown[part] || 0) + val;
+      }
+    });
+    
+    return { 
+      stats: { sales, expenses },
+      breakdowns: {
+        sales: Object.entries(salesBreakdown).map(([k, v]) => ({ name: k, value: v })).sort((a,b) => b.value - a.value),
+        expenses: Object.entries(expensesBreakdown).map(([k, v]) => ({ name: k, value: v })).sort((a,b) => b.value - a.value)
+      }
+    };
   }, [transactions, financialInsights]);
 
   const chartData = useMemo(() => {
@@ -116,15 +146,53 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-emerald-600 p-6 rounded-[2.5rem] shadow-xl shadow-emerald-900/10 text-white relative overflow-hidden group">
+        <div 
+          onClick={() => setExpandedCard(expandedCard === 'sales' ? null : 'sales')}
+          className="bg-emerald-600 p-6 rounded-[2.5rem] shadow-xl shadow-emerald-900/10 text-white relative overflow-hidden group cursor-pointer transition-all active:scale-95"
+        >
           <TrendingUp className="w-12 h-12 absolute -right-2 -bottom-2 opacity-20 group-hover:scale-125 transition-transform" />
-          <span className="text-[9px] font-black uppercase tracking-widest opacity-80">Vendas Hoje</span>
-          <p className="text-2xl font-black mt-1">{formatCurrency(stats.sales)}</p>
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] font-black uppercase tracking-widest opacity-80">Vendas Hoje</span>
+            {breakdowns.sales.length > 0 && (
+              expandedCard === 'sales' ? <ChevronUp size={14} className="opacity-70" /> : <ChevronDown size={14} className="opacity-70" />
+            )}
+          </div>
+          <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.sales)}</p>
+          
+          {expandedCard === 'sales' && breakdowns.sales.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-emerald-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
+               {breakdowns.sales.map((item, idx) => (
+                 <div key={idx} className="flex items-center justify-between text-xs">
+                   <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
+                   <span className="font-black">{formatCurrency(item.value)}</span>
+                 </div>
+               ))}
+            </div>
+          )}
         </div>
-        <div className="bg-rose-600 p-6 rounded-[2.5rem] shadow-xl shadow-rose-900/10 text-white relative overflow-hidden group">
+        <div 
+           onClick={() => setExpandedCard(expandedCard === 'expenses' ? null : 'expenses')}
+           className="bg-rose-600 p-6 rounded-[2.5rem] shadow-xl shadow-rose-900/10 text-white relative overflow-hidden group cursor-pointer transition-all active:scale-95"
+        >
           <TrendingDown className="w-12 h-12 absolute -right-2 -bottom-2 opacity-20 group-hover:scale-125 transition-transform" />
-          <span className="text-[9px] font-black uppercase tracking-widest opacity-80">Gastos Hoje</span>
-          <p className="text-2xl font-black mt-1">{formatCurrency(stats.expenses)}</p>
+          <div className="flex items-center justify-between">
+             <span className="text-[9px] font-black uppercase tracking-widest opacity-80">Gastos Hoje</span>
+             {breakdowns.expenses.length > 0 && (
+                expandedCard === 'expenses' ? <ChevronUp size={14} className="opacity-70" /> : <ChevronDown size={14} className="opacity-70" />
+             )}
+          </div>
+          <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.expenses)}</p>
+
+          {expandedCard === 'expenses' && breakdowns.expenses.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-rose-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
+               {breakdowns.expenses.map((item, idx) => (
+                 <div key={idx} className="flex items-center justify-between text-xs">
+                   <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
+                   <span className="font-black">{formatCurrency(item.value)}</span>
+                 </div>
+               ))}
+            </div>
+          )}
         </div>
       </div>
       

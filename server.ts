@@ -233,7 +233,8 @@ async function startServer() {
         })
         .eq('workspace_id', workspaceId);
 
-      if (error) throw error;
+      // Pode falhar silenciosamente se o servidor não tiver a SERVICE_ROLE_KEY
+      if (error) console.error("Database update error:", error);
 
       res.send(`
         <html>
@@ -241,16 +242,23 @@ async function startServer() {
             <div style="text-align: center; padding: 2rem; background: white; border-radius: 1.5rem; shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
               <h2 style="color: #059669;">Conectado com Sucesso!</h2>
               <p>Sua loja agora está integrada ao Mercado Pago.</p>
-              <p>Feche esta janela e recarregue a página do painel.</p>
-              <div style="margin-top: 2rem;">
-                <a href="/" style="background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a>
-              </div>
+              <p>Concluindo configuração... Aguarde.</p>
               <script>
                 setTimeout(() => {
                   try {
                     if (window.opener) {
-                      window.opener.postMessage({ type: 'MP_AUTH_SUCCESS' }, '*');
+                      window.opener.postMessage({ 
+                         type: 'MP_AUTH_SUCCESS', 
+                         payload: {
+                           mpAccessToken: "${response.access_token}",
+                           mpRefreshToken: "${response.refresh_token}",
+                           mpUserId: "${response.user_id}",
+                           mpPublicKey: "${response.public_key}"
+                         }
+                      }, '*');
                       window.close();
+                    } else {
+                       document.body.innerHTML += '<div style="margin-top: 2rem;"><a href="/" style="background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a></div>';
                     }
                   } catch (e) {
                     console.log("Could not postMessage to opener");

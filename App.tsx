@@ -846,6 +846,7 @@ export const App: React.FC = () => {
         <RealtimeBroker 
           workspaceId={currentUser.workspaceId} 
           enabledSounds={currentUser.enableSounds}
+          currentUserName={currentUser.name}
           onNewTransaction={(newTx) => {
             setTransactions(prev => {
               if (prev.find(t => t.id === String(newTx.id))) return prev;
