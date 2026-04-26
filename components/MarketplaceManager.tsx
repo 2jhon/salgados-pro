@@ -158,7 +158,8 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
       if (event.data === 'MP_AUTH_SUCCESS' || event.data?.type === 'MP_AUTH_SUCCESS') {
         const payload = event.data?.payload;
         if (payload && onSave) {
-           onSave({ ...payload, workspaceId }).then(() => {
+           // Merge the existing profile fields to ensure NOT NULL columns are present during upsert
+           onSave({ ...(profile || {}), ...payload, workspaceId }).then(() => {
               toast.success("Conta do Mercado Pago conectada com sucesso!");
               setTimeout(() => window.location.reload(), 1500);
            });
@@ -511,7 +512,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                  <a 
                    href={mpAuthUrl || '#'}
                    target={mpAuthUrl ? "_blank" : "_self"}
-                   rel="noopener noreferrer"
+                   
                    className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase transition-all flex items-center gap-2 bg-blue-600 text-white shadow-lg focus:outline-none ${!mpAuthUrl && 'opacity-50 cursor-not-allowed'}`}
                    onClick={(e) => {
                        if (!mpAuthUrl) {

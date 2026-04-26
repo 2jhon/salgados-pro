@@ -293,7 +293,12 @@ async function startServer() {
             <div style="text-align: center; padding: 2rem; background: white; border-radius: 1.5rem; shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border: 2px solid #fee2e2;">
               <h2 style="color: #e11d48;">Erro na Conexão</h2>
               <p>Ocorreu um erro ao processar a autorização do Mercado Pago.</p>
-              <p style="font-size: 12px; color: #64748b; margin-bottom: 2rem;">Verifique suas chaves (Client ID e Secret) nas configurações.</p>
+              <p style="font-size: 14px; color: #334155; margin-bottom: 1rem; text-align: left; background: #f1f5f9; padding: 1rem; border-radius: 8px;">
+                <strong>Atenção:</strong> Se você está no celular e houve recarregamento da página, a autorização expirou. Tente novamente.<br/><br/>
+                Se o erro persistir, significa que o painel do Mercado Pago não reconheceu a URL de redirecionamento deste dispositivo.<br/>
+                Certifique-se de acessar a aba <strong>Sistema &rarr; Vitrine</strong> e adicionar <strong>OBRIGATORIAMENTE</strong> o link exato gerado lá.
+              </p>
+              <p style="font-size: 12px; color: #64748b; margin-bottom: 2rem;">Ou verifique suas chaves (Client ID e Secret).</p>
               <a href="/" style="background: #e11d48; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a>
             </div>
           </body>

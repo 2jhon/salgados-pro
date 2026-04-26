@@ -139,7 +139,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const mpAuthRaw = params.get('mp_auth');
-    if (mpAuthRaw && currentUser?.workspaceId && companyProfile) {
+    if (mpAuthRaw && currentUser?.workspaceId) {
        // Limpa a URL imediatamente para evitar duplo disparo
        params.delete('mp_auth');
        const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
@@ -147,15 +147,24 @@ export const App: React.FC = () => {
 
        try {
          const payload = JSON.parse(decodeURIComponent(mpAuthRaw));
-         saveProfile({ ...payload, workspaceId: currentUser.workspaceId }).then((result) => {
+         // Merge companyProfile to avoid NOT NULL constraint errors
+         saveProfile({ ...(companyProfile || {}), ...payload, workspaceId: currentUser.workspaceId }).then((result) => {
            if (result) setCompanyProfile(result);
-           toast.success("Integração concluída com sucesso!");
+           toast.success("Conta do Mercado Pago conectada com sucesso!");
+           // Força o recarregamento total após 1 segundo para garantir que todas as telas resetem o render
+           setTimeout(() => {
+              window.location.reload();
+           }, 1000);
+         }).catch(err => {
+           console.error('Erro no saveProfile (MP Auth):', err);
+           toast.error("Erro interno ao salvar suas chaves do Mercado Pago. (" + String(err) + ")");
          });
        } catch(e) {
          console.error('Erro ao processar MP payload', e);
+         toast.error("Erro ao validar dados da conta conectada do Mercado Pago. Tente novamente.");
        }
     }
-  }, [currentUser, companyProfile, saveProfile]);
+  }, [currentUser?.workspaceId, saveProfile, companyProfile]);
 
   const [plans, setPlans] = useState<any[]>([]);
 
