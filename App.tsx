@@ -136,6 +136,27 @@ export const App: React.FC = () => {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const isFetchingRef = useRef(false);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mpAuthRaw = params.get('mp_auth');
+    if (mpAuthRaw && currentUser?.workspaceId && companyProfile) {
+       try {
+         const payload = JSON.parse(decodeURIComponent(mpAuthRaw));
+         saveProfile({ ...payload, workspaceId: currentUser.workspaceId }).then((result) => {
+           if (result) setCompanyProfile(result);
+           toast.success("Integração concluída com sucesso!");
+           
+           // Limpa a URL
+           params.delete('mp_auth');
+           const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+           window.history.replaceState({}, document.title, newUrl);
+         });
+       } catch(e) {
+         console.error('Erro ao processar MP payload', e);
+       }
+    }
+  }, [currentUser, companyProfile, saveProfile]);
+
   const [plans, setPlans] = useState<any[]>([]);
 
   useEffect(() => {

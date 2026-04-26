@@ -257,11 +257,22 @@ async function startServer() {
                          }
                       }, '*');
                       window.close();
-                    } else {
-                       document.body.innerHTML += '<div style="margin-top: 2rem;"><a href="/" style="background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a></div>';
                     }
+                    
+                    const payloadRaw = encodeURIComponent(JSON.stringify({
+                       mpAccessToken: "${response.access_token}",
+                       mpRefreshToken: "${response.refresh_token}",
+                       mpUserId: "${response.user_id}",
+                       mpPublicKey: "${response.public_key}"
+                    }));
+                    
+                    // Fallback visual se não fechar a janela
+                    setTimeout(() => {
+                       document.body.innerHTML += '<div style="margin-top: 2rem;"><a href="/?mp_auth=' + payloadRaw + '" style="background: #059669; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Voltar para o Painel</a></div>';
+                    }, 1000);
+
                   } catch (e) {
-                    console.log("Could not postMessage to opener");
+                    console.error("Erro no proxy client-side", e);
                   }
                 }, 1000);
               </script>
