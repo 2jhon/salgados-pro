@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AppSection, User, StoreProfile } from '../../types';
 import { MarketplaceManager } from '../MarketplaceManager';
-import { StoreInsights } from '../StoreInsights';
+import { StoreInsights } from '../home/StoreInsights';
 
 interface VitrineContainerProps {
   profile: StoreProfile | null;

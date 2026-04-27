@@ -132,6 +132,8 @@ export interface Ad {
   mediaUrl?: string; 
   mediaType?: 'image' | 'video';
   active: boolean;
+  paymentStatus?: 'PENDING' | 'PAID' | 'REFUNDED';
+  isApproved?: boolean;
   clicks: number;
   expiresAt?: string;
   requestedDuration?: number;

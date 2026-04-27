@@ -7,7 +7,7 @@ import {
   Save, Plus, Trash2, Edit3, 
   ShoppingBag, Check, X, Loader2,
   ImageIcon, ShoppingCart, Upload, Camera,
-  Zap, Clock, DollarSign, Sparkles, MessageCircle, AlertTriangle, CheckCircle2, Bike, Store as StoreIcon, DownloadCloud, Fingerprint
+  Zap, Clock, DollarSign, Sparkles, MessageCircle, AlertTriangle, CheckCircle2, Bike, Store as StoreIcon, DownloadCloud, Wallet
 } from 'lucide-react';
 
 interface MarketplaceManagerProps {
@@ -508,7 +508,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                  <div className="p-3 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/20">
-                    <Fingerprint size={20} />
+                    <Wallet size={20} />
                  </div>
                  <div>
                     <h3 className="text-[10px] font-black text-slate-800 uppercase">Recebimentos (Mercado Pago)</h3>
@@ -541,6 +541,16 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
               )}
            </div>
            
+           {!profile?.mpAccessToken && (
+             <div className="mt-2 flex items-start gap-2 p-3 bg-amber-50 text-amber-700 rounded-xl border border-amber-100 animate-pulse">
+               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+               <p className="text-[9px] font-black uppercase leading-tight">
+                 Atenção Crítica: Sua vitrine está no modo "CATÁLOGO" (Apenas via WhatsApp). <br/>
+                 Você <span className="text-rose-600 underline">NÃO CONSEGUIRÁ</span> receber pagamentos via Pix ou Cartão enquanto não conectar sua conta do Mercado Pago abaixo.
+               </p>
+             </div>
+           )}
+
            {!profile?.mpAccessToken && (
              <div className="p-4 bg-white rounded-xl border border-blue-100 flex flex-col gap-3">
                 <p className="text-[8px] font-bold text-slate-500 leading-relaxed uppercase">

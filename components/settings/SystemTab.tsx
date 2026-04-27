@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Database, Trash2, Calendar, Clock, AlertTriangle, FileText, ArrowRight, Printer, Bluetooth, Download, Archive, Music, CheckCircle2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Transaction } from '../../types';
+import { playSystemSound } from '../../lib/utils';
 
 interface SystemTabProps {
   transactions: Transaction[];
@@ -26,8 +27,53 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   customDateStart, setCustomDateStart, customDateEnd, setCustomDateEnd,
   clearTransactions, archiveYear, workspaceId, onUnlockGodMode
 }) => {
-  const [soundMode, setSoundMode] = useState('PADRÃO');
+  const [soundModeSales, setSoundModeSales] = useState(() => localStorage.getItem('appInfoSoundModeSales') || 'CAIXA');
+  const [soundModeOrders, setSoundModeOrders] = useState(() => localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO');
   const [rootClicks, setRootClicks] = useState(0);
+
+  const handleSoundChangeSales = (mode: string) => {
+    setSoundModeSales(mode);
+    localStorage.setItem('appInfoSoundModeSales', mode);
+    playSystemSound(mode);
+  };
+
+  const handleSoundChangeOrders = (mode: string) => {
+    setSoundModeOrders(mode);
+    localStorage.setItem('appInfoSoundModeOrders', mode);
+    playSystemSound(mode);
+  };
+  
+  const handleGaleriaUploadSales = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        localStorage.setItem('customSoundSales', base64);
+        setToastMessage('Som da galeria (Vendas) salvo!');
+        setTimeout(() => setToastMessage(null), 3000);
+        playSystemSound('GALERIA');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGaleriaUploadOrders = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        localStorage.setItem('customSoundOrders', base64);
+        setToastMessage('Som da galeria (Pedidos) salvo!');
+        setTimeout(() => setToastMessage(null), 3000);
+        // Using GALERIA_PEDIDOS custom mode
+        playSystemSound('GALERIA_PEDIDOS');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
   const [isProcessing, setIsProcessing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -217,16 +263,55 @@ export const SystemTab: React.FC<SystemTabProps> = ({
           <Music className="text-slate-500 w-6 h-6" />
           <h4 className="font-black text-slate-800 uppercase tracking-tight text-lg">SONS DO SISTEMA</h4>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-          {['PADRÃO', 'SUAVE', 'MEC.', 'OFF'].map(mode => (
-            <button 
-              key={mode}
-              onClick={() => setSoundMode(mode)}
-              className={`min-w-[80px] flex-1 py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundMode === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-            >
-              {mode}
-            </button>
-          ))}
+        
+        {/* SOM DE VENDAS */}
+        <div className="mb-6">
+          <p className="text-[10px] font-black tracking-widest text-slate-400 mb-3 px-2">SOM DE VENDAS (PDV)</p>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
+            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'GALERIA', 'OFF'].map(mode => (
+              <div key={mode} className={`relative flex-1 min-w-[80px]`}>
+                <button 
+                  onClick={() => handleSoundChangeSales(mode)}
+                  className={`w-full py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeSales === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                >
+                  {mode}
+                </button>
+                {mode === 'GALERIA' && soundModeSales === 'GALERIA' && (
+                  <div className="absolute -bottom-8 left-0 right-0 flex justify-center">
+                    <label className="text-[9px] font-black tracking-widest bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-200 transition-colors whitespace-nowrap shadow-sm border border-emerald-200">
+                      SUBSTITUIR SOM
+                      <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadSales} />
+                    </label>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* SOM DE PEDIDOS ONLINE */}
+        <div className={soundModeSales === 'GALERIA' ? "mt-10" : "mt-2"}>
+          <p className="text-[10px] font-black tracking-widest text-slate-400 mb-3 px-2">PEDIDOS ONLINE / NOTIFICAÇÕES</p>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
+            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'GALERIA_PEDIDOS', 'OFF'].map(mode => (
+              <div key={mode} className={`relative flex-1 min-w-[80px]`}>
+                <button 
+                  onClick={() => handleSoundChangeOrders(mode)}
+                  className={`w-full py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeOrders === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                >
+                  {mode === 'GALERIA_PEDIDOS' ? 'GALERIA' : mode}
+                </button>
+                {mode === 'GALERIA_PEDIDOS' && soundModeOrders === 'GALERIA_PEDIDOS' && (
+                  <div className="absolute -bottom-8 left-0 right-0 flex justify-center z-10">
+                    <label className="text-[9px] font-black tracking-widest bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-200 transition-colors whitespace-nowrap shadow-sm border border-emerald-200">
+                      SUBSTITUIR SOM
+                      <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadOrders} />
+                    </label>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

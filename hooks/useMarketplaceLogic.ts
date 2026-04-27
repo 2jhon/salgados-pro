@@ -60,6 +60,7 @@ export const useMarketplaceLogic = ({
   const [appliedCoupon, setAppliedCoupon] = useState<any | null>(null);
   const [couponError, setCouponError] = useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [ratingDraft, setRatingDraft] = useState<{ workspaceId: string, stars: number, comment: string } | null>(null);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [reportTarget, setReportTarget] = useState<string | null>(null);
@@ -408,81 +409,91 @@ export const useMarketplaceLogic = ({
   const finalTotal = Math.max(0, cartTotal - discountAmount) + (typeof deliveryFee === 'number' && deliveryFee > 0 ? deliveryFee : 0);
 
   const checkout = async () => {
-    if (!activeView?.whatsapp || deliveryFee === -1) return;
+    if (!activeView?.whatsapp || deliveryFee === -1 || isCheckingOut) return;
+    setIsCheckingOut(true);
 
-    // 2.1: Enviar notificação para o banco para despertar o Realtime do Lojista
     try {
-      await supabase.from('notes').insert({
+      // PREPARAÇÃO DO PEDIDO PENDENTE (Salva no localStorage para inserção segura caso seja pago via Mercado Pago)
+      const pendingNoteData = {
         workspace_id: activeView.workspaceId,
         created_by_id: user.id || 'anonymous',
         created_by_name: user.name || 'Cliente Marketplace',
-        content: `Novo Pedido via Marketplace: ${cart.length} itens. Total: R$ ${finalTotal.toFixed(2)}`,
+        content: `Novo Pedido via Marketplace: ${cart.length} itens. Total: R$ ${finalTotal.toFixed(2)} (Pago online)`,
         type: 'MONEY',
         amount: finalTotal,
         is_read: false
-      });
-    } catch (e) {
-      console.warn("Falha ao registrar notificação de pedido no banco:", e);
-    }
+      };
 
-    // INTEGRAÇÃO MERCADO PAGO (Checkout Pro)
-    try {
-      toast.loading("Preparando pagamento seguro...");
-      
-      const mpItems: MPItem[] = cart.map(item => ({
-        id: item.product.id,
-        title: item.product.name,
-        quantity: item.qty,
-        unit_price: Number(getEffectivePrice(item.product)),
-        currency_id: 'BRL'
-      }));
-
-      if (typeof deliveryFee === 'number' && deliveryFee > 0) {
-        mpItems.push({
-          title: 'Taxa de Entrega',
-          quantity: 1,
-          unit_price: deliveryFee,
+      // INTEGRAÇÃO MERCADO PAGO (Checkout Pro)
+      try {
+        toast.loading("Preparando pagamento seguro...");
+        
+        const mpItems: MPItem[] = cart.map(item => ({
+          id: item.product.id,
+          title: item.product.name,
+          quantity: item.qty,
+          unit_price: Number(getEffectivePrice(item.product)),
           currency_id: 'BRL'
-        });
+        }));
+
+        if (typeof deliveryFee === 'number' && deliveryFee > 0) {
+          mpItems.push({
+            title: 'Taxa de Entrega',
+            quantity: 1,
+            unit_price: deliveryFee,
+            currency_id: 'BRL'
+          });
+        }
+
+        if (discountAmount > 0) {
+          mpItems.push({
+            title: `Desconto Cupom: ${appliedCoupon?.code || ''}`,
+            quantity: 1,
+            unit_price: -discountAmount,
+            currency_id: 'BRL'
+          });
+        }
+
+        const externalReference = `ORDER_${Date.now()}_${activeView.workspaceId.substring(0, 8)}`;
+        
+        const preference = await createMPPreference(mpItems, activeView.workspaceId, externalReference);
+        
+        // Se a preferência for criada com sucesso, salvamos a notificação pendente para disparo apenas se o pagamento retornar `approved`!
+        localStorage.setItem('marketplacePendingNote', JSON.stringify(pendingNoteData));
+        
+        toast.dismiss();
+        toast.success("Redirecionando para pagamento...");
+        
+        setTimeout(() => {
+          redirectToMPCheckout(preference.init_point);
+          setIsCheckingOut(false);
+        }, 1000);
+        
+        return; // Finaliza aqui, pois o redirecionamento tira do app
+      } catch (mpError: any) {
+        console.error("Erro no Mercado Pago:", mpError);
+        toast.dismiss();
+        const errorMessage = mpError.message || "Erro no pagamento";
+        toast.error(`Falha no Checkout Seguro: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}. Tentando via WhatsApp.`);
+        
+        // Em caso de falha no MP e fallback apenas para o WhatsApp, precisamos disparar a notificação direto no banco agora
+        try {
+          await supabase.from('notes').insert({ ...pendingNoteData, content: pendingNoteData.content.replace(' (Pago online)', ' (Via WhatsApp)') });
+        } catch (e) {
+          console.warn("Falha ao registrar notificação de pedido fallback no banco:", e);
+        }
       }
 
-      if (discountAmount > 0) {
-        mpItems.push({
-          title: `Desconto Cupom: ${appliedCoupon?.code || ''}`,
-          quantity: 1,
-          unit_price: -discountAmount,
-          currency_id: 'BRL'
-        });
-      }
-
-      const externalReference = `ORDER_${Date.now()}_${activeView.workspaceId.substring(0, 8)}`;
-      
-      const preference = await createMPPreference(mpItems, activeView.workspaceId, externalReference);
-      
-      toast.dismiss();
-      toast.success("Redirecionando para pagamento...");
-      
-      setTimeout(() => {
-        redirectToMPCheckout(preference.init_point);
-      }, 1000);
-      
-      return; // Finaliza aqui se o MP criou a preferência com sucesso
-    } catch (mpError: any) {
-      console.error("Erro no Mercado Pago:", mpError);
-      toast.dismiss();
-      
-      const errorMessage = mpError.message || "Erro no pagamento";
-      toast.error(`Falha no Checkout Seguro: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}. Tentando via WhatsApp.`);
-      // Se o MP falhar por qualquer motivo (ex: credenciais), o código continua para o WhatsApp abaixo
-    }
-
-    let message = `*NOVO PEDIDO - ${activeView.displayName.toUpperCase()}*\n--------------------------------\n`;
+      let message = `*NOVO PEDIDO - ${activeView.displayName.toUpperCase()}*\n--------------------------------\n`;
     cart.forEach(item => { message += `▪ ${item.qty}x ${item.product.name} (R$ ${(getEffectivePrice(item.product) * item.qty).toFixed(2)})\n`; });
     message += `--------------------------------\n💰 *Subtotal: R$ ${(cartTotal || 0).toFixed(2)}*\n`;
     if (appliedCoupon) message += `🎟️ *Cupom (${appliedCoupon.code}): -R$ ${discountAmount.toFixed(2)}*\n`;
     if (deliveryFee !== null) message += `🛵 *Taxa de Entrega: ${deliveryFee === 0 ? 'Grátis' : 'R$ ' + deliveryFee.toFixed(2)}*\n`;
     message += `💰 *TOTAL A PAGAR: R$ ${(finalTotal || 0).toFixed(2)}*\n📍 *Entrega/Retirada:* ${activeView.fulfillmentMode === 'DELIVERY' ? 'Entrega' : activeView.fulfillmentMode === 'PICKUP' ? 'Retirada' : 'A Combinar'}`;
     window.open(`https://wa.me/55${activeView.whatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+    } finally {
+      setIsCheckingOut(false);
+    }
   };
 
   const handleOrderSingle = (item: any) => {
@@ -500,7 +511,7 @@ export const useMarketplaceLogic = ({
     selectedProduct, setSelectedProduct, quantity, setQuantity,
     isLoadingMore, activeStory, setActiveStory, viewedStories,
     cart, isCartOpen, setIsCartOpen, couponCode, setCouponCode,
-    appliedCoupon, couponError, isApplyingCoupon,
+    appliedCoupon, couponError, isApplyingCoupon, isCheckingOut,
     ratingDraft, setRatingDraft, isSubmittingRating, setIsSubmittingRating,
     reportTarget, setReportTarget, reportReason, setReportReason, isReporting,
     visibleCount, items, activeView, displayItems, groupedItems, globalStories,

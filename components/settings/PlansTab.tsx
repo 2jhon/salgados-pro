@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { Zap, Info, MessageCircle, CheckCircle2, EyeOff, Megaphone } from 'lucide-react';
+import { Zap, Info, MessageCircle, CheckCircle2, EyeOff, Megaphone, Loader2 } from 'lucide-react';
 import { User, SubscriptionPlan } from '../../types';
+import { toast } from 'sonner';
 
 interface PlansTabProps {
   plans: SubscriptionPlan[];
@@ -13,6 +14,36 @@ interface PlansTabProps {
 export const PlansTab: React.FC<PlansTabProps> = ({ 
   plans, currentUser, isProActive, supportPhone 
 }) => {
+  const [isBuying, setIsBuying] = React.useState<string | null>(null);
+
+  const handleBuyPlan = async (plan: SubscriptionPlan) => {
+    if (isBuying) return;
+    setIsBuying(plan.id);
+    
+    try {
+      const response = await fetch('/api/mercadopago/create-plan-preference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: plan.id,
+          userId: currentUser.id,
+          planName: plan.name,
+          price: plan.price
+        })
+      });
+
+      const data = await response.json();
+      if (data.init_point) {
+        window.location.href = data.init_point;
+      } else {
+        throw new Error(data.error || "Ponto de início não retornado");
+      }
+    } catch (e: any) {
+      toast.error("Erro ao iniciar pagamento: " + (e.message || "Tente novamente mais tarde."));
+      setIsBuying(null);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       
@@ -32,18 +63,18 @@ export const PlansTab: React.FC<PlansTabProps> = ({
            )}
            {isProActive && (
              <div className="bg-[#0A2624] text-[#00C48C] px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider">
-                5D 2H RESTANTES
+                ATIVAÇÃO RECENTE
              </div>
            )}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-           <div className={`p-5 rounded-2xl border ${isProActive || currentUser.grants?.ad_free ? 'bg-[#1C2438] border-[#2A344A] text-slate-300' : 'bg-[#182132] border-[#1F293D] text-slate-600'}`}>
+           <div className={`p-5 rounded-2xl border ${isProActive || currentUser.isAdFree ? 'bg-[#1C2438] border-[#2A344A] text-slate-300' : 'bg-[#182132] border-[#1F293D] text-slate-600'}`}>
               <EyeOff size={20} className="mb-4" />
               <p className="text-[10px] font-black uppercase tracking-widest">SEM ADS</p>
            </div>
            
-           <div className={`p-5 rounded-2xl border ${isProActive || currentUser.grants?.advertiser ? 'bg-[#1C2438] border-[#2A344A] text-slate-300' : 'bg-[#182132] border-[#1F293D] text-slate-600'}`}>
+           <div className={`p-5 rounded-2xl border ${isProActive || currentUser.isAdvertiser ? 'bg-[#1C2438] border-[#2A344A] text-slate-300' : 'bg-[#182132] border-[#1F293D] text-slate-600'}`}>
               <Megaphone size={20} className="mb-4" />
               <p className="text-[10px] font-black uppercase tracking-widest">ANUNCIANTE</p>
            </div>
@@ -56,45 +87,43 @@ export const PlansTab: React.FC<PlansTabProps> = ({
          </h4>
          
          <div className="space-y-4">
-             {/* Plano PRO */}
-             <div 
-                onClick={() => window.open(`https://wa.me/55${supportPhone}?text=Ol%C3%A1%2C%20queria%20assinar%20o%20Plano%20PRO`, '_blank')}
-                className="bg-[#131B2B] p-6 rounded-3xl flex items-center justify-between cursor-pointer hover:scale-[1.02] transition-transform shadow-lg shadow-slate-900/10"
-             >
-                <div className="flex items-center gap-4">
-                   <div className="text-amber-400">
-                      <Zap size={20} className="fill-current" />
+              {plans.length > 0 ? (
+                plans.filter(p => p.active).map(plan => (
+                   <div 
+                      key={plan.id}
+                      onClick={() => handleBuyPlan(plan)}
+                      className={`${
+                        plan.grants_pro ? 'bg-[#131B2B] shadow-lg shadow-slate-900/10' : 'bg-white border border-slate-200'
+                      } p-6 rounded-3xl flex items-center justify-between cursor-pointer hover:scale-[1.02] transition-transform`}
+                   >
+                      <div className="flex items-center gap-4">
+                         <div className={plan.grants_pro ? 'text-amber-400' : 'text-slate-400'}>
+                            {plan.grants_pro ? <Zap size={20} className="fill-current" /> : (plan.grants_ad_free ? <EyeOff size={20} /> : <Megaphone size={20} />)}
+                         </div>
+                         <div>
+                            <h5 className={`text-[13px] font-black uppercase tracking-wide ${plan.grants_pro ? 'text-amber-400' : 'text-slate-700'}`}>
+                              {plan.name}
+                            </h5>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{plan.description}</p>
+                         </div>
+                      </div>
+                      <div className="text-right flex items-center gap-3">
+                         {isBuying === plan.id ? (
+                            <Loader2 className="animate-spin text-slate-400" size={20} />
+                         ) : (
+                            <div className="flex items-baseline gap-1">
+                               <p className={`text-xl font-black ${plan.grants_pro ? 'text-white' : 'text-slate-800'}`}>R$ {plan.price.toFixed(2)}</p>
+                               <span className="text-[9px] font-bold text-slate-500 uppercase">/MÊS</span>
+                            </div>
+                         )}
+                      </div>
                    </div>
-                   <div>
-                      <h5 className="text-[13px] font-black text-amber-400 uppercase tracking-wide">PLANO PRO</h5>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">GESTÃO COMPLETA + VITRINE ONLINE</p>
-                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                   <p className="text-[10px] font-bold text-slate-400 uppercase">Carregando planos disponíveis...</p>
                 </div>
-                <div className="text-right flex items-baseline gap-1">
-                   <p className="text-xl font-black text-white">R$ 49,90</p>
-                   <span className="text-[9px] font-bold text-slate-500 uppercase">/MÊS</span>
-                </div>
-             </div>
-
-             {/* Remover Anuncios */}
-             <div 
-                onClick={() => window.open(`https://wa.me/55${supportPhone}?text=Ol%C3%A1%2C%20queria%20assinar%20o%20plano%20Remover%20An%C3%BAncios`, '_blank')}
-                className="bg-white border border-slate-200 p-6 rounded-3xl flex items-center justify-between cursor-pointer hover:border-slate-300 transition-colors"
-             >
-                <div className="flex items-center gap-4">
-                   <div className="text-slate-400">
-                      <EyeOff size={20} />
-                   </div>
-                   <div>
-                      <h5 className="text-[13px] font-black text-slate-700 uppercase tracking-wide">REMOVER ANÚNCIOS</h5>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">NAVEGAÇÃO LIMPA SEM INTERRUPÇÕES</p>
-                   </div>
-                </div>
-                <div className="text-right flex items-baseline gap-1">
-                   <p className="text-xl font-black text-slate-800">R$ 9,90</p>
-                   <span className="text-[9px] font-bold text-slate-400 uppercase">/MÊS</span>
-                </div>
-             </div>
+              )}
 
              <button 
                 onClick={() => window.open(`https://wa.me/55${supportPhone}?text=Ol%C3%A1%2C%20tenho%20interesse%20nos%20planos`, '_blank')}

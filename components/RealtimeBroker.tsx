@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { Bell, ShoppingBag, TrendingUp } from 'lucide-react';
+import { playSoundFromCategory } from '../lib/utils';
 
 interface RealtimeBrokerProps {
   workspaceId: string;
@@ -16,10 +17,9 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
   workspaceId, 
   onNewTransaction, 
   onNewNote,
-  enabledSounds = true,
+  enabledSounds = true, // We still use this to disable entirely if needed
   currentUserName
 }) => {
-  const audioContextRef = useRef<AudioContext | null>(null);
   const onNewTransactionRef = useRef(onNewTransaction);
   const onNewNoteRef = useRef(onNewNote);
 
@@ -31,31 +31,9 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
     onNewNoteRef.current = onNewNote;
   }, [onNewNote]);
 
-  const playNotificationSound = () => {
+  const playNotificationSound = (category: 'SALES' | 'ORDERS') => {
     if (!enabledSounds) return;
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioContextRef.current;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5); // A4
-
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start();
-      osc.stop(ctx.currentTime + 0.5);
-    } catch (e) {
-      console.warn("Falha ao tocar som de notificação:", e);
-    }
+    playSoundFromCategory(category);
   };
 
   useEffect(() => {
@@ -71,9 +49,15 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
         { event: 'INSERT', schema: 'public', table: 'notes', filter: `workspace_id=eq.${workspaceId}` },
         (payload) => {
           console.log('[RealtimeBroker] Nova Nota:', payload.new);
-          playNotificationSound();
           
           const note = payload.new;
+          
+          // Play different sound based on note type
+          // Apenas tocar som para PEDIDOS (MONEY) para evitar encavalar com o som de vendas!
+          if (note.type === 'MONEY') {
+            playNotificationSound('ORDERS');
+          }
+          
           toast.info(
             <div className="flex items-center gap-3">
               <div className="bg-indigo-100 p-2 rounded-lg">
@@ -103,7 +87,7 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           const isSelfMade = currentUserName && tx.created_by && (String(tx.created_by).trim() === String(currentUserName).trim());
           
           if (!isSelfMade) {
-            playNotificationSound();
+            playNotificationSound('SALES');
             
             const isVenda = tx.sub_category === 'VENDAS' || tx.sub_category === 'A_RECEBER';
             

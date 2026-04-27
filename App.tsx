@@ -50,7 +50,7 @@ export const App: React.FC = () => {
   };
   
   const { 
-    sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, 
+    sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem,
     fetchConfigByWorkspace, publicStalls, fetchPublicStalls, hasMorePublic: hasMoreStalls, 
     fetchStallById, isSyncing: isStockSyncing, reconnect: reconnectStock, loading: loadingStalls 
   } = useAppConfig();
@@ -157,6 +157,44 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    
+    // Processamento de Pedido Pendente (Checkout MP)
+    const mpStatus = params.get('collection_status') || params.get('status');
+    const paymentId = params.get('payment_id');
+    
+    if (mpStatus === 'approved' && paymentId) {
+      const pendingNote = localStorage.getItem('marketplacePendingNote');
+      if (pendingNote) {
+        try {
+          const noteData = JSON.parse(pendingNote);
+          supabase.from('notes').insert(noteData).then(({ error }) => {
+            if (!error) {
+              toast.success("Pagamento aprovado! O vendedor já foi notificado do seu pedido.", { duration: 5000 });
+              localStorage.removeItem('marketplacePendingNote');
+            }
+          });
+        } catch (e) {
+          console.error("Erro ao enviar notificação de pedido: ", e);
+        }
+      }
+      
+      // Limpar a URL para não disparar duas vezes 
+      params.delete('collection_status');
+      params.delete('status');
+      params.delete('payment_id');
+      params.delete('collection_id');
+      params.delete('external_reference');
+      params.delete('payment_type');
+      params.delete('merchant_order_id');
+      params.delete('preference_id');
+      params.delete('site_id');
+      params.delete('processing_mode');
+      params.delete('merchant_account_id');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, document.title, newUrl);
+    }
+    
+    // Processamento de Conexão de Conta MP
     const mpAuthRaw = params.get('mp_auth');
     if (mpAuthRaw && currentUser?.workspaceId) {
        // Limpa a URL imediatamente para evitar duplo disparo
@@ -439,10 +477,23 @@ export const App: React.FC = () => {
     // Detectar retorno do Mercado Pago
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('status');
+    const type = urlParams.get('type');
     const externalRef = urlParams.get('external_reference');
 
     if (status === 'approved') {
-      toast.success("Pagamento Aprovado! Seu pedido foi confirmado.", { duration: 10000 });
+      if (type === 'plan') {
+        toast.success("Assinatura Ativada! Aproveite os recursos PRO.", { 
+          description: "Sua conta agora tem acesso total e anúncios removidos.",
+          duration: 10000 
+        });
+      } else if (type === 'ad') {
+        toast.success("Anúncio Impulsionado!", { 
+          description: "Seu pagamento foi aprovado e o anúncio entrará em análise.",
+          duration: 10000 
+        });
+      } else {
+        toast.success("Pagamento Aprovado! Seu pedido foi confirmado.", { duration: 10000 });
+      }
       // Limpa os parâmetros da URL sem recarregar
       window.history.replaceState({}, document.title, "/");
     } else if (status === 'pending') {
@@ -834,7 +885,7 @@ export const App: React.FC = () => {
           )}
         </div>
       )}
-      <Toaster position="top-center" richColors />
+      <Toaster position="top-center" richColors expand={true} />
       {activeTab !== 'GOD_MODE' && (
         <div className={`shrink-0 p-6 pb-6 rounded-b-[2.5rem] shadow-xl z-50 relative max-w-7xl mx-auto w-full transition-all duration-500 overflow-hidden ${currentUser.bannerUrl || companyProfile?.bannerUrl ? 'min-h-[220px] flex items-end' : 'bg-white border-b border-slate-100'}`}>
            
@@ -1016,7 +1067,7 @@ export const App: React.FC = () => {
           {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} />}
         {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
-        {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} />}
+        {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} adjustStockItem={adjustStockItem} />}
         {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}
         {activeTab === 'MARKETPLACE' && (
           <Marketplace 

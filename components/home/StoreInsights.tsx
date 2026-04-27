@@ -24,10 +24,27 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   const [expandedCard, setExpandedCard] = useState<'sales' | 'expenses' | null>(null);
 
   const { stats, breakdowns } = useMemo(() => {
-    const dataSource = (financialInsights && financialInsights.length > 0) ? financialInsights : (transactions || []);
+    // Merge historical BI data with current real-time transactions to ensure latest data is always visible
+    // Deduplicate by ID to avoid double counting
+    const seenIds = new Set();
+    const mergedData = [...(financialInsights || []), ...(transactions || [])].filter(t => {
+      const id = t.id || `${t.date}-${t.value}`;
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    });
+
+    const dataSource = mergedData;
     const now = new Date();
+    // Use local midnight for reliable "Today" filtering
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const todayTrans = dataSource.filter(t => new Date(t.date).getTime() >= startOfDay);
+    
+    // Robust date filter that handles ISO strings and YYYY-MM-DD
+    const todayTrans = dataSource.filter(t => {
+      if (!t.date) return false;
+      const txDate = t.date.includes('T') ? new Date(t.date) : new Date(t.date + 'T00:00:00');
+      return txDate.getTime() >= startOfDay;
+    });
     
     let sales = 0;
     let expenses = 0;
@@ -38,11 +55,21 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
     todayTrans.forEach(t => {
       if (t.isPending || t.is_pending) return;
 
-      const isGasto = t.sub_category === 'GASTOS' || t.subCategory === 'GASTOS';
+      const subCat = String(t.sub_category || t.subCategory || '').toUpperCase();
+      const isGasto = subCat === 'GASTOS';
       const val = Number(t.value) || 0;
       
-      // Attempt to identify the origin/section by category
-      const part = t.category || 'Geral';
+      let rawSource = t.category || '';
+      
+      if (!rawSource || rawSource.trim() === '' || rawSource.toUpperCase() === 'GERAL') {
+        if (subCat === 'VENDAS') {
+          rawSource = t.createdBy || 'Venda';
+        } else {
+          rawSource = t.createdBy || 'Operação';
+        }
+      }
+
+      const part = String(rawSource).trim();
 
       if (isGasto) {
         expenses += val;
@@ -63,7 +90,15 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   }, [transactions, financialInsights]);
 
   const chartData = useMemo(() => {
-    const dataSource = (financialInsights && financialInsights.length > 0) ? financialInsights : (transactions || []);
+    // Also merge for chart consistency
+    const seenIds = new Set();
+    const dataSource = [...(financialInsights || []), ...(transactions || [])].filter(t => {
+      const id = t.id || `${t.date}-${t.value}`;
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    });
+
     const days = [];
     const now = new Date();
     for (let i = 6; i >= 0; i--) {
@@ -72,12 +107,15 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
       const endOfDay = startOfDay + 86400000;
       
       const dayTrans = dataSource.filter(t => {
-        const txTime = new Date(t.date).getTime();
+        if (!t.date) return false;
+        // Handle date standardization here as well
+        const txDate = t.date.includes('T') ? new Date(t.date) : new Date(t.date + 'T00:00:00');
+        const txTime = txDate.getTime();
         return txTime >= startOfDay && txTime < endOfDay && !(t.isPending || t.is_pending);
       });
       
-      const sales = dayTrans.filter(t => t.sub_category !== 'GASTOS' && t.subCategory !== 'GASTOS').reduce((acc, t) => acc + t.value, 0);
-      const expenses = dayTrans.filter(t => t.sub_category === 'GASTOS' || t.subCategory === 'GASTOS').reduce((acc, t) => acc + t.value, 0);
+      const sales = dayTrans.filter(t => t.sub_category !== 'GASTOS' && t.subCategory !== 'GASTOS').reduce((acc, t) => acc + Number(t.value || 0), 0);
+      const expenses = dayTrans.filter(t => t.sub_category === 'GASTOS' || t.subCategory === 'GASTOS').reduce((acc, t) => acc + Number(t.value || 0), 0);
       
       days.push({
         name: d.toLocaleDateString('pt-BR', { weekday: 'short' }).toUpperCase(),

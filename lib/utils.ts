@@ -74,3 +74,148 @@ export const Z_INDEX = {
   TOAST: 150,
   GOD_MODE: 200
 };
+
+let audioCtx: AudioContext | null = null;
+
+/**
+ * Toca um som baseado na categoria configurada (Vendas, Pedidos, etc)
+ */
+export const playSoundFromCategory = (category: 'SALES' | 'ORDERS' | 'SYSTEM') => {
+  let mode = 'PADRÃO';
+  if (category === 'SALES') {
+     mode = localStorage.getItem('appInfoSoundModeSales') || 'CAIXA'; // default for sales
+  } else if (category === 'ORDERS') {
+     mode = localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO';
+  } else {
+     mode = localStorage.getItem('appInfoSoundMode') || 'PADRÃO';
+  }
+  playSystemSound(mode);
+};
+
+/**
+ * Toca um som de notificação baseado no modo selecionado pelo usuário
+ */
+export const playSystemSound = (mode: string) => {
+  if (mode === 'OFF') return;
+  
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    
+    if (audioCtx?.state === 'suspended') {
+      audioCtx.resume();
+    }
+    
+    const ctx = audioCtx;
+    if (!ctx) return;
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (mode === 'MEC.') {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(300, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+      
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } else if (mode === 'SUAVE') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.4);
+      
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } else if (mode === 'CAIXA') {
+      // Barulho Caixa Registradora (Cha-Ching)
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1000, ctx.currentTime + 0.1);
+      
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'square';
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      
+      osc2.frequency.setValueAtTime(1800, ctx.currentTime + 0.1);
+      osc2.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.3);
+      
+      gain2.gain.setValueAtTime(0.05, ctx.currentTime + 0.1);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.1);
+      
+      osc2.start(ctx.currentTime + 0.1);
+      osc2.stop(ctx.currentTime + 0.3);
+    } else if (mode === 'MOEDA') {
+      // Barulho Moeda (Ping)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(988, ctx.currentTime); // B5
+      osc.frequency.setValueAtTime(1318.51, ctx.currentTime + 0.08); // E6
+      
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } else if (mode === 'GALERIA') {
+      const base64 = localStorage.getItem('customSoundSales');
+      if (base64) {
+        const audio = new Audio(base64);
+        audio.play().catch(e => console.warn('Audio play failed', e));
+      } else {
+        // Fallback to PADRÃO if not found
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); 
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5); 
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      }
+    } else if (mode === 'GALERIA_PEDIDOS') {
+      const base64 = localStorage.getItem('customSoundOrders');
+      if (base64) {
+        const audio = new Audio(base64);
+        audio.play().catch(e => console.warn('Audio play failed', e));
+      } else {
+        // Fallback to PADRÃO if not found
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); 
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5); 
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      }
+    } else { // 'PADRÃO'
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); 
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5); 
+
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+    }
+  } catch (e) {
+    console.warn("Falha ao tocar som do sistema:", e);
+  }
+};

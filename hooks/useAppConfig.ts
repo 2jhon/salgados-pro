@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import localforage from 'localforage';
 import { AppSection } from '../types';
-import { supabase, withRetry, safeStringifyError, isNetworkError } from '../lib/supabase';
+import { supabase, withRetry, safeStringifyError, isNetworkError, registerStockMovement } from '../lib/supabase';
 import { toast } from 'sonner';
 
 const LS_CONFIG_KEY = 'salgados_app_config_v1';
@@ -421,11 +421,21 @@ export const useAppConfig = () => {
     }
   }, [activeWorkspace, nexusReport]);
 
-  const saveConfig = useCallback(async (newSections: AppSection[]): Promise<boolean> => {
-    if (newSections.length === 0 && sections.length > 0) return true;
+  const saveConfig = useCallback(async (input: AppSection[] | ((prev: AppSection[]) => AppSection[])): Promise<boolean> => {
+    let newSections: AppSection[];
+    if (typeof input === 'function') {
+      let resolved: AppSection[] = [];
+      setSections(prev => {
+        resolved = input(prev);
+        return resolved;
+      });
+      newSections = resolved;
+    } else {
+      newSections = input;
+      setSections(newSections);
+    }
 
-    // Optimistic Update
-    setSections(newSections);
+    if (newSections.length === 0 && sections.length > 0) return true;
 
     const taskId = 'SAVE_CONFIG';
     nexusReport("Sincronizando novas abas com o servidor...", 'START', 'NETWORK', taskId);
@@ -596,7 +606,20 @@ export const useAppConfig = () => {
         });
 
         // 2. Save back to app_config
-        const success = await saveConfig(sections.map(s => s.id === sectionId ? { ...currentSection, items: updatedItems } : s));
+        // Fallback: Full App Config update if RPC fails
+        // We use a functional approach to construct the payload for saveConfig
+        const success = await saveConfig((prev) => prev.map(s => {
+          if (s.id !== sectionId) return s;
+          return {
+            ...s,
+            items: (s.items || []).map(item => {
+              const update = itemUpdates.find(u => u.id === item.id);
+              if (!update) return item;
+              const currentStock = item.currentStock || 0;
+              return { ...item, currentStock: Math.max(0, currentStock - update.quantity) };
+            })
+          };
+        }));
         
         if (success) {
           // 3. Also update inventory table for consistency
@@ -678,11 +701,48 @@ export const useAppConfig = () => {
     setIsSyncing(false);
   }, [activeWorkspace, updateStockAtomic]);
 
+  const adjustStockItem = useCallback(async (sectionId: string, itemId: string, amount: number, reason: string, userName: string) => {
+    const taskId = `ADJUST_STOCK_${itemId}_${Date.now()}`;
+    
+    // Let updateStockAtomic handle the optimistic update and technical details
+    try {
+      // Note: updateStockAtomic subtracts, so we pass -amount for an adjustment
+      const success = await updateStockAtomic(sectionId, [{ id: itemId, quantity: -amount }], false);
+      
+      if (success) {
+        // Register movement
+        const section = sections.find(s => s.id === sectionId);
+        const item = section?.items.find(i => i.id === itemId);
+        
+        if (item) {
+          const oldStock = (item.currentStock || 0);
+          await registerStockMovement({
+            workspace_id: activeWorkspace || '',
+            item_id: itemId,
+            item_name: item.name,
+            movement_type: amount > 0 ? 'IN' : 'OUT',
+            reason: reason as any,
+            quantity: Math.abs(amount),
+            previous_balance: oldStock,
+            new_balance: Math.max(0, oldStock + amount),
+            created_by: userName
+          });
+        }
+      }
+
+      return success;
+    } catch (e) {
+      console.error("Error adjusting stock:", e);
+      // Revert if needed? Usually Realtime will sync back the truth if update fails
+      return false;
+    }
+  }, [activeWorkspace, sections, updateStockAtomic]);
+
   const setActiveWorkspaceId = useCallback((id: string) => { setActiveWorkspace(id); }, []);
 
   const reconnect = useCallback(async () => {
     await syncOfflineStockQueue();
   }, [syncOfflineStockQueue]);
 
-  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, loading, hasMorePublic, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls, fetchStallById };
+  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem, loading, hasMorePublic, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls, fetchStallById };
 };

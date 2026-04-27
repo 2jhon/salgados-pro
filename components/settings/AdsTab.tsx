@@ -1,6 +1,10 @@
 
 import React from 'react';
-import { Megaphone, Plus, Search, Sparkles, Image as ImageIcon, Send, Clock, Trash2, Edit3, MessageCircle, AlertTriangle, Check } from 'lucide-react';
+import { 
+  Megaphone, Plus, Search, Sparkles, Image as ImageIcon, 
+  Send, Clock, Trash2, Edit3, MessageCircle, AlertTriangle, 
+  Check, ArrowRight, CheckCircle2 
+} from 'lucide-react';
 import { Ad, User } from '../../types';
 
 interface AdsTabProps {
@@ -105,6 +109,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                           onChange={e => setAdForm({...adForm, duration: parseInt(e.target.value)})}
                           className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs"
                          >
+                            <option value={1}>1 dia</option>
                             <option value={7}>7 dias</option>
                             <option value={15}>15 dias</option>
                             <option value={30}>30 dias</option>
@@ -239,4 +244,3 @@ export const AdsTab: React.FC<AdsTabProps> = ({
   );
 };
 
-import { ArrowRight, CheckCircle2 } from 'lucide-react';

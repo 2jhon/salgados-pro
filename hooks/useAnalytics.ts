@@ -121,7 +121,7 @@ export const useAnalytics = (userWorkspaceId?: string) => {
       
       const { data, error } = await supabase
         .from('transactions')
-        .select('date, value, sub_category, is_pending')
+        .select('date, value, sub_category, is_pending, category')
         .eq('workspace_id', workspaceId)
         .gte('date', sevenDaysAgo);
 

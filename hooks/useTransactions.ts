@@ -3,7 +3,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import localforage from 'localforage';
 import { Transaction, PeriodTotals, AppSection, Note } from '../types';
 import { supabase, withRetry, withTimeout, safeStringifyError, isNetworkError } from '../lib/supabase';
-import { normalizePhone, normalizeString, roundMoney, Z_INDEX } from '../lib/utils';
+import { normalizePhone, normalizeString, roundMoney, Z_INDEX, playSoundFromCategory } from '../lib/utils';
 
 let lastTxFetchTime: Record<string, number> = {};
 const TX_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
@@ -199,6 +199,7 @@ export const useTransactions = (
 
     // Offline Handling
     if (!navigator.onLine && !isSyncing) {
+      playSoundFromCategory('SALES');
       const offlineTx = ts.map(t => ({
         ...t,
         id: `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -264,6 +265,11 @@ export const useTransactions = (
 
       if (result.data) {
         const created = result.data.map(mapTransaction);
+        
+        // Só toca o som se não for sincronização offline silenciosa
+        if (!isSyncing) {
+            playSoundFromCategory('SALES');
+        }
         
         // High Value Sale Notification
         if (addNote) {

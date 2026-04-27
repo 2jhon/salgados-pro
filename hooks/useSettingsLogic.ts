@@ -290,13 +290,22 @@ export const useSettingsLogic = ({
     setIsGeneratingAI(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: `Generate a professional square food delivery banner for: ${adForm.title}. No text in image.`
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Crie um prompt em INGLÊS, curto e focado em visual para um banner de comida. O título do anúncio é: ${adForm.title}. Foque em iluminação profissional, 4k, food photography. Retorne APENAS o prompt em inglês.`
       });
-      toast.info("Geração de imagem disponível em breve!");
-    } catch (e) { toast.error("Erro na IA imagem."); }
-    finally { setIsGeneratingAI(false); }
+      const visualPrompt = response.text?.trim() || "delicious food professional photography 4k";
+      
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(visualPrompt)}?width=512&height=512&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+      
+      setAdForm(prev => ({ ...prev, mediaUrl: imageUrl }));
+      toast.success("Imagem gerada com IA!");
+    } catch (e) { 
+      toast.error("Erro na IA imagem. Tente novamente."); 
+    } finally { 
+      setIsGeneratingAI(false); 
+    }
   };
 
   const handleSaveAd = async () => {
@@ -304,10 +313,46 @@ export const useSettingsLogic = ({
     setIsProcessing(true);
     try {
       const whatsappLink = `https://wa.me/55${adForm.whatsapp.replace(/\D/g, '')}`;
-      await saveAd({ id: editingAdId || undefined, ownerId: currentUser.id, ownerName: currentUser.name, workspaceId: currentUser.workspaceId, title: adForm.title, description: adForm.description, link: whatsappLink, mediaUrl: adForm.mediaUrl, requestedDuration: adForm.duration });
+      const savedAd = await saveAd({ 
+        id: editingAdId || undefined, 
+        ownerId: currentUser.id, 
+        ownerName: currentUser.name, 
+        workspaceId: currentUser.workspaceId, 
+        title: adForm.title, 
+        description: adForm.description, 
+        link: whatsappLink, 
+        mediaUrl: adForm.mediaUrl, 
+        requestedDuration: adForm.duration 
+      });
+
+      if (!savedAd) throw new Error("Erro ao salvar anúncio.");
+
+      // Se o preço for maior que 0, redireciona para pagamento
+      if (effectiveAdPrice > 0 && !editingAdId) {
+        const response = await fetch('/api/mercadopago/create-ad-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adId: savedAd.id,
+            userId: currentUser.id,
+            adTitle: adForm.title,
+            price: effectiveAdPrice,
+            duration: adForm.duration
+          })
+        });
+
+        const data = await response.json();
+        if (data.init_point) {
+          window.location.href = data.init_point;
+          return; // Para o fluxo aqui pois vai redirecionar
+        }
+      }
+
       setAdForm({ title: '', description: '', whatsapp: '', duration: 7, mediaUrl: '' });
       setEditingAdId(null);
       toast.success("Anúncio salvo!");
+    } catch (e: any) {
+      toast.error("Erro: " + (e.message || "Tente novamente mais tarde."));
     } finally { setIsProcessing(false); }
   };
 

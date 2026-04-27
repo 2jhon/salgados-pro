@@ -27,6 +27,8 @@ export const useAds = () => {
     mediaUrl: ad.media_url,
     mediaType: ad.media_type,
     active: ad.active,
+    paymentStatus: ad.payment_status || 'PENDING',
+    isApproved: ad.is_approved || false,
     clicks: ad.clicks || 0,
     expiresAt: ad.expires_at,
     requestedDuration: ad.requested_duration
@@ -99,7 +101,9 @@ export const useAds = () => {
         background_color: ad.backgroundColor,
         media_url: ad.mediaUrl,
         media_type: ad.mediaType,
-        active: false, // Sempre inativo até que o admin aprove via WhatsApp
+        active: false, 
+        payment_status: 'PENDING',
+        is_approved: false,
         requested_duration: ad.requestedDuration || 7
       };
 

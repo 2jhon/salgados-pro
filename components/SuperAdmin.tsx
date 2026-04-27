@@ -133,6 +133,9 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
   const [pinRequests, setPinRequests] = useState<GlobalPinRequest[]>([]);
   const [allAds, setAllAds] = useState<Ad[]>([]);
+  const pendingAdsCount = useMemo(() => 
+    allAds.filter(ad => ad.paymentStatus === 'PAID' && !ad.isApproved && !ad.active).length, 
+  [allAds]);
   const [reports, setReports] = useState<any[]>([]);
   const [supportPhone, setSupportPhone] = useState('21999999999');
   
@@ -355,6 +358,8 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
           mediaUrl: ad.media_url,
           mediaType: ad.media_type,
           active: ad.active,
+          paymentStatus: ad.payment_status || 'PENDING',
+          isApproved: ad.is_approved || false,
           clicks: ad.clicks || 0,
           expiresAt: ad.expires_at,
           requestedDuration: ad.requested_duration
@@ -466,7 +471,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
       // 1. Atualiza o Anúncio
       const { error: adError } = await supabase.from('app_banners')
-        .update({ active: true, expires_at: isoDate })
+        .update({ active: true, is_approved: true, expires_at: isoDate })
         .eq('id', adToApprove.id);
       
       if (adError) throw adError;
@@ -712,7 +717,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       <div className="flex bg-slate-900 p-1.5 rounded-[2.2rem] gap-1 shadow-xl overflow-x-auto no-scrollbar">
         {['EMPRESAS', 'PINS', 'ANUNCIOS', 'DENUNCIAS', 'FINANCEIRO', 'SISTEMA'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-4 px-6 rounded-[1.8rem] text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-            {tab === 'PINS' && pinRequests.length > 0 ? `${tab} (${pinRequests.length})` : tab === 'DENUNCIAS' && reports.filter(r => r.status === 'PENDING').length > 0 ? `${tab} (${reports.filter(r => r.status === 'PENDING').length})` : tab}
+            {tab === 'PINS' && pinRequests.length > 0 ? `${tab} (${pinRequests.length})` : tab === 'DENUNCIAS' && reports.filter(r => r.status === 'PENDING').length > 0 ? `${tab} (${reports.filter(r => r.status === 'PENDING').length})` : tab === 'ANUNCIOS' && pendingAdsCount > 0 ? `${tab} (${pendingAdsCount})` : tab}
           </button>
         ))}
       </div>
@@ -826,26 +831,46 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
           {activeTab === 'ANUNCIOS' && (
              <div className="grid gap-4">
-                {allAds.map(ad => {
+                {allAds.filter(ad => {
+                  const isPaid = ad.paymentStatus === 'PAID';
+                  const isExpired = ad.expiresAt && new Date(ad.expiresAt).getTime() < timeTick;
+                  // Mostra: Pagos pendentes, Ativos atuais, ou Aprovados não expirados
+                  return (isPaid && !ad.isApproved) || (ad.active && !isExpired) || (ad.isApproved && !isExpired);
+                }).sort((a,b) => {
+                  if (a.paymentStatus === 'PAID' && !a.isApproved) return -1;
+                  if (b.paymentStatus === 'PAID' && !b.isApproved) return 1;
+                  return 0;
+                }).map(ad => {
                   const isActive = ad.active && ad.expiresAt && new Date(ad.expiresAt).getTime() > timeTick;
+                  const isPendingApproval = ad.paymentStatus === 'PAID' && !ad.isApproved;
+                  
                   return (
-                    <div key={ad.id} className="bg-white p-6 rounded-[2.5rem] border-2 border-slate-50 flex items-center justify-between">
+                    <div key={ad.id} className={`bg-white p-6 rounded-[2.5rem] border-2 flex items-center justify-between ${isPendingApproval ? 'border-amber-500 bg-amber-50/20' : 'border-slate-50'}`}>
                        <div className="flex items-center gap-4">
                           <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden flex items-center justify-center">{ad.mediaUrl ? <img src={ad.mediaUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300" />}</div>
                           <div className="space-y-1">
-                             <h4 className="font-black text-slate-800 text-sm uppercase">{ad.title}</h4>
+                             <div className="flex items-center gap-2">
+                                <h4 className="font-black text-slate-800 text-sm uppercase">{ad.title}</h4>
+                                {isPendingApproval && <span className="bg-amber-500 text-slate-950 text-[7px] font-black px-2 py-0.5 rounded-full animate-pulse">PAGO / AGUARDANDO APROVAÇÃO</span>}
+                                {!isActive && ad.isApproved && <span className="bg-rose-100 text-rose-600 text-[7px] font-black px-2 py-0.5 rounded-full">EXPIRADO</span>}
+                             </div>
                              <p className="text-[9px] font-bold text-slate-400 uppercase">Empresa: {ad.ownerName}</p>
                              <p className="text-[8px] font-black text-blue-500 uppercase">Solicitado: {ad.requestedDuration || 7} dias</p>
                              {isActive && <AdTimer expiresAt={ad.expiresAt!} label="Vencimento:" />}
                           </div>
                        </div>
                        <div className="flex gap-2">
-                          <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : 'bg-orange-500 text-white animate-pulse'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
+                          <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : isPendingApproval ? 'bg-amber-500 text-slate-950 animate-bounce' : 'bg-orange-500 text-white'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
                           <button onClick={() => supabase.from('app_banners').delete().eq('id', ad.id).then(() => fetchData())} className="p-4 bg-rose-600 text-white rounded-2xl"><Trash2 size={20} /></button>
                        </div>
                     </div>
                   );
                 })}
+                {allAds.filter(ad => ad.paymentStatus === 'PAID' || ad.active || ad.isApproved).length === 0 && (
+                   <div className="py-20 text-center bg-white rounded-[3rem] border border-slate-100">
+                      <p className="text-[10px] font-black text-slate-300 uppercase">Nenhum anúncio pago ou ativo para gerenciar</p>
+                   </div>
+                )}
              </div>
           )}
 

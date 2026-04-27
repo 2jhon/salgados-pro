@@ -16,9 +16,10 @@ interface StockProps {
   saveConfig: (s: AppSection[]) => Promise<boolean>;
   workspaceId: string;
   user: User;
+  adjustStockItem: (sectionId: string, itemId: string, amount: number, reason: string, userName: string) => Promise<boolean>;
 }
 
-export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId, user }) => {
+export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId, user, adjustStockItem }) => {
   const [activeTab, setActiveTab] = useState<'CURRENT' | 'HISTORY'>('CURRENT');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -239,7 +240,8 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
   };
 
   const quickAdjustment = async (sectionId: string, itemId: string, current: number, amount: number) => {
-    await updateItemStock(sectionId, itemId, { currentStock: Math.max(0, current + amount) });
+    // Usar a nova função atômica do hook para evitar race conditions em cliques rápidos
+    await adjustStockItem(sectionId, itemId, amount, 'MANUAL_ADJUSTMENT', user.name);
   };
 
   const currentActiveSection = sections.find(s => s.id === activeStockSectionId);
@@ -469,7 +471,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                              if (lossAmount && !isNaN(parseFloat(lossAmount))) {
                                const amount = parseFloat(lossAmount);
                                if (amount > 0) {
-                                 updateItemStock(sectionId, item.id, { currentStock: Math.max(0, current - amount) }, 'LOSS');
+                                 adjustStockItem(sectionId, item.id, -amount, 'LOSS', user.name);
                                }
                              }
                            }} className="p-3 bg-orange-50 text-orange-600 rounded-2xl font-black text-[10px] active:scale-90 transition-all hover:bg-orange-600 hover:text-white" title="Registrar Perda">

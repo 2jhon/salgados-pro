@@ -178,6 +178,141 @@ async function startServer() {
     }
   });
 
+  // Rota para PAGAMENTO DE ANÚNCIOS (Vai para a conta do Administrador do Sistema)
+  app.post("/api/mercadopago/create-ad-preference", async (req, res) => {
+    const { adId, userId, adTitle, price, duration } = req.body;
+
+    try {
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      
+      if (!adminAccessToken) {
+        return res.status(500).json({ error: "Configuração do sistema incompleta (Token Admin não encontrado)." });
+      }
+
+      const client = new MercadoPagoConfig({ accessToken: adminAccessToken });
+      const preference = new Preference(client);
+      
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      let baseUrl = `https://${host}`;
+      if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+        baseUrl = `http://${host}`;
+      }
+
+      const totalPrice = Number(price) * Number(duration);
+
+      const body: any = {
+        items: [
+          {
+            id: adId,
+            title: `Impulsionamento: ${adTitle}`,
+            quantity: 1,
+            unit_price: Number(totalPrice),
+            currency_id: 'BRL'
+          }
+        ],
+        external_reference: `AD_BOOST|${userId}|${adId}|${Date.now()}`,
+        back_urls: {
+          success: `${baseUrl}/?status=approved&type=ad`,
+          failure: `${baseUrl}/?status=failure&type=ad`,
+          pending: `${baseUrl}/?status=pending&type=ad`,
+        },
+        auto_return: "approved",
+        statement_descriptor: "SALGADOSPRO",
+      };
+
+      const result = await preference.create({ body });
+      res.json({ id: result.id, init_point: result.init_point });
+    } catch (error: any) {
+      console.error("[MP Ad] Erro:", error);
+      res.status(500).json({ error: "Erro ao gerar checkout do anúncio." });
+    }
+  });
+
+  // Rota para PAGAMENTO DE PLANOS (Vai para a conta do Administrador do Sistema)
+  app.post("/api/mercadopago/create-plan-preference", async (req, res) => {
+    const { planId, userId, planName, price } = req.body;
+
+    try {
+      // O token do ADMIN deve estar no .env como MP_ACCESS_TOKEN
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      
+      if (!adminAccessToken) {
+        return res.status(500).json({ error: "Configuração do sistema incompleta (Token Admin não encontrado)." });
+      }
+
+      const client = new MercadoPagoConfig({ accessToken: adminAccessToken });
+      const preference = new Preference(client);
+      
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      let baseUrl = `https://${host}`;
+      if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+        baseUrl = `http://${host}`;
+      }
+
+      const body: any = {
+        items: [
+          {
+            id: planId,
+            title: `Assinatura: ${planName}`,
+            quantity: 1,
+            unit_price: Number(price),
+            currency_id: 'BRL'
+          }
+        ],
+        external_reference: `SUBSCRIPTION|${userId}|${planId}|${Date.now()}`,
+        back_urls: {
+          success: `${baseUrl}/?status=approved&type=plan`,
+          failure: `${baseUrl}/?status=failure&type=plan`,
+          pending: `${baseUrl}/?status=pending&type=plan`,
+        },
+        auto_return: "approved",
+        statement_descriptor: "SALGADOSPRO",
+      };
+
+      const result = await preference.create({ body });
+      res.json({ id: result.id, init_point: result.init_point });
+    } catch (error: any) {
+      console.error("[MP Plan] Erro:", error);
+      res.status(500).json({ error: "Erro ao gerar checkout do plano." });
+    }
+  });
+
+  // Webhook para Assinaturas de Planos do Sistema (Admin)
+  app.post("/api/mercadopago/plan-webhook", async (req, res) => {
+    const { action, data, type } = req.body;
+    
+    // Mercado Pago envia 'topic=payment' em alguns casos
+    const topic = req.query.topic || type;
+    const resourceId = data?.id || req.query.id;
+
+    console.log(`[MP Webhook] Recebido: ${action} | Topic: ${topic} | ID: ${resourceId}`);
+    
+    res.status(200).send("OK");
+
+    if ((action === "payment.created" || action === "payment.updated" || topic === "payment") && resourceId) {
+      try {
+        const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        const response = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
+          headers: { Authorization: `Bearer ${adminAccessToken}` }
+        });
+        const payment = await response.json();
+
+        if (payment.status === "approved" && payment.external_reference?.startsWith("SUBSCRIPTION|")) {
+          const [_, userId, planId] = payment.external_reference.split("|");
+          console.log(`[SUBSCRIPTION SUCCESS] Usuário: ${userId} | Plano: ${planId}`);
+        }
+
+        if (payment.status === "approved" && payment.external_reference?.startsWith("AD_BOOST|")) {
+          const [_, userId, adId] = payment.external_reference.split("|");
+          console.log(`[AD SUCCESS] Usuário: ${userId} | Anúncio: ${adId}`);
+          // Aqui poderíamos ativar o anúncio imediatamente no Supabase
+        }
+      } catch (err) {
+        console.error("[Webhook Plan] Erro crítico:", err);
+      }
+    }
+  });
+
   // ROIAS PARA OAUTH MERCADO PAGO
   app.get("/api/mercadopago/auth-url", (req, res) => {
     const workspaceId = req.query.workspaceId;

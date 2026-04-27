@@ -11,9 +11,10 @@ import {
   MoreVertical, Scissors, Edit3, Trash2, Square, CheckSquare,
   AlertTriangle, FileText, Printer, Calculator, Truck, Image as ImageIcon,
   ArrowUpCircle, ArrowDownCircle, ExternalLink, RefreshCw, Link as LinkIcon, Link2Off, Lock,
-  Phone, Bluetooth, MessageCircle
+  Phone, Bluetooth, MessageCircle, Share2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { shareReceipt } from '../lib/share';
 import { safeStringifyError } from '../lib/supabase';
 import { normalizeString, formatCurrency } from '../lib/utils';
 
@@ -765,7 +766,7 @@ export const Factory: React.FC<FactoryProps> = ({
                         toast.error(
                           <div className="flex flex-col gap-2">
                             <p className="font-bold">Impressão Bluetooth não suportada no iPhone (Safari/Chrome).</p>
-                            <p className="text-xs">Para imprimir, baixe o navegador gratuito <b>Bluefy</b> na App Store ou use a opção de compartilhar nota (em breve).</p>
+                            <p className="text-xs">Para imprimir, baixe o navegador gratuito <b>Bluefy</b> na App Store ou use a opção de compartilhar nota.</p>
                           </div>,
                           { duration: 8000 }
                         );
@@ -777,6 +778,12 @@ export const Factory: React.FC<FactoryProps> = ({
                   className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-all"
                 >
                   <Printer size={16} /> Imprimir Recibo
+                </button>
+                <button 
+                  onClick={() => shareReceipt(section.name, successModal.items, successModal.total, successModal.customer, section.workspaceId)}
+                  className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 active:scale-95 transition-all"
+                >
+                  <Share2 size={16} /> Compartilhar Nota
                 </button>
                 <button 
                   onClick={() => setSuccessModal(null)}
