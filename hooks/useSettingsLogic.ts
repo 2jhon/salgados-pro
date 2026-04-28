@@ -329,7 +329,7 @@ export const useSettingsLogic = ({
         if (data.init_point) {
           window.location.href = data.init_point;
         } else {
-          toast.error("Erro ao gerar link de pagamento.");
+          toast.error(data.error || "Erro ao gerar link de pagamento.");
         }
       } else {
         toast.error("Este anúncio não requer pagamento.");
@@ -379,6 +379,8 @@ export const useSettingsLogic = ({
         if (data.init_point) {
           window.location.href = data.init_point;
           return; // Para o fluxo aqui pois vai redirecionar
+        } else {
+          toast.error(data.error || "Erro ao gerar link de pagamento.");
         }
       }
 

@@ -223,8 +223,8 @@ async function startServer() {
       const result = await preference.create({ body });
       res.json({ id: result.id, init_point: result.init_point });
     } catch (error: any) {
-      console.error("[MP Ad] Erro:", error);
-      res.status(500).json({ error: "Erro ao gerar checkout do anúncio." });
+      console.error("[MP Ad] Erro:", error.message, error.stack);
+      res.status(500).json({ error: error.message || "Erro desconhecido ao gerar checkout do anúncio." });
     }
   });
 
@@ -272,8 +272,8 @@ async function startServer() {
       const result = await preference.create({ body });
       res.json({ id: result.id, init_point: result.init_point });
     } catch (error: any) {
-      console.error("[MP Plan] Erro:", error);
-      res.status(500).json({ error: "Erro ao gerar checkout do plano." });
+      console.error("[MP Plan] Erro:", error.message, error.stack);
+      res.status(500).json({ error: error.message || "Erro desconhecido ao assinar plano." });
     }
   });
 
