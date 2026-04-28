@@ -193,12 +193,12 @@ async function startServer() {
       const preference = new Preference(client);
       
       const host = req.headers['x-forwarded-host'] || req.get('host');
-      let baseUrl = `https://${host}`;
-      if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+      let baseUrl = returnUrl || `https://${host}`;
+      if (!returnUrl && (host?.includes('localhost') || host?.includes('127.0.0.1'))) {
         baseUrl = `http://${host}`;
       }
 
-      const totalPrice = Number(price) * Number(duration);
+      const totalPrice = Number(price);
 
       const body: any = {
         items: [
@@ -244,8 +244,8 @@ async function startServer() {
       const preference = new Preference(client);
       
       const host = req.headers['x-forwarded-host'] || req.get('host');
-      let baseUrl = `https://${host}`;
-      if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+      let baseUrl = returnUrl || `https://${host}`;
+      if (!returnUrl && (host?.includes('localhost') || host?.includes('127.0.0.1'))) {
         baseUrl = `http://${host}`;
       }
 
