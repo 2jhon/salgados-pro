@@ -326,3 +326,16 @@ export interface ProductClickDetail {
   productName: string;
   clicks: number;
 }
+
+export interface HistoricalSummary {
+  id: string;
+  workspaceId: string;
+  periodLabel: string;
+  year: number;
+  month: number;
+  totalSales: number;
+  totalExpenses: number;
+  transactionCount: number;
+  metadata?: any;
+  createdAt: string;
+}

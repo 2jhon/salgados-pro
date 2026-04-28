@@ -86,10 +86,11 @@ export const App: React.FC = () => {
     hasMore: hasMoreStores, loading: loadingProfiles 
   } = useStoreProfiles();
   const { customers, addCustomer } = useCustomers(currentUser?.workspaceId);
-  const { trackView, getStoreSummary, getFinancialInsights } = useAnalytics(currentUser?.workspaceId);
+  const { trackView, getStoreSummary, getFinancialInsights, getArchivedSummaries } = useAnalytics(currentUser?.workspaceId);
 
   const [activeTab, setActiveTab] = useState<string>('HOME');
   const [financialInsights, setFinancialInsights] = useState<any[]>([]);
+  const [historicalSummaries, setHistoricalSummaries] = useState<any[]>([]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -114,8 +115,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (currentUser?.workspaceId && activeTab === 'HOME') {
        getFinancialInsights(currentUser.workspaceId).then(setFinancialInsights);
+       getArchivedSummaries(currentUser.workspaceId).then(setHistoricalSummaries);
     }
-  }, [currentUser?.workspaceId, activeTab, getFinancialInsights]);
+  }, [currentUser?.workspaceId, activeTab, getFinancialInsights, getArchivedSummaries]);
   const [companyProfile, setCompanyProfile] = useState<StoreProfile | null>(() => {
     try {
       const saved = localStorage.getItem('cached_company_profile');
@@ -486,11 +488,15 @@ export const App: React.FC = () => {
           description: "Sua conta agora tem acesso total e anúncios removidos.",
           duration: 10000 
         });
+        setActiveTab('CONFIG');
+        localStorage.setItem('settings_pending_tab', 'PLANOS');
       } else if (type === 'ad') {
         toast.success("Anúncio Impulsionado!", { 
           description: "Seu pagamento foi aprovado e o anúncio entrará em análise.",
           duration: 10000 
         });
+        setActiveTab('CONFIG');
+        localStorage.setItem('settings_pending_tab', 'ANUNCIO');
       } else {
         toast.success("Pagamento Aprovado! Seu pedido foi confirmado.", { duration: 10000 });
       }
@@ -498,9 +504,17 @@ export const App: React.FC = () => {
       window.history.replaceState({}, document.title, "/");
     } else if (status === 'pending') {
       toast.info("Pagamento Pendente. Aguardando processamento.");
+      if (type === 'plan' || type === 'ad') {
+        setActiveTab('CONFIG');
+        localStorage.setItem('settings_pending_tab', type === 'plan' ? 'PLANOS' : 'ANUNCIO');
+      }
       window.history.replaceState({}, document.title, "/");
     } else if (status === 'failure') {
       toast.error("O pagamento não foi concluído. Tente novamente.");
+      if (type === 'plan' || type === 'ad') {
+        setActiveTab('CONFIG');
+        localStorage.setItem('settings_pending_tab', type === 'plan' ? 'PLANOS' : 'ANUNCIO');
+      }
       window.history.replaceState({}, document.title, "/");
     }
 
@@ -1064,7 +1078,7 @@ export const App: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <div className="p-4 pt-6 max-w-7xl mx-auto">
-          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} />}
+          {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} historicalSummaries={historicalSummaries} />}
         {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} adjustStockItem={adjustStockItem} />}

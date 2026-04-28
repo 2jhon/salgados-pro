@@ -722,8 +722,24 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
                      <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Validade da Promoção (Opcional)</label>
                      <input 
                        type="datetime-local" 
-                       value={newItem.promoEndsAt ? new Date(new Date(newItem.promoEndsAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} 
-                       onChange={e => setNewItem({...newItem, promoEndsAt: e.target.value ? new Date(e.target.value).toISOString() : undefined})} 
+                       value={(() => {
+                          try {
+                            if (!newItem.promoEndsAt) return '';
+                            const d = new Date(newItem.promoEndsAt);
+                            if (isNaN(d.getTime())) return '';
+                            return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                          } catch { return ''; }
+                        })()} 
+                       onChange={e => {
+                          if (!e.target.value) {
+                            setNewItem({...newItem, promoEndsAt: undefined});
+                            return;
+                          }
+                          const d = new Date(e.target.value);
+                          if (!isNaN(d.getTime())) {
+                            setNewItem({...newItem, promoEndsAt: d.toISOString()});
+                          }
+                        }} 
                        className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-600 outline-none" 
                      />
                    </div>

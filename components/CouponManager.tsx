@@ -276,8 +276,24 @@ export const CouponManager: React.FC<CouponManagerProps> = ({ workspaceId }) => 
                   <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Validade (Opcional)</label>
                   <input 
                     type="datetime-local" 
-                    value={editingCoupon.expiresAt ? new Date(new Date(editingCoupon.expiresAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} 
-                    onChange={e => setEditingCoupon({...editingCoupon, expiresAt: e.target.value ? new Date(e.target.value).toISOString() : undefined})} 
+                    value={(() => {
+                      try {
+                        if (!editingCoupon.expiresAt) return '';
+                        const d = new Date(editingCoupon.expiresAt);
+                        if (isNaN(d.getTime())) return '';
+                        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                      } catch { return ''; }
+                    })()} 
+                    onChange={e => {
+                      if (!e.target.value) {
+                        setEditingCoupon({...editingCoupon, expiresAt: undefined});
+                        return;
+                      }
+                      const d = new Date(e.target.value);
+                      if (!isNaN(d.getTime())) {
+                        setEditingCoupon({...editingCoupon, expiresAt: d.toISOString()});
+                      }
+                    }} 
                     className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-600 outline-none" 
                   />
                 </div>

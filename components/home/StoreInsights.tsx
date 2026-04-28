@@ -10,6 +10,7 @@ interface StoreInsightsProps {
   archives: AppSection[];
   user: User;
   financialInsights?: any[];
+  historicalSummaries?: any[];
 }
 
 export const StoreInsights: React.FC<StoreInsightsProps> = ({
@@ -17,7 +18,8 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   sections,
   archives,
   user,
-  financialInsights = []
+  financialInsights = [],
+  historicalSummaries = []
 }) => {
   const isOwner = user.role === 'OWNER';
   
@@ -129,23 +131,52 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
 
   const [selectedArchiveYear, setSelectedArchiveYear] = useState<string | null>(null);
 
-  const archiveChartData = useMemo(() => {
-    if (archives.length === 0) return null;
+  // Unified archive tracker - combines legacy AppSections and new historical_summaries table
+  const unifiedArchives = useMemo(() => {
+    const list: { year: string, data: { name: string, Vendas: number, Gastos: number }[] }[] = [];
     
-    const archive = selectedArchiveYear 
-      ? archives.find(a => a.name.includes(selectedArchiveYear))
-      : archives[0];
-      
-    if (!archive) return null;
+    // 1. New DB Summaries (Preferred)
+    const years = Array.from(new Set(historicalSummaries.map(s => String(s.year))));
+    years.forEach(year => {
+      const yearData = historicalSummaries.filter(s => String(s.year) === year);
+      const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+      const chartRows = months.map((m, idx) => {
+        const monthItem = yearData.find(d => d.month === idx + 1);
+        return {
+          name: m,
+          Vendas: Number(monthItem?.total_sales || 0),
+          Gastos: Number(monthItem?.total_expenses || 0)
+        };
+      });
+      list.push({ year, data: chartRows });
+    });
 
-    const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    // 2. Legacy AppSections (Fallback/Compatibility)
+    archives.forEach(a => {
+      const year = a.name.replace('Resumo ', '');
+      if (list.find(l => l.year === year)) return; // Avoid duplicates
+
+      const monthsLabels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+      const chartRows = a.items.map((item, idx) => ({
+        name: monthsLabels[idx] || item.name,
+        Vendas: item.defaultPriceAVista || 0,
+        Gastos: item.defaultPriceAPrazo || 0
+      }));
+      list.push({ year, data: chartRows });
+    });
+
+    return list.sort((a, b) => Number(b.year) - Number(a.year));
+  }, [historicalSummaries, archives]);
+
+  const archiveChartData = useMemo(() => {
+    if (unifiedArchives.length === 0) return null;
     
-    return archive.items.map((item, idx) => ({
-      name: months[idx] || item.name,
-      Vendas: item.defaultPriceAVista || 0,
-      Gastos: item.defaultPriceAPrazo || 0
-    }));
-  }, [archives, selectedArchiveYear]);
+    const entry = selectedArchiveYear 
+      ? unifiedArchives.find(a => a.year === selectedArchiveYear)
+      : unifiedArchives[0];
+      
+    return entry?.data || null;
+  }, [unifiedArchives, selectedArchiveYear]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -265,16 +296,15 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
               <History className="w-5 h-5 text-amber-500" />
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Resumo Anual Arquivado</h3>
             </div>
-            {archives.length > 1 && (
+            {unifiedArchives.length > 1 && (
               <select 
-                value={selectedArchiveYear || ''} 
+                value={selectedArchiveYear || (unifiedArchives[0]?.year || '')} 
                 onChange={(e) => setSelectedArchiveYear(e.target.value)}
                 className="bg-slate-50 border-none text-[10px] font-black uppercase tracking-widest rounded-xl px-3 py-2 outline-none"
               >
-                {archives.map(a => {
-                  const year = a.name.replace('Resumo ', '');
-                  return <option key={a.id} value={year}>{year}</option>;
-                })}
+                {unifiedArchives.map(a => (
+                  <option key={a.year} value={a.year}>{a.year}</option>
+                ))}
               </select>
             )}
           </div>

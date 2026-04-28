@@ -28,7 +28,7 @@ SELECT
     COALESCE(s.commission_rate, 0) as commission_rate,
     (CASE WHEN s.mp_access_token IS NOT NULL THEN true ELSE false END) as mp_connected,
     (SELECT count(*)::int FROM public.users u WHERE u.workspace_id = o.workspace_id) as user_count,
-    (SELECT count(*)::int FROM public.ads a WHERE a.owner_id::text = o.id::text) as ad_count
+    (SELECT count(*)::int FROM public.app_banners a WHERE a.owner_id::text = o.id::text) as ad_count
 FROM public.users o
 LEFT JOIN public.store_profiles s ON s.workspace_id = o.workspace_id
 WHERE o.role = 'OWNER';

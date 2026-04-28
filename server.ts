@@ -319,7 +319,6 @@ async function startServer() {
               await supabase
                 .from('store_profiles')
                 .update({ 
-                  active_plan_id: planId,
                   pro_expires_at: expires,
                   ad_free_expires_at: expires
                 })

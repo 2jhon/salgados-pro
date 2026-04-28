@@ -8,7 +8,8 @@ import {
   CheckCircle2, XCircle, Search, Zap, ExternalLink, 
   UserCheck, Building2, Loader2, Phone, KeyRound, BarChart3, Plus, Edit2, DollarSign,
   Settings as SettingsIcon, Save, AlertTriangle, Check, EyeOff, Megaphone, ShoppingCart,
-  ImageIcon, Trash2, Clock, Calendar, X, Star, LogOut, Ban, History, Store
+  ImageIcon, Trash2, Clock, Calendar, X, Star, LogOut, Ban, History, Store,
+  Package, ChevronUp, ChevronDown
 } from 'lucide-react';
 
 interface GlobalCompany {
@@ -56,6 +57,7 @@ interface SubscriptionPlan {
   icon: string;
   active: boolean;
   sort_order: number;
+  duration_days?: number;
   promo_price?: number | string;
   promo_ends_at?: string;
   grants_pro: boolean;
@@ -86,7 +88,7 @@ const AdTimer: React.FC<{ expiresAt: string; label?: string; lightMode?: boolean
     const end = new Date(expiresAt).getTime();
     const diff = end - now;
 
-    if (diff <= 0) {
+    if (isNaN(diff) || diff <= 0) {
       setTimeLeft(null);
       return;
     }
@@ -160,8 +162,17 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     field: 'hasProPlan' | 'isAdFree' | 'isAdvertiser';
   } | null>(null);
 
+  // Modal para planos customizados (criados pelo Super Admin)
+  const [customPlanToApprove, setCustomPlanToApprove] = useState<{ company: GlobalCompany; plan: SubscriptionPlan } | null>(null);
+  const [customPlanToManage, setCustomPlanToManage] = useState<{ company: GlobalCompany; plan: SubscriptionPlan } | null>(null);
+
   // Novo estado para o modal de confirmação de encerramento
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [expandedPlansForCompany, setExpandedPlansForCompany] = useState<Record<string, boolean>>({});
+
+  const togglePlans = (workspaceId: string) => {
+    setExpandedPlansForCompany(prev => ({ ...prev, [workspaceId]: !prev[workspaceId] }));
+  };
 
   // Novo estado para o modal de exclusão de empresa
   const [companyToDelete, setCompanyToDelete] = useState<GlobalCompany | null>(null);
@@ -376,7 +387,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     setIsSaving(true);
     try {
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + approvalDays);
+      const days = Number(approvalDays) || 30;
+      expiresAt.setDate(expiresAt.getDate() + days);
+      
+      const isoDate = expiresAt.toISOString();
       
       const dbFields: any = {
         'hasProPlan': { f: 'has_pro_plan', d: 'pro_expires_at' },
@@ -387,11 +401,12 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       const fields = dbFields[planToApprove.field];
       const { error } = await supabase.from('users').update({ 
         [fields.f]: true, 
-        [fields.d]: expiresAt.toISOString() 
+        [fields.d]: isoDate 
       }).eq('workspace_id', planToApprove.company.workspaceId).eq('role', 'OWNER');
       
-      if (!error) {
-        // ATIVAÇÃO AUTOMÁTICA DA VITRINE SE FOR PLANO PRO
+      if (error) throw error;
+
+      // ATIVAÇÃO AUTOMÁTICA DA VITRINE SE FOR PLANO PRO
         if (planToApprove.field === 'hasProPlan') {
           console.log("Ativando vitrine automaticamente via Upsert...");
           await supabase
@@ -409,8 +424,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
           [fields.d === 'pro_expires_at' ? 'proExpiresAt' : fields.d === 'ad_free_expires_at' ? 'adFreeExpiresAt' : 'advertiserExpiresAt']: expiresAt.toISOString() 
         } : c));
         setPlanToApprove(null);
-      }
-    } catch (e) { toast.error("Erro ao ativar plano."); }
+    } catch (e: any) { 
+      console.error(e);
+      toast.error(e.message || "Erro ao ativar plano."); 
+    }
     finally { setIsSaving(false); }
   };
 
@@ -466,7 +483,8 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     setIsSaving(true);
     try {
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + approvalDays);
+      const days = Number(approvalDays) || 30;
+      expiresAt.setDate(expiresAt.getDate() + days);
       const isoDate = expiresAt.toISOString();
 
       // 1. Atualiza o Anúncio
@@ -562,6 +580,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       const { error } = await supabase.from('subscription_plans').upsert({
         ...plan,
         price: Number(plan.price) || 0,
+        duration_days: Number(plan.duration_days) || 30, // Default 30 days
         promo_price: plan.promo_price ? Number(plan.promo_price) : null,
         promo_ends_at: plan.promo_ends_at || null,
         grants_pro: !!plan.grants_pro,
@@ -696,6 +715,96 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     }
   };
 
+  const handleCustomPlanClick = (company: GlobalCompany, plan: SubscriptionPlan) => {
+    const now = timeTick;
+    const isActive = company.activePlanId === plan.id && company.hasProPlan && company.proExpiresAt && new Date(company.proExpiresAt).getTime() > now;
+
+    if (isActive) {
+       setCustomPlanToManage({ company, plan });
+    } else {
+       setCustomPlanToApprove({ company, plan });
+    }
+  };
+
+  const handleApproveCustomPlan = async () => {
+    if (!customPlanToApprove) return;
+    setIsSaving(true);
+    try {
+      const expiresAt = new Date();
+      const days = Number(customPlanToApprove.plan.duration_days) || 30;
+      expiresAt.setDate(expiresAt.getDate() + days);
+      
+      const isoDate = expiresAt.toISOString();
+      
+      const { error } = await supabase.from('users').update({ 
+        has_pro_plan: true,
+        pro_expires_at: isoDate,
+        is_ad_free: true,
+        ad_free_expires_at: isoDate,
+        active_plan_id: customPlanToApprove.plan.id
+      }).eq('workspace_id', customPlanToApprove.company.workspaceId).eq('role', 'OWNER');
+      
+      if (error) throw error;
+
+      await supabase
+          .from('store_profiles')
+          .upsert({ 
+            workspace_id: customPlanToApprove.company.workspaceId,
+            active: true,
+            name: customPlanToApprove.company.name || 'Minha Loja'
+          }, { onConflict: 'workspace_id' });
+
+        setCompanies(prev => prev.map(c => c.workspaceId === customPlanToApprove.company.workspaceId ? { 
+          ...c, 
+          hasProPlan: true,
+          proExpiresAt: isoDate,
+          isAdFree: true,
+          adFreeExpiresAt: isoDate,
+          activePlanId: customPlanToApprove.plan.id
+        } : c));
+        setCustomPlanToApprove(null);
+    } catch (e: any) { 
+      console.error(e);
+      toast.error(e.message || "Erro ao ativar plano custom."); 
+    }
+    finally { setIsSaving(false); }
+  };
+
+  const executeEndCustomPlan = async () => {
+    if (!customPlanToManage) return;
+    
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.from('users').update({ 
+        has_pro_plan: false, 
+        pro_expires_at: null,
+        is_ad_free: false,
+        ad_free_expires_at: null,
+        active_plan_id: null
+      }).eq('workspace_id', customPlanToManage.company.workspaceId).eq('role', 'OWNER');
+      
+      if (error) throw error;
+
+      await supabase
+        .from('store_profiles')
+        .update({ active: false })
+        .eq('workspace_id', customPlanToManage.company.workspaceId);
+      
+      setCompanies(prev => prev.map(c => c.workspaceId === customPlanToManage.company.workspaceId ? { 
+        ...c, 
+        hasProPlan: false,
+        proExpiresAt: undefined,
+        isAdFree: false,
+        adFreeExpiresAt: undefined,
+        activePlanId: undefined
+      } : c));
+      setShowEndConfirm(false);
+      setCustomPlanToManage(null);
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao encerrar.");
+    } finally { setIsSaving(false); }
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-700">
       <header className="bg-slate-950 p-8 rounded-[3rem] text-white shadow-2xl relative border-2 border-amber-500/30">
@@ -757,32 +866,79 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                       </button>
                       <a href={`https://wa.me/55${c.ownerPhone.replace(/\D/g, '')}`} target="_blank" className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><Phone size={18} /></a>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <button onClick={() => handlePlanClick(c, 'hasProPlan')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isProActive ? 'bg-amber-500 border-amber-600 text-slate-950 shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                        <ShoppingCart size={18} />
-                        <span className="text-[7px] font-black uppercase">Plano Pro</span>
-                        {isProActive && <AdTimer expiresAt={c.proExpiresAt!} lightMode />}
+                    <div className="mt-4">
+                      <button onClick={() => togglePlans(c.workspaceId)} className="w-full flex items-center justify-between p-4 bg-slate-50/80 rounded-2xl hover:bg-slate-100 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <Package size={18} className="text-slate-500" />
+                          <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Planos e Módulos</span>
+                        </div>
+                        {expandedPlansForCompany[c.workspaceId] ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
                       </button>
-                      <button onClick={() => handlePlanClick(c, 'isAdFree')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isAdFreeActive ? 'bg-blue-600 border-blue-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                        <EyeOff size={18} />
-                        <span className="text-[7px] font-black uppercase">Sem Ads</span>
-                        {isAdFreeActive && <AdTimer expiresAt={c.adFreeExpiresAt!} lightMode />}
-                      </button>
-                      <button onClick={() => handlePlanClick(c, 'isAdvertiser')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isAdvertiserActive ? 'bg-emerald-600 border-emerald-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                        <Megaphone size={18} />
-                        <span className="text-[7px] font-black uppercase">Anunciante</span>
-                        {isAdvertiserActive && <AdTimer expiresAt={c.advertiserExpiresAt!} lightMode />}
-                      </button>
-                      <button onClick={() => {
-                        setCommissionTarget(c);
-                        setTempCommissionActive(c.commissionActive || false);
-                        setTempCommissionRate(c.commissionRate || 0);
-                      }} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${c.commissionActive ? 'bg-indigo-600 border-indigo-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                        <Store size={18} />
-                        <span className="text-[7px] font-black uppercase">Marketplace</span>
-                        {c.commissionActive && <span className="text-[10px] font-black">{c.commissionRate}%</span>}
-                        {c.mpConnected && <span className="text-[6px] font-bold text-indigo-200 uppercase">MP OK</span>}
-                      </button>
+
+                      {expandedPlansForCompany[c.workspaceId] && (
+                        <div className="mt-2 space-y-6 animate-in slide-in-from-top-2 duration-300">
+                          {/* SEÇÃO 1: PLANOS DE ASSINATURA (DB) */}
+                          {plans.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 px-2">
+                                <Zap size={12} className="text-violet-500" />
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Planos Oficiais</span>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {plans.map(p => {
+                                  const isThisPlanActive = c.activePlanId === p.id && isProActive;
+                                  return (
+                                    <button key={p.id} onClick={() => handleCustomPlanClick(c, p)} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isThisPlanActive ? 'bg-violet-600 border-violet-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-violet-200'}`}>
+                                      <Zap size={18} />
+                                      <span className="text-[7px] font-black uppercase text-center leading-tight">{p.name}</span>
+                                      {isThisPlanActive && <AdTimer expiresAt={c.proExpiresAt!} lightMode />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* SEÇÃO 2: MÓDULOS E CONTROLE MANUAL */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 px-2">
+                              <SettingsIcon size={12} className="text-slate-400" />
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Módulos & Manual</span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <button onClick={() => handlePlanClick(c, 'hasProPlan')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isProActive ? 'bg-amber-500 border-amber-600 text-slate-950 shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-amber-200'}`}>
+                                <ShoppingCart size={18} />
+                                <span className="text-[7px] font-black uppercase">Modo Pro</span>
+                                {isProActive && !c.activePlanId && <span className="text-[6px] font-bold text-amber-900/50 mt-1 uppercase tracking-tighter">Manual</span>}
+                                {isProActive && <AdTimer expiresAt={c.proExpiresAt!} lightMode />}
+                              </button>
+                              
+                              <button onClick={() => handlePlanClick(c, 'isAdFree')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isAdFreeActive ? 'bg-blue-600 border-blue-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-blue-200'}`}>
+                                <EyeOff size={18} />
+                                <span className="text-[7px] font-black uppercase">Sem Ads</span>
+                                {isAdFreeActive && <AdTimer expiresAt={c.adFreeExpiresAt!} lightMode />}
+                              </button>
+                              
+                              <button onClick={() => handlePlanClick(c, 'isAdvertiser')} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${isAdvertiserActive ? 'bg-emerald-600 border-emerald-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-emerald-200'}`}>
+                                <Megaphone size={18} />
+                                <span className="text-[7px] font-black uppercase">Anunciante</span>
+                                {isAdvertiserActive && <AdTimer expiresAt={c.advertiserExpiresAt!} lightMode />}
+                              </button>
+                              
+                              <button onClick={() => {
+                                setCommissionTarget(c);
+                                setTempCommissionActive(c.commissionActive || false);
+                                setTempCommissionRate(c.commissionRate || 0);
+                              }} className={`p-4 rounded-2xl flex flex-col items-center gap-2 border-2 transition-all ${c.commissionActive ? 'bg-indigo-600 border-indigo-700 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-indigo-200'}`}>
+                                <Store size={18} />
+                                <span className="text-[7px] font-black uppercase">Marketplace</span>
+                                {c.commissionActive && <span className="text-[10px] font-black">{c.commissionRate}%</span>}
+                                {c.mpConnected && <span className="text-[6px] font-bold text-indigo-100 uppercase bg-indigo-500/30 px-2 py-0.5 rounded-full mt-1">Conectado</span>}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1063,6 +1219,55 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
         </div>
       )}
 
+      {/* MODAL PARA ATIVAR PLANO CUSTOMIZADO */}
+      {customPlanToApprove && (
+        <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl overflow-hidden">
+              <header className="flex justify-between items-center mb-8"><div><h3 className="text-xl font-black text-slate-800 uppercase">Vincular {customPlanToApprove.plan.name}</h3><p className="text-[9px] font-black text-violet-600 uppercase mt-1">Duração: {customPlanToApprove.plan.duration_days} dias</p></div><button onClick={() => setCustomPlanToApprove(null)}><X size={24} className="text-slate-400" /></button></header>
+              <button onClick={handleApproveCustomPlan} disabled={isSaving} className="w-full py-5 bg-violet-600 text-white rounded-[1.8rem] font-black uppercase text-xs shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">{isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Ativar Plano</button>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL DE GERENCIAMENTO PLANO CUSTOMIZADO */}
+      {customPlanToManage && !showEndConfirm && (
+        <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl overflow-hidden text-center">
+              <div className="flex justify-center mb-6">
+                 <div className="p-4 bg-slate-100 rounded-3xl text-slate-500"><SettingsIcon size={32} /></div>
+              </div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2">Gerenciar Plano</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase mb-8">{customPlanToManage.company.name} - {customPlanToManage.plan.name}</p>
+              
+              <div className="space-y-3">
+                 <button 
+                   onClick={() => {
+                     setCustomPlanToApprove(customPlanToManage);
+                     setCustomPlanToManage(null);
+                   }} 
+                   className="w-full py-5 bg-violet-600 text-white rounded-[1.8rem] font-black uppercase text-xs shadow-lg flex items-center justify-center gap-3 active:scale-95 transition-all hover:bg-violet-500"
+                 >
+                   <History size={16} /> Renovar ({customPlanToManage.plan.duration_days} dias)
+                 </button>
+
+                 <button 
+                   onClick={executeEndCustomPlan} 
+                   className="w-full py-5 bg-rose-50 text-rose-600 border border-rose-100 rounded-[1.8rem] font-black uppercase text-xs shadow-none flex items-center justify-center gap-3 active:scale-95 transition-all hover:bg-rose-100 hover:border-rose-200"
+                 >
+                   <Ban size={16} /> Encerrar Assinatura
+                 </button>
+
+                 <button 
+                   onClick={() => setCustomPlanToManage(null)} 
+                   className="w-full py-5 text-slate-400 font-black uppercase text-xs mt-2"
+                 >
+                   Pular
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* MODAL DE APROVAÇÃO (PRAZO) */}
       {(adToApprove || planToApprove) && (
         <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
@@ -1150,6 +1355,16 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                   step="0.01"
                   value={editingPlan.price} 
                   onChange={e => setEditingPlan({ ...editingPlan, price: e.target.value })}
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-amber-500/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Duração do Plano (Dias)</label>
+                <input 
+                  type="number"
+                  value={editingPlan.duration_days || 30} 
+                  onChange={e => setEditingPlan({ ...editingPlan, duration_days: parseInt(e.target.value) || 1 })}
                   className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-amber-500/30"
                 />
               </div>

@@ -44,13 +44,15 @@ interface HomeProps {
   fetchNextTransactions: () => Promise<void>;
   loadingTransactions: boolean;
   financialInsights?: any[];
+  historicalSummaries?: any[];
 }
 
 export const Home: React.FC<HomeProps> = ({ 
   sections, archives, visibleSections, transactions, user, onNavigate, 
   ads, incrementClick, deleteTransaction, plans, stores, stalls = [],
   hasMoreTransactions, fetchNextTransactions, loadingTransactions,
-  financialInsights = []
+  financialInsights = [],
+  historicalSummaries = []
 }) => {
   const {
     isOwner,
@@ -163,6 +165,7 @@ export const Home: React.FC<HomeProps> = ({
           archives={archives}
           user={user}
           financialInsights={financialInsights}
+          historicalSummaries={historicalSummaries}
         />
       )}
 

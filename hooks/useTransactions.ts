@@ -37,6 +37,7 @@ export const useTransactions = (
   const [page, setPage] = useState(0);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastAutoArchiveCheck, setLastAutoArchiveCheck] = useState<number | null>(null);
   const isFetchingRef = useRef(false);
 
 
@@ -618,8 +619,14 @@ export const useTransactions = (
         pastMonth.setHours(0,0,0,0);
         query = query.gte('date', pastMonth.toISOString());
       } else if (period === 'custom' && range) {
-        if (range.start) query = query.gte('date', new Date(range.start).toISOString());
-        if (range.end) query = query.lte('date', new Date(range.end + 'T23:59:59.999Z').toISOString());
+        if (range.start) {
+          const dStart = new Date(range.start);
+          if (!isNaN(dStart.getTime())) query = query.gte('date', dStart.toISOString());
+        }
+        if (range.end) {
+          const dEnd = new Date(range.end + 'T23:59:59.999Z');
+          if (!isNaN(dEnd.getTime())) query = query.lte('date', dEnd.toISOString());
+        }
       }
 
       if (cats && cats.length > 0) query = query.in('category', cats);
@@ -635,78 +642,84 @@ export const useTransactions = (
 
   const archiveYear = useCallback(async (wid: string, year: number) => {
     const cleanWid = String(wid).trim().toLowerCase();
-    const startDate = new Date(year, 0, 1).toISOString();
-    const endDate = new Date(year, 11, 31, 23, 59, 59, 999).toISOString();
     
-    let allTx: any[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    
-    while (true) {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('workspace_id', cleanWid)
-        .eq('is_pending', false)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-        
+    try {
+      nexusReport(`Iniciando consolidação do ano ${year}...`, 'START', 'PROCESS');
+      
+      const { data, error } = await supabase.rpc('archive_old_transactions', {
+        p_workspace_id: cleanWid,
+        p_months_to_keep: 12 // No modo manual "Ano", deixamos 12 meses (ou 0 se quiser limpar tudo)
+      });
+
       if (error) throw error;
-      if (!data || data.length === 0) break;
-      allTx = [...allTx, ...data];
-      if (data.length < pageSize) break;
-      page++;
+
+      if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
+      nexusReport("Consolidação concluída com sucesso.", 'DONE', 'PROCESS');
+      return (data && data[0]?.archived_count) || 0;
+    } catch (e: any) {
+      console.error("Erro no ArchiveYear:", e);
+      nexusReport("Falha ao consolidar dados.", 'FAIL', 'PROCESS');
+      throw e;
     }
-    
-    if (allTx.length === 0) return 0;
-    
-    const monthlyData: Record<number, { sales: number, expenses: number }> = {};
-    for (let i = 0; i < 12; i++) monthlyData[i] = { sales: 0, expenses: 0 };
-    
-    allTx.forEach(t => {
-      const date = new Date(t.date);
-      const month = date.getMonth();
-      if (t.sub_category === 'GASTOS') {
-        monthlyData[month].expenses += Number(t.value);
-      } else {
-        monthlyData[month].sales += Number(t.value);
+  }, [workspaceId, fetchTransactionsByWorkspace, nexusReport]);
+
+  const runAutoArchive = useCallback(async (wid: string) => {
+    if (!wid || !navigator.onLine) return;
+    const cleanWid = String(wid).trim().toLowerCase();
+
+    // Throttle checks per session
+    if (lastAutoArchiveCheck && (Date.now() - lastAutoArchiveCheck < 3600000)) return; // 1h
+    setLastAutoArchiveCheck(Date.now());
+
+    try {
+      // 1. Obter info da loja para saber a última data de arquivamento
+      const { data: profile } = await supabase
+        .from('store_profiles')
+        .select('last_auto_archive_at')
+        .eq('workspace_id', cleanWid)
+        .maybeSingle();
+
+      const lastRun = profile?.last_auto_archive_at ? new Date(profile.last_auto_archive_at).getTime() : 0;
+      const oneMonth = 30 * 24 * 60 * 60 * 1000;
+
+      if (Date.now() - lastRun > oneMonth) {
+        console.log(`[AutoArchive] Iniciando faxina mensal para workspace ${cleanWid}...`);
+        
+        const { data, error } = await supabase.rpc('archive_old_transactions', {
+          p_workspace_id: cleanWid,
+          p_months_to_keep: 6 // Padrão: mantemos 6 meses de dados granulados
+        });
+
+        if (error) {
+          console.warn("[AutoArchive] Falha silenciosa:", error);
+          return;
+        }
+
+        const count = (data && data[0]?.archived_count) || 0;
+        if (count > 0) {
+          console.log(`[AutoArchive] Sucesso! ${count} transações compactadas.`);
+          if (addNote) {
+            addNote({
+              workspaceId: cleanWid,
+              createdById: 'system',
+              createdByName: 'Sistema',
+              content: `Faxina Automática Concluída: ${count} registros antigos foram compactados para otimizar a velocidade do seu banco de dados.`,
+              type: 'LOG'
+            });
+          }
+        }
       }
-    });
-    
-    const summaryId = `ARCHIVE_${cleanWid}_${year}`;
-    const summaryItems = Object.keys(monthlyData).map(m => ({
-      id: `month_${m}`,
-      name: `Mês ${Number(m) + 1}`,
-      defaultPriceAVista: monthlyData[Number(m) as any].sales,
-      defaultPriceAPrazo: monthlyData[Number(m) as any].expenses
-    }));
-    
-    const { error: saveError } = await supabase.from('app_config').upsert({
-      id: summaryId,
-      workspace_id: cleanWid,
-      name: `Resumo ${year}`,
-      type: 'ARCHIVE_SUMMARY',
-      sort_order: 999,
-      items: summaryItems,
-      expenses: []
-    });
-    
-    if (saveError) throw saveError;
-    
-    const { error: delError } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('workspace_id', cleanWid)
-      .eq('is_pending', false)
-      .gte('date', startDate)
-      .lte('date', endDate);
-      
-      if (delError) throw delError;
-      
-    if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
-    return allTx.length;
-  }, [workspaceId, fetchTransactionsByWorkspace]);
+    } catch (e) {
+      console.warn("[AutoArchive] Erro inesperado:", e);
+    }
+  }, [lastAutoArchiveCheck, addNote]);
+
+  // Trigger AutoArchive on workspace activation
+  useEffect(() => {
+    if (workspaceId) {
+      runAutoArchive(workspaceId);
+    }
+  }, [workspaceId, runAutoArchive]);
 
   const reconnect = useCallback(async () => {
     setIsOffline(false);

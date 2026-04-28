@@ -133,5 +133,22 @@ export const useAnalytics = (userWorkspaceId?: string) => {
     }
   }, []);
 
-  return { trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights };
+  const getArchivedSummaries = useCallback(async (workspaceId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('historical_summaries')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('year', { ascending: false })
+        .order('month', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      console.error("[Analytics] Erro ao buscar resumos arquivados:", e);
+      return [];
+    }
+  }, []);
+
+  return { trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights, getArchivedSummaries };
 };
