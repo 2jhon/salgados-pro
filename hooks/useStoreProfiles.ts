@@ -40,7 +40,13 @@ export const useStoreProfiles = () => {
     mpAccessToken: p.mp_access_token,
     mpRefreshToken: p.mp_refresh_token,
     mpUserId: p.mp_user_id,
-    mpPublicKey: p.mp_public_key
+    mpPublicKey: p.mp_public_key,
+    waInstanceName: p.wa_instance_name,
+    waInstanceStatus: p.wa_instance_status,
+    waEnabled: p.wa_enabled,
+    waNotifyOnPayment: p.wa_notify_on_payment,
+    waNotifyOnNewNote: p.wa_notify_on_new_note,
+    waNotifyOnNewOrder: p.wa_notify_on_new_order
   }), []);
 
   const fetchPublicProfiles = useCallback(async (force: boolean = false, page: number = 0, limit: number = 50) => {
@@ -189,6 +195,14 @@ export const useStoreProfiles = () => {
       if (profile.mpRefreshToken !== undefined) payload.mp_refresh_token = profile.mpRefreshToken;
       if (profile.mpUserId !== undefined) payload.mp_user_id = profile.mpUserId;
       if (profile.mpPublicKey !== undefined) payload.mp_public_key = profile.mpPublicKey;
+
+      // Campos do Robô WhatsApp
+      if (profile.waEnabled !== undefined) payload.wa_enabled = Boolean(profile.waEnabled);
+      if (profile.waNotifyOnPayment !== undefined) payload.wa_notify_on_payment = Boolean(profile.waNotifyOnPayment);
+      if (profile.waNotifyOnNewNote !== undefined) payload.wa_notify_on_new_note = Boolean(profile.waNotifyOnNewNote);
+      if (profile.waNotifyOnNewOrder !== undefined) payload.wa_notify_on_new_order = Boolean(profile.waNotifyOnNewOrder);
+      if (profile.waInstanceName !== undefined) payload.wa_instance_name = profile.waInstanceName;
+      if (profile.waInstanceStatus !== undefined) payload.wa_instance_status = profile.waInstanceStatus;
       
       // Optimization: Only send portfolio if it was actually included in the update object
       if (profile.portfolio !== undefined) {

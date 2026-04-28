@@ -6,7 +6,8 @@ import {
   Save, Store, MapPin, Phone, Instagram, 
   Facebook, Loader2, X, Hash, Image as ImageIcon,
   Upload, Camera, Trash2, Bike, ShoppingBag, Store as StoreIcon, Navigation,
-  ShieldCheck, Fingerprint, Lock, UserIcon, Edit2
+  ShieldCheck, Fingerprint, Lock, UserIcon, Edit2,
+  MessageSquare, Zap, RefreshCcw, CheckCircle2, ShoppingCart, AlertTriangle
 } from 'lucide-react';
 import { hasBiometryConfigured, registerBiometryLocal, removeBiometryLocal } from '../lib/webauthnUtils';
 
@@ -22,7 +23,7 @@ interface StoreProfileSettingsProps {
 }
 
 export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ profile, onSave, onClose, workspaceId, hasProPlan, user, onSaveUser, isOwner }) => {
-  const [activeTab, setActiveTab] = useState<'USER' | 'IDENTITY' | 'LOCATION' | 'LOGISTICS'>('USER');
+  const [activeTab, setActiveTab] = useState<'USER' | 'IDENTITY' | 'LOCATION' | 'LOGISTICS' | 'WHATSAPP'>('USER');
 
   // Defensive initialization
   const [formData, setFormData] = useState<Omit<StoreProfile, 'id'>>(() => {
@@ -44,7 +45,13 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
         active: p.active ?? true,
         portfolio: p.portfolio || [],
         fulfillmentMode: p.fulfillmentMode || 'BOTH',
-        deliveryConfig: p.deliveryConfig || {}
+        deliveryConfig: p.deliveryConfig || {},
+        waEnabled: p.waEnabled ?? false,
+        waNotifyOnPayment: p.waNotifyOnPayment ?? true,
+        waNotifyOnNewNote: p.waNotifyOnNewNote ?? false,
+        waNotifyOnNewOrder: p.waNotifyOnNewOrder ?? true,
+        waInstanceName: p.waInstanceName || '',
+        waInstanceStatus: p.waInstanceStatus || ''
       };
     }
     return {
@@ -63,7 +70,13 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
       active: true,
       portfolio: [],
       fulfillmentMode: 'BOTH',
-      deliveryConfig: {}
+      deliveryConfig: {},
+      waEnabled: false,
+      waNotifyOnPayment: true,
+      waNotifyOnNewNote: false,
+      waNotifyOnNewOrder: true,
+      waInstanceName: '',
+      waInstanceStatus: ''
     };
   });
 
@@ -76,6 +89,93 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [waState, setWaState] = useState<{ state: string, qrcode: string | null }>({ state: 'DISCONNECTED', qrcode: null });
+  const [loadingWa, setLoadingWa] = useState(false);
+  const [hasWaInstanceLocal, setHasWaInstanceLocal] = useState(!!profile?.waInstanceName);
+  const [showWaDeleteConfirm, setShowWaDeleteConfirm] = useState(false);
+
+  const fetchWaStatus = React.useCallback(async (force = false, isSilent = false) => {
+    if (!profile?.workspaceId) return;
+    if (!isSilent) setLoadingWa(true);
+    try {
+      const resp = await fetch(`/api/whatsapp/instance-status/${profile.workspaceId}${force ? '?force=true' : ''}`);
+      const data = await resp.json();
+      setWaState(data);
+      if (data.state === 'CONNECTED') {
+        setHasWaInstanceLocal(true);
+      }
+    } catch (e) {
+      console.warn("Falha ao checar WhatsApp status");
+    } finally {
+      if (!isSilent) setLoadingWa(false);
+    }
+  }, [profile?.workspaceId]);
+
+  useEffect(() => {
+    if (profile?.waInstanceName || hasWaInstanceLocal) {
+      fetchWaStatus();
+    }
+  }, [profile?.waInstanceName, hasWaInstanceLocal, fetchWaStatus]);
+
+  // Polling em background
+  useEffect(() => {
+    if ((profile?.waInstanceName || hasWaInstanceLocal) && waState.state !== 'CONNECTED') {
+      const interval = setInterval(() => {
+        fetchWaStatus(false, true);
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [profile?.waInstanceName, hasWaInstanceLocal, waState.state, fetchWaStatus]);
+
+  const handleCreateWaInstance = async () => {
+    setLoadingWa(true);
+    try {
+      const resp = await fetch('/api/whatsapp/create-instance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspaceId })
+      });
+      const data = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(data.error || "Erro desconhecido no servidor");
+      }
+
+      if (data.instance) {
+        toast.success("Instância preparada! Aguarde o QR Code.");
+        setHasWaInstanceLocal(true);
+        // Pequeno delay para a Evolution processar
+        setTimeout(() => fetchWaStatus(), 2000);
+      } else {
+        toast.error("A API não retornou uma instância válida.");
+      }
+    } catch (e: any) {
+      console.error("[WA Create]:", e);
+      toast.error(e.message || "Erro ao criar instância.");
+    } finally {
+      setLoadingWa(false);
+    }
+  };
+
+  const handleLogoutWa = async () => {
+    setLoadingWa(true);
+    setShowWaDeleteConfirm(false);
+    try {
+      await fetch('/api/whatsapp/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspaceId })
+      });
+      setWaState({ state: 'DISCONNECTED', qrcode: null });
+      setHasWaInstanceLocal(false);
+      toast.success("WhatsApp desconectado.");
+    } catch (e) {
+      toast.error("Erro ao desconectar.");
+    } finally {
+      setLoadingWa(false);
+    }
+  };
+
   const [isBiometryActive, setIsBiometryActive] = useState(false);
   
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -105,7 +205,13 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
         active: profile.active ?? true,
         portfolio: profile.portfolio || [],
         fulfillmentMode: profile.fulfillmentMode || 'BOTH',
-        deliveryConfig: profile.deliveryConfig || {}
+        deliveryConfig: profile.deliveryConfig || {},
+        waEnabled: profile.waEnabled ?? false,
+        waNotifyOnPayment: profile.waNotifyOnPayment ?? true,
+        waNotifyOnNewNote: profile.waNotifyOnNewNote ?? false,
+        waNotifyOnNewOrder: profile.waNotifyOnNewOrder ?? true,
+        waInstanceName: profile.waInstanceName || '',
+        waInstanceStatus: profile.waInstanceStatus || ''
       });
     }
   }, [profile, workspaceId]);
@@ -260,7 +366,11 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
            longitude: formData.longitude,
            active: formData.active,
            fulfillmentMode: formData.fulfillmentMode,
-           deliveryConfig: formData.deliveryConfig
+           deliveryConfig: formData.deliveryConfig,
+           waEnabled: formData.waEnabled,
+           waNotifyOnPayment: formData.waNotifyOnPayment,
+           waNotifyOnNewNote: formData.waNotifyOnNewNote,
+           waNotifyOnNewOrder: formData.waNotifyOnNewOrder
          };
 
          if (formData.logoUrl !== profile?.logoUrl) {
@@ -307,6 +417,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
     { id: 'IDENTITY', label: 'Identidade da Empresa', icon: Store, show: isOwner },
     { id: 'LOCATION', label: 'Contato e Localização', icon: MapPin, show: isOwner },
     { id: 'LOGISTICS', label: 'Logística e Vendas', icon: Bike, show: isOwner },
+    { id: 'WHATSAPP', label: 'Robô WhatsApp', icon: MessageSquare, show: isOwner },
   ];
 
   return (
@@ -500,7 +611,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                      </div>
                      <div className="relative">
                         <Facebook className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500" />
-                        <input value={formData.facebook} onChange={e => setFormData({...formData, facebook: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="/suapagina" />
+                        <input value={formData.facebook || ''} onChange={e => setFormData({...formData, facebook: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:border-indigo-300" placeholder="/suapagina" />
                      </div>
                   </div>
                </div>
@@ -575,6 +686,196 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
             </div>
           )}
 
+          {/* WHATSAPP TAB */}
+          {activeTab === 'WHATSAPP' && (
+            <div className="space-y-6 max-w-xl mx-auto">
+               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 overflow-hidden relative">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl">
+                      <MessageSquare size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Automação de WhatsApp</h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Notificações Inteligentes & Evolution API</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {!hasWaInstanceLocal ? (
+                      <div className="text-center py-8 px-4 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                        <div className="w-16 h-16 bg-white border border-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                           <Zap size={24} className="text-slate-300" />
+                        </div>
+                        <h4 className="text-xs font-black text-slate-700 uppercase mb-2">Sincronização Desconectada</h4>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase max-w-[200px] mx-auto mb-6">
+                          Ative as notificações automáticas para pagamentos Pix e novos pedidos via IA.
+                        </p>
+                        <button 
+                          type="button"
+                          onClick={handleCreateWaInstance}
+                          disabled={loadingWa}
+                          className="bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest py-3 px-8 rounded-2xl hover:bg-emerald-700 transition-all disabled:opacity-50"
+                        >
+                          {loadingWa ? 'PREPARANDO...' : 'ATIVAR AGORA'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div className="bg-slate-50 rounded-3xl p-6 text-center flex flex-col items-center justify-center min-h-[300px]">
+                            {waState.state === 'CONNECTED' ? (
+                              <div className="space-y-4">
+                                <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                   <MessageSquare size={32} />
+                                </div>
+                                <div className="flex items-center justify-center gap-2">
+                                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                                   <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">CONECTADO</span>
+                                </div>
+                                <button 
+                                   type="button"
+                                   onClick={handleLogoutWa}
+                                   className="text-[8px] font-black text-red-400 hover:text-red-600 uppercase tracking-tighter"
+                                >
+                                   Desconectar Dispositivo
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-6 w-full">
+                                <div className="flex flex-col items-center gap-2">
+                                   <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Pareamento WhatsApp</h4>
+                                   <p className="text-[9px] text-slate-400 font-bold uppercase">Abra o WhatsApp &gt; Dispositivos Conectados</p>
+                                </div>
+
+                                <div className="relative group">
+                                   {waState.qrcode ? (
+                                      <div className="bg-white p-6 rounded-[40px] inline-block shadow-xl border-4 border-slate-100 relative overflow-hidden">
+                                         <img 
+                                           src={waState.qrcode.startsWith('data:') ? waState.qrcode : `data:image/png;base64,${waState.qrcode}`} 
+                                           alt="QR Code WhatsApp" 
+                                           className="w-56 h-56 md:w-64 md:h-64 object-contain"
+                                         />
+                                         {loadingWa && (
+                                           <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-[36px]">
+                                              <RefreshCcw className="w-8 h-8 text-emerald-500 animate-spin" />
+                                           </div>
+                                         )}
+                                      </div>
+                                   ) : (
+                                      <div className="w-56 h-56 md:w-64 md:h-64 bg-slate-200 animate-pulse rounded-[40px] mx-auto flex flex-col items-center justify-center gap-3">
+                                         <Zap size={24} className="text-slate-400" />
+                                         <span className="text-[8px] font-black text-slate-500 uppercase">Aguardando Servidor...</span>
+                                      </div>
+                                   )}
+                                </div>
+                                <div className="flex items-center justify-center gap-4">
+                                   <button 
+                                      onClick={() => fetchWaStatus(true)} 
+                                      disabled={loadingWa}
+                                      type="button" 
+                                      className="bg-white border border-slate-200 text-[9px] font-black text-slate-600 px-4 py-2 rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+                                   >
+                                      <RefreshCcw size={12} className={loadingWa ? 'animate-spin' : ''} /> ATUALIZAR QR
+                                   </button>
+                                   <button 
+                                      onClick={() => setShowWaDeleteConfirm(true)} 
+                                      type="button" 
+                                      className="text-[9px] font-black text-red-500 uppercase hover:underline"
+                                   >
+                                      Reiniciar
+                                   </button>
+                                </div>
+                              </div>
+                            )}
+                         </div>
+
+                         {/* Modal de Confirmação de Deleção WA */}
+                         {showWaDeleteConfirm && (
+                            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+                              <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl border-4 border-slate-50">
+                                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                                   <Zap size={32} />
+                                </div>
+                                <h3 className="text-xl font-black text-slate-900 text-center mb-2 uppercase">Reiniciar WhatsApp?</h3>
+                                <p className="text-slate-500 text-[10px] font-bold uppercase text-center mb-8 leading-relaxed">
+                                  Isso removerá a sessão atual na Evolution API. Você precisará escanear o QR Code novamente para reconectar.
+                                </p>
+                                <div className="flex flex-col gap-3">
+                                  <button 
+                                    onClick={handleLogoutWa}
+                                    className="w-full bg-red-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-red-200 hover:bg-red-600 transition-all text-[10px] uppercase tracking-widest"
+                                  >
+                                    REINICIAR AGORA
+                                  </button>
+                                  <button 
+                                    onClick={() => setShowWaDeleteConfirm(false)}
+                                    className="w-full bg-slate-100 text-slate-600 font-black py-4 rounded-2xl hover:bg-slate-200 transition-all text-[10px] uppercase tracking-widest"
+                                  >
+                                    VOLTAR
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 pt-4">
+                    <label className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-xl shadow-sm">
+                                  <CheckCircle2 size={14} className="text-emerald-500" />
+                                </div>
+                                <span className="text-[10px] font-black text-slate-600 uppercase">Habilitar Robô</span>
+                              </div>
+                              <input 
+                                type="checkbox" 
+                                checked={formData.waEnabled} 
+                                onChange={e => setFormData({...formData, waEnabled: e.target.checked})} 
+                                className="w-4 h-4 accent-emerald-600" 
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-xl shadow-sm text-indigo-500">
+                                  <StoreIcon size={14} />
+                                </div>
+                                <span className="text-[10px] font-black text-slate-600 uppercase">Pagamentos Pix</span>
+                              </div>
+                              <input 
+                                type="checkbox" 
+                                checked={formData.waNotifyOnPayment} 
+                                onChange={e => setFormData({...formData, waNotifyOnPayment: e.target.checked})} 
+                                className="w-4 h-4 accent-indigo-600" 
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-xl shadow-sm text-violet-500">
+                                  <ShoppingCart size={14} />
+                                </div>
+                                <span className="text-[10px] font-black text-slate-600 uppercase">Novos Pedidos IA</span>
+                              </div>
+                              <input 
+                                type="checkbox" 
+                                checked={formData.waNotifyOnNewOrder} 
+                                onChange={e => setFormData({...formData, waNotifyOnNewOrder: e.target.checked})} 
+                                className="w-4 h-4 accent-violet-600" 
+                              />
+                            </label>
+                         </div>
+                  
+                  <div className="mt-6 flex items-center gap-2 px-2">
+                     <AlertTriangle size={12} className="text-amber-500" />
+                     <p className="text-[8px] font-bold text-slate-400 uppercase leading-relaxed">
+                        Este módulo utiliza uma instância dedicada da evolution API. Evite enviar spam para não comprometer seu número.
+                     </p>
+                  </div>
+               </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

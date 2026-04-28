@@ -237,6 +237,41 @@ export const useHomeLogic = ({
       return store.name;
   }, [stalls]);
 
+  const handlePayNote = async (group: Transaction[]) => {
+    if (!group || group.length === 0 || !navigator.onLine) return;
+    const total = calculateGroupTotal(group);
+    const workspaceId = group[0].workspaceId;
+
+    const loadingToast = toast.loading("Gerando link de pagamento Pix...");
+
+    try {
+      const response = await fetch('/api/mercadopago/create-note-preference', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactionIds: group.map(t => t.id),
+          workspace_id: workspaceId,
+          amount: total,
+          description: group.length > 1 ? `Pedido de ${group.length} itens` : group[0].item,
+          returnUrl: window.location.origin
+        })
+      });
+
+      const data = await response.json();
+      toast.dismiss(loadingToast);
+
+      if (data.init_point) {
+        window.location.href = data.init_point;
+      } else {
+        throw new Error(data.error || "Erro ao gerar checkout");
+      }
+    } catch (e: any) {
+      toast.dismiss(loadingToast);
+      console.error("[PayNote] Erro:", e);
+      toast.error(e.message || "Falha ao iniciar pagamento.");
+    }
+  };
+
   const availableOptions = useMemo(() => {
     const options = [{ id: 'MARKETPLACE', label: 'Vitrine Online', icon: 'ShoppingCart' }]; // Icons handled in component
     if (isOwner) {
@@ -271,7 +306,7 @@ export const useHomeLogic = ({
     myDebts, myHistory, totalDebt,
     debtsByDate, historyByDate,
     handleOpenNote, handleReport,
-    handleDeleteHistoryItem,
+    handleDeleteHistoryItem, handlePayNote,
     loadMoreHistoryRef, groupItemsByTime, calculateGroupTotal,
     getStoreDisplayName, availableOptions, visibleHistoryCount
   };

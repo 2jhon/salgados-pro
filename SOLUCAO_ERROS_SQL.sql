@@ -65,5 +65,20 @@ WHERE o.role = 'OWNER';
 
 GRANT SELECT ON public.company_metrics TO authenticated;
 
--- 5. RECARREGAR CACHE DO POSTGREST (Importante para o erro de 'schema cache')
+-- 5. CORREÇÃO DA TABELA DE PLANOS (SUBSCRIPTION_PLANS)
+ALTER TABLE public.subscription_plans 
+ADD COLUMN IF NOT EXISTS duration_days INT DEFAULT 30,
+ADD COLUMN IF NOT EXISTS grants_pro BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS grants_ad_free BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS grants_advertiser BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS free_ads_per_month INT DEFAULT 0,
+ADD COLUMN IF NOT EXISTS promo_price NUMERIC,
+ADD COLUMN IF NOT EXISTS promo_ends_at TIMESTAMP WITH TIME ZONE,
+ADD COLUMN IF NOT EXISTS promo_description TEXT,
+ADD COLUMN IF NOT EXISTS grants_wa_automation BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT 'Zap',
+ADD COLUMN IF NOT EXISTS benefits TEXT[] DEFAULT '{}',
+ADD COLUMN IF NOT EXISTS sort_order INT DEFAULT 0;
+
+-- 6. RECARREGAR CACHE DO POSTGREST (Importante para o erro de 'schema cache')
 NOTIFY pgrst, 'reload schema';

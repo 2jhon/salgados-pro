@@ -97,6 +97,12 @@ export interface StoreProfile {
   mpRefreshToken?: string;
   mpUserId?: string;
   mpPublicKey?: string;
+  waInstanceName?: string;
+  waInstanceStatus?: string;
+  waEnabled?: boolean;
+  waNotifyOnPayment?: boolean;
+  waNotifyOnNewNote?: boolean;
+  waNotifyOnNewOrder?: boolean;
 }
 
 export interface PortfolioItem {
@@ -278,6 +284,7 @@ export interface SubscriptionPlan {
   promo_price?: number;
   promo_ends_at?: string;
   promo_description?: string;
+  grants_wa_automation?: boolean;
   active: boolean;
 }
 

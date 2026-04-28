@@ -277,7 +277,368 @@ async function startServer() {
     }
   });
 
-  // Webhook para Assinaturas de Planos do Sistema (Admin)
+  // ==========================================
+  // WHATSAPP EVOLUTION API INTEGRATION
+  // ==========================================
+
+  // Helper para requisições à Evolution API
+  const evoApi = async (method: string, path: string, body?: any) => {
+    const rawUrl = process.env.EVOLUTION_API_URL || '';
+    const url = rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
+    const key = process.env.EVOLUTION_API_KEY;
+
+    if (!url || url.includes('sua-instancia')) {
+      console.error("[Evolution API] URL missing or dummy in process.env");
+      throw new Error("Evolution API URL não configurada. Configure em Settings > Secrets.");
+    }
+    
+    try {
+      const fullUrl = `${url}${path}`;
+      const resp = await fetch(fullUrl, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': key || ''
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      
+      const data = await resp.json();
+      
+      if (!resp.ok) {
+        // Handle instance not found as a special case for status checks
+        if (resp.status === 404 && path.includes('connectionState')) {
+          return { instance: { state: 'not_found' } };
+        }
+        console.error(`[Evolution API Error] ${path}:`, JSON.stringify(data));
+        throw new Error(data.message || JSON.stringify(data) || "Erro na Evolution API");
+      }
+      
+      return data;
+    } catch (err: any) {
+      console.error(`[Evolution Connection Error] ${path}:`, err.message);
+      throw err;
+    }
+  };
+
+  // Rota: Criar Instância para uma Loja
+  app.post("/api/whatsapp/create-instance", async (req, res) => {
+    const { workspaceId } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: "workspaceId é obrigatório" });
+
+    try {
+      const instanceName = `salpro_${workspaceId.slice(0, 8)}`;
+      console.log(`[WA] Creating instance: ${instanceName}`);
+      
+      // 1. Criar na Evolution
+      const result = await evoApi('POST', '/instance/create', {
+        instanceName,
+        token: workspaceId,
+        qrcode: true,
+        integration: 'WHATSAPP-BAILEYS',
+        reject_call: false,
+        groups_ignore: true,
+        always_online: false,
+        read_messages: false,
+        read_status: false,
+        sync_full_history: false
+      });
+
+      // 2. Atualizar no Supabase
+      const supabase = getSupabaseAdmin();
+      if (supabase) {
+        await supabase
+          .from('store_profiles')
+          .update({ wa_instance_name: instanceName, wa_instance_status: 'DISCONNECTED' })
+          .eq('workspace_id', workspaceId);
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Create Instance Error]:", error.message);
+      res.status(500).json({ error: error.message || "Erro ao criar instância de WhatsApp" });
+    }
+  });
+
+  // Cache simples para evitar regeneração constante de QR
+  const qrCache = new Map<string, { qrcode: string, timestamp: number }>();
+
+  // Rota: Obter Status/QR Code
+  app.get("/api/whatsapp/instance-status/:workspaceId", async (req, res) => {
+    const { workspaceId } = req.params;
+    const forceRefresh = req.query.force === 'true';
+
+    try {
+      const instanceName = `salpro_${workspaceId.slice(0, 8)}`;
+      let status;
+      
+      try {
+        status = await evoApi('GET', `/instance/connectionState/${instanceName}`);
+      } catch (err: any) {
+        if (err.message.includes('not found') || err.message.includes('404')) {
+           return res.json({ state: 'DISCONNECTED', qrcode: null, needsCreate: true });
+        }
+        throw err;
+      }
+      
+      let qrcode = null;
+      let newState = "DISCONNECTED";
+
+      if (status.instance?.state === "open") {
+        newState = "CONNECTED";
+        qrCache.delete(instanceName); // Limpa cache se conectou
+      } else if (status.instance?.state === "not_found") {
+        newState = "DISCONNECTED";
+      } else {
+        newState = status.instance?.state === "connecting" || status.instance?.state === "pairing" ? "PAIRING" : "DISCONNECTED";
+        
+        // Tenta buscar o QR Code se não estiver conectado
+        const cached = qrCache.get(instanceName);
+        const now = Date.now();
+        
+        if (!forceRefresh && cached && (now - cached.timestamp < 35000)) {
+           qrcode = cached.qrcode;
+        } else {
+          try {
+            console.log(`[WA] Fetching new QR for ${instanceName} (Force: ${forceRefresh})`);
+            const qrResult = await evoApi('GET', `/instance/connect/${instanceName}`);
+            qrcode = qrResult.base64 || qrResult.code || (qrResult.qrcode && qrResult.qrcode.base64);
+            
+            if (qrcode) {
+              qrCache.set(instanceName, { qrcode, timestamp: now });
+            }
+
+            if (newState === "DISCONNECTED") newState = "PAIRING";
+          } catch (qrErr: any) {
+            console.warn(`[WA] QR Fetch failed for ${instanceName}:`, qrErr.message);
+            if (qrErr.message.includes('already connected')) newState = "CONNECTED";
+          }
+        }
+      }
+
+      // Atualizar status no DB se necessário
+      const supabase = getSupabaseAdmin();
+      if (supabase && (newState === "CONNECTED" || newState === "DISCONNECTED")) {
+        await supabase
+          .from('store_profiles')
+          .update({ wa_instance_status: newState })
+          .eq('workspace_id', workspaceId);
+      }
+
+      res.json({ state: newState, qrcode });
+    } catch (error: any) {
+      console.error("[Status WA Detail]:", error);
+      res.status(500).json({ error: "Erro ao consultar status do WhatsApp" });
+    }
+  });
+
+  // Rota: Desconectar/Remover
+  app.post("/api/whatsapp/logout", async (req, res) => {
+    const workspaceId = req.body.workspaceId || req.params.workspaceId;
+    
+    if (!workspaceId) {
+      return res.status(400).json({ error: "workspaceId is required" });
+    }
+
+    try {
+      const instanceName = `salpro_${workspaceId.slice(0, 8)}`;
+      
+      // Tentamos o logout e o delete de forma independente para garantir a limpeza
+      try { await evoApi('DELETE', `/instance/logout/${instanceName}`); } catch(e) {}
+      try { await evoApi('DELETE', `/instance/delete/${instanceName}`); } catch(e) {}
+
+      const supabase = getSupabaseAdmin();
+      if (supabase) {
+        await supabase
+          .from('store_profiles')
+          .update({ 
+            wa_instance_name: null, 
+            wa_instance_status: 'DISCONNECTED', 
+            wa_enabled: false 
+          })
+          .eq('workspace_id', workspaceId);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("[Logout WA Error]:", error.message);
+      res.status(500).json({ error: "Erro ao desconectar WhatsApp" });
+    }
+  });
+
+  // Rota para QUITAÇÃO DE NOTAS DE CLIENTES (Checkout Pro transparente)
+  app.post("/api/mercadopago/create-note-preference", async (req, res) => {
+    const { transactionIds, workspace_id, amount, description, returnUrl } = req.body;
+
+    try {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) return res.status(500).json({ error: "DB não configurado." });
+
+      const ids = Array.isArray(transactionIds) ? transactionIds : [transactionIds];
+
+      const { data: storeProfile } = await supabase
+        .from('store_profiles')
+        .select('mp_access_token, workspace_id')
+        .eq('workspace_id', workspace_id)
+        .single();
+
+      const accessToken = storeProfile?.mp_access_token || process.env.MP_ACCESS_TOKEN;
+      if (!accessToken) return res.status(400).json({ error: "Loja sem checkout configurado." });
+
+      const client = new MercadoPagoConfig({ accessToken });
+      const preference = new Preference(client);
+
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      let baseUrl = returnUrl || `https://${host}`;
+      if (!returnUrl && (host?.includes('localhost') || host?.includes('127.0.0.1'))) {
+        baseUrl = `http://${host}`;
+      }
+
+      const externalRef = `NOTE_PAYMENT|${workspace_id}|${ids[0]}|${Date.now()}`;
+
+      const body: any = {
+        items: [
+          {
+            id: ids[0],
+            title: `Quitação de Nota: ${description || 'Salgados Pro'}`,
+            quantity: 1,
+            unit_price: Number(amount),
+            currency_id: 'BRL'
+          }
+        ],
+        external_reference: externalRef,
+        back_urls: {
+          success: `${baseUrl}/?status=approved&type=note_paid&tx=${ids[0]}`,
+          failure: `${baseUrl}/?status=failure&type=note_paid&tx=${ids[0]}`,
+          pending: `${baseUrl}/?status=pending&type=note_paid&tx=${ids[0]}`,
+        },
+        auto_return: "approved",
+        statement_descriptor: "SALGADOSPRO",
+      };
+
+      const result = await preference.create({ body });
+      
+      // Salva o ID da preferência e a referência externa em TODAS as notas do grupo
+      await supabase
+        .from('transactions')
+        .update({ mp_preference_id: result.id, external_reference: externalRef })
+        .in('id', ids);
+
+      res.json({ id: result.id, init_point: result.init_point });
+    } catch (error: any) {
+      console.error("[MP Note] Erro:", error.message);
+      res.status(500).json({ error: "Erro ao gerar checkout da nota." });
+    }
+  });
+
+  // Webhook Unificado para Notas, Planos e Anúncios
+  app.post("/api/mercadopago/webhook", async (req, res) => {
+    const { action, data, type } = req.body;
+    const topic = req.query.topic || type;
+    const resourceId = data?.id || req.query.id;
+
+    console.log(`[MP Global Webhook] Recebido: ${action} | Topic: ${topic} | ID: ${resourceId}`);
+    res.status(200).send("OK");
+
+    if ((action === "payment.created" || action === "payment.updated" || topic === "payment") && resourceId) {
+      try {
+        const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        const supabase = getSupabaseAdmin();
+        if (!supabase) return;
+
+        // Tenta buscar o pagamento com o token do admin primariamente
+        let response = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
+          headers: { Authorization: `Bearer ${adminAccessToken}` }
+        });
+        let payment = await response.json();
+
+        // Se falhar ou for de uma loja (Note Payment), precisamos tentar identificar de qual loja é
+        // mas o webhook não diz o workspace_id. No external_reference salvamos: NOTE_PAYMENT|WID|TXID
+        if (!payment.external_reference) {
+            // Em alguns casos o pagamento é feito direto na conta da loja.
+            // Precisamos tratar isso se o sistema escalar para múltiplas contas MP.
+        }
+
+        const extRef = payment.external_reference || "";
+
+        // 1. QUITAÇÃO DE NOTAS (NOTE_PAYMENT)
+        if (payment.status === "approved" && extRef.startsWith("NOTE_PAYMENT|")) {
+           const [_, workspaceId, transactionId] = extRef.split("|");
+           console.log(`[PAYMENT] Quitando nota ${transactionId} do workspace ${workspaceId}`);
+           
+           const { data: success, error: rpcError } = await supabase.rpc('process_note_payment', {
+             p_external_reference: extRef,
+             p_payment_id: String(resourceId),
+             p_method: payment.payment_method_id
+           });
+
+           if (!rpcError) {
+             // NOTIFICAÇÃO WHATSAPP (Automática se habilitado)
+             const { data: profile } = await supabase
+               .from('store_profiles')
+               .select('wa_enabled, wa_instance_name, wa_notify_on_payment, whatsapp, store_name')
+               .eq('workspace_id', workspaceId)
+               .single();
+
+             if (profile?.wa_enabled && profile?.wa_notify_on_payment && profile?.wa_instance_name) {
+               try {
+                 const message = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
+                 
+                 // Enviar para o Log e disparar via Evolution
+                 await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
+                   number: profile.whatsapp.replace(/\D/g, ''),
+                   options: { delay: 1200, presence: "composing" },
+                   textMessage: { text: message }
+                 });
+
+                 await supabase.from('whatsapp_logs').insert({
+                   workspace_id: workspaceId,
+                   phone: profile.whatsapp,
+                   message,
+                   status: 'SENT'
+                 });
+               } catch (waErr) {
+                 console.error("[WA Sync Error]:", waErr);
+               }
+             }
+           }
+        }
+
+        // 2. ASSINATURAS (SUBSCRIPTION)
+        if (payment.status === "approved" && extRef.startsWith("SUBSCRIPTION|")) {
+          const [_, userId, planId] = extRef.split("|");
+          const { data: userProfile } = await supabase
+            .from('user_profiles')
+            .select('workspace_id, company_id')
+            .eq('id', userId)
+            .limit(1);
+          
+          const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
+          if (workspaceId) {
+            const now = new Date();
+            const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
+            await supabase.from('store_profiles').update({ 
+               pro_expires_at: expires,
+               ad_free_expires_at: expires
+            }).eq('workspace_id', workspaceId);
+          }
+        }
+
+        // 3. ANÚNCIOS (AD_BOOST)
+        if (payment.status === "approved" && extRef.startsWith("AD_BOOST|")) {
+          const [_, userId, adId] = extRef.split("|");
+          await supabase.from('app_banners').update({ 
+            payment_status: 'PAID',
+            is_approved: true
+          }).eq('id', adId);
+        }
+
+      } catch (err) {
+        console.error("[Webhook Global Error]:", err);
+      }
+    }
+  });
+
+  // Webhook para Assinaturas de Planos do Sistema (Legado - Mantendo para compatibilidade caso já configurado)
   app.post("/api/mercadopago/plan-webhook", async (req, res) => {
     const { action, data, type } = req.body;
     

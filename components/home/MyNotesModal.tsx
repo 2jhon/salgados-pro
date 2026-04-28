@@ -28,6 +28,7 @@ interface MyNotesModalProps {
   loadMoreHistoryRef: (node: HTMLDivElement | null) => void;
   groupItemsByTime: (list: Transaction[]) => Transaction[][];
   calculateGroupTotal: (group: Transaction[]) => number;
+  handlePayNote: (group: Transaction[]) => void;
   hasMoreTransactions: boolean;
   loadingTransactions: boolean;
 }
@@ -47,6 +48,7 @@ export const MyNotesModal: React.FC<MyNotesModalProps> = ({
   loadMoreHistoryRef,
   groupItemsByTime,
   calculateGroupTotal,
+  handlePayNote,
   hasMoreTransactions,
   loadingTransactions
 }) => {
@@ -145,6 +147,12 @@ export const MyNotesModal: React.FC<MyNotesModalProps> = ({
                                               <p className={`font-black ${firstItem.subCategory === 'GASTOS' && isExt ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(noteTotal)}</p>
                                               <Info className="w-4 h-4 text-slate-300" />
                                            </div>
+                                        </button>
+                                        <button 
+                                           onClick={() => handlePayNote(group)} 
+                                           className="bg-slate-900 text-[8px] font-black text-white px-3 py-2 rounded-xl flex items-center gap-1.5 active:scale-95 transition-transform"
+                                        >
+                                           PAGAR PIX
                                         </button>
                                      </div>
                                    );

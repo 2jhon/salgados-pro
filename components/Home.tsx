@@ -71,7 +71,7 @@ export const Home: React.FC<HomeProps> = ({
     myDebts, myHistory, totalDebt,
     debtsByDate, historyByDate,
     handleOpenNote, handleReport,
-    handleDeleteHistoryItem,
+    handleDeleteHistoryItem, handlePayNote,
     loadMoreHistoryRef, groupItemsByTime, calculateGroupTotal,
     getStoreDisplayName, availableOptions, visibleHistoryCount
   } = useHomeLogic({
@@ -207,6 +207,7 @@ export const Home: React.FC<HomeProps> = ({
           loadMoreHistoryRef={loadMoreHistoryRef}
           groupItemsByTime={groupItemsByTime}
           calculateGroupTotal={calculateGroupTotal}
+          handlePayNote={handlePayNote}
           hasMoreTransactions={hasMoreTransactions}
           loadingTransactions={loadingTransactions}
         />

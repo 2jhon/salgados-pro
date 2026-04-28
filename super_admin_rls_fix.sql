@@ -75,3 +75,15 @@ CREATE POLICY "Isolar customers por workspace" ON public.customers
 FOR ALL TO authenticated
 USING (workspace_id = get_my_workspace_id() OR is_super_admin())
 WITH CHECK (workspace_id = get_my_workspace_id() OR is_super_admin());
+
+-- 9. Atualizar Políticas da Tabela SUBSCRIPTION_PLANS
+DROP POLICY IF EXISTS "Qualquer um pode ler planos" ON public.subscription_plans;
+CREATE POLICY "Qualquer um pode ler planos" ON public.subscription_plans
+FOR SELECT TO authenticated
+USING (true);
+
+DROP POLICY IF EXISTS "Apenas super admin pode modificar planos" ON public.subscription_plans;
+CREATE POLICY "Apenas super admin pode modificar planos" ON public.subscription_plans
+FOR ALL TO authenticated
+USING (is_super_admin())
+WITH CHECK (is_super_admin());
