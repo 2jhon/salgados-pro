@@ -28,7 +28,8 @@ export const PlansTab: React.FC<PlansTabProps> = ({
           planId: plan.id,
           userId: currentUser.id,
           planName: plan.name,
-          price: plan.price
+          price: plan.price,
+          returnUrl: window.location.origin
         })
       });
 

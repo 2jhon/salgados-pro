@@ -308,6 +308,39 @@ export const useSettingsLogic = ({
     }
   };
 
+  const handleRetryAdPayment = async (ad: Ad) => {
+    setIsProcessing(true);
+    try {
+      if (effectiveAdPrice > 0) {
+        const response = await fetch('/api/mercadopago/create-ad-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adId: ad.id,
+            userId: currentUser.id,
+            adTitle: ad.title,
+            price: effectiveAdPrice,
+            duration: ad.requestedDuration || 7,
+            returnUrl: window.location.origin
+          })
+        });
+
+        const data = await response.json();
+        if (data.init_point) {
+          window.location.href = data.init_point;
+        } else {
+          toast.error("Erro ao gerar link de pagamento.");
+        }
+      } else {
+        toast.error("Este anúncio não requer pagamento.");
+      }
+    } catch (e) {
+      toast.error("Erro ao conectar com Mercado Pago.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleSaveAd = async () => {
     if (!adForm.title || !adForm.description || !adForm.whatsapp) return;
     setIsProcessing(true);
@@ -337,7 +370,8 @@ export const useSettingsLogic = ({
             userId: currentUser.id,
             adTitle: adForm.title,
             price: effectiveAdPrice,
-            duration: adForm.duration
+            duration: adForm.duration,
+            returnUrl: window.location.origin
           })
         });
 
@@ -374,7 +408,7 @@ export const useSettingsLogic = ({
     showUserModal, setShowUserModal, editingUser, setEditingUser, userForm, setUserForm, handleSaveUser,
     showSectionModal, setShowSectionModal, editingSection, setEditingSection, sectionForm, setSectionForm, handleCreateSection,
     manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem,
-    adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd,
+    adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd, handleRetryAdPayment,
     handleGenerateAdText, handleGenerateAdImage, deleteAd,
     startEditManageItem
   };

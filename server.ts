@@ -55,7 +55,7 @@ async function startServer() {
 
   // Rota para criar preferência de pagamento (Checkout Pro)
   app.post("/api/mercadopago/create-preference", async (req, res) => {
-    const { items, external_reference, workspace_id } = req.body;
+    const { items, external_reference, workspace_id, returnUrl } = req.body;
 
     try {
       const supabase = getSupabaseAdmin();
@@ -120,9 +120,9 @@ async function startServer() {
       const preference = new Preference(client);
       
       const host = req.headers['x-forwarded-host'] || req.get('host');
-      let baseUrl = `https://${host}`;
+      let baseUrl = returnUrl || `https://${host}`;
       
-      if (host?.includes('localhost') || host?.includes('127.0.0.1')) {
+      if (!returnUrl && (host?.includes('localhost') || host?.includes('127.0.0.1'))) {
         baseUrl = `http://${host}`;
       }
 
@@ -180,7 +180,7 @@ async function startServer() {
 
   // Rota para PAGAMENTO DE ANÚNCIOS (Vai para a conta do Administrador do Sistema)
   app.post("/api/mercadopago/create-ad-preference", async (req, res) => {
-    const { adId, userId, adTitle, price, duration } = req.body;
+    const { adId, userId, adTitle, price, duration, returnUrl } = req.body;
 
     try {
       const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -230,7 +230,7 @@ async function startServer() {
 
   // Rota para PAGAMENTO DE PLANOS (Vai para a conta do Administrador do Sistema)
   app.post("/api/mercadopago/create-plan-preference", async (req, res) => {
-    const { planId, userId, planName, price } = req.body;
+    const { planId, userId, planName, price, returnUrl } = req.body;
 
     try {
       // O token do ADMIN deve estar no .env como MP_ACCESS_TOKEN
@@ -300,12 +300,50 @@ async function startServer() {
         if (payment.status === "approved" && payment.external_reference?.startsWith("SUBSCRIPTION|")) {
           const [_, userId, planId] = payment.external_reference.split("|");
           console.log(`[SUBSCRIPTION SUCCESS] Usuário: ${userId} | Plano: ${planId}`);
+
+          const supabase = getSupabaseAdmin();
+          if (supabase) {
+            // Get the user's workspace
+            const { data: userProfile } = await supabase
+              .from('user_profiles')
+              .select('workspace_id, company_id')
+              .eq('id', userId)
+              .limit(1);
+            
+            const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
+            
+            if (workspaceId) {
+              const now = new Date();
+              const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString(); // 1 month
+
+              await supabase
+                .from('store_profiles')
+                .update({ 
+                  active_plan_id: planId,
+                  pro_expires_at: expires,
+                  ad_free_expires_at: expires
+                })
+                .eq('workspace_id', workspaceId);
+              console.log(`[SUBSCRIPTION ACTIVATED] Assinatura do workspace ${workspaceId} renovada até ${expires}`);
+            }
+          }
         }
 
         if (payment.status === "approved" && payment.external_reference?.startsWith("AD_BOOST|")) {
           const [_, userId, adId] = payment.external_reference.split("|");
           console.log(`[AD SUCCESS] Usuário: ${userId} | Anúncio: ${adId}`);
-          // Aqui poderíamos ativar o anúncio imediatamente no Supabase
+          
+          const supabase = getSupabaseAdmin();
+          if (supabase) {
+            await supabase
+              .from('app_banners')
+              .update({ 
+                payment_status: 'PAID',
+                is_approved: true
+              })
+              .eq('id', adId);
+            console.log(`[AD ACTIVATED] Anuncio ${adId} definido como PAID e is_approved=true`);
+          }
         }
       } catch (err) {
         console.error("[Webhook Plan] Erro crítico:", err);

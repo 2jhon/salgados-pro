@@ -16,6 +16,7 @@ interface AdsTabProps {
   handleGenerateAdText: () => void;
   handleGenerateAdImage: () => void;
   handleSaveAd: () => void;
+  handleRetryAdPayment: (ad: Ad) => void;
   deleteAd: (id: string) => Promise<boolean>;
   editingAdId: string | null;
   setEditingAdId: (id: string | null) => void;
@@ -28,7 +29,7 @@ interface AdsTabProps {
 
 export const AdsTab: React.FC<AdsTabProps> = ({
   ads, adForm, setAdForm, isProcessing, isGeneratingAI,
-  handleGenerateAdText, handleGenerateAdImage, handleSaveAd, deleteAd,
+  handleGenerateAdText, handleGenerateAdImage, handleSaveAd, handleRetryAdPayment, deleteAd,
   editingAdId, setEditingAdId, effectiveAdPrice, freeAdsRemaining,
   adFileInputRef, handleAdImageUpload, currentUser
 }) => {
@@ -182,15 +183,24 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                          <h4 className="font-black text-slate-800 text-sm truncate uppercase tracking-tight">{ad.title}</h4>
                          <div className="flex items-center gap-2">
                             <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
-                               ad.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-600' :
-                               ad.status === 'REJECTED' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'
+                               ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
+                               ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'
                             }`}>
-                               {ad.status === 'APPROVED' ? 'Ativo' : ad.status === 'REJECTED' ? 'Recusado' : 'Em Análise'}
+                               {ad.isApproved ? 'Ativo' : ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 'Recusado/Inativo'}
                             </span>
                              {ad.expiresAt && <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expira em {new Date(ad.expiresAt).toLocaleDateString()}</span>}
                          </div>
                       </div>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        {ad.paymentStatus === 'PENDING' && !ad.isApproved && effectiveAdPrice > 0 && (
+                          <button 
+                            onClick={() => handleRetryAdPayment(ad)} 
+                            disabled={isProcessing}
+                            className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all mr-2"
+                          >
+                            Pagar
+                          </button>
+                        )}
                          <button onClick={() => deleteAd(ad.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
                             <Trash2 size={16} />
                          </button>

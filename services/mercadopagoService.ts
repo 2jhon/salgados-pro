@@ -32,6 +32,7 @@ export const createMPPreference = async (
         items,
         workspace_id: workspaceId,
         external_reference: externalReference,
+        returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined
       }),
     });
 

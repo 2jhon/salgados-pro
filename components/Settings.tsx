@@ -56,7 +56,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     showUserModal, setShowUserModal, editingUser, setEditingUser, userForm, setUserForm, handleSaveUser,
     showSectionModal, setShowSectionModal, editingSection, setEditingSection, sectionForm, setSectionForm, handleCreateSection,
     manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem, startEditManageItem,
-    adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd,
+    adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd, handleRetryAdPayment,
     handleGenerateAdText, handleGenerateAdImage, deleteAd,
     uploadToStorage
   } = useSettingsLogic(props);
@@ -163,6 +163,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             handleGenerateAdText={handleGenerateAdText} 
             handleGenerateAdImage={handleGenerateAdImage}
             handleSaveAd={handleSaveAd}
+            handleRetryAdPayment={handleRetryAdPayment}
             deleteAd={deleteAd}
             editingAdId={editingAdId}
             setEditingAdId={setEditingAdId}
