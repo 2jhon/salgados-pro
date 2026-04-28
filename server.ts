@@ -530,186 +530,160 @@ async function startServer() {
     }
   });
 
-  // Webhook Unificado para Notas, Planos e Anúncios
-  app.post("/api/mercadopago/webhook", async (req, res) => {
-    const { action, data, type } = req.body;
+  // Handler unificado para Webhooks do Mercado Pago
+  const handleMPWebhook = async (req: any, res: any) => {
+    const { action, data, type, user_id: sellerId } = req.body;
     const topic = req.query.topic || type;
     const resourceId = data?.id || req.query.id;
 
-    console.log(`[MP Global Webhook] Recebido: ${action} | Topic: ${topic} | ID: ${resourceId}`);
+    console.log(`[MP Webhook] Recebido: ${action} | Topic: ${topic} | Seller: ${sellerId} | ID: ${resourceId}`);
+    
     res.status(200).send("OK");
 
     if ((action === "payment.created" || action === "payment.updated" || topic === "payment") && resourceId) {
       try {
-        const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
         const supabase = getSupabaseAdmin();
         if (!supabase) return;
 
-        // Tenta buscar o pagamento com o token do admin primariamente
-        let response = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
-          headers: { Authorization: `Bearer ${adminAccessToken}` }
-        });
-        let payment = await response.json();
-
-        // Se falhar ou for de uma loja (Note Payment), precisamos tentar identificar de qual loja é
-        // mas o webhook não diz o workspace_id. No external_reference salvamos: NOTE_PAYMENT|WID|TXID
-        if (!payment.external_reference) {
-            // Em alguns casos o pagamento é feito direto na conta da loja.
-            // Precisamos tratar isso se o sistema escalar para múltiplas contas MP.
-        }
-
-        const extRef = payment.external_reference || "";
-
-        // 1. QUITAÇÃO DE NOTAS (NOTE_PAYMENT)
-        if (payment.status === "approved" && extRef.startsWith("NOTE_PAYMENT|")) {
-           const [_, workspaceId, transactionId] = extRef.split("|");
-           console.log(`[PAYMENT] Quitando nota ${transactionId} do workspace ${workspaceId}`);
-           
-           const { data: success, error: rpcError } = await supabase.rpc('process_note_payment', {
-             p_external_reference: extRef,
-             p_payment_id: String(resourceId),
-             p_method: payment.payment_method_id
-           });
-
-           if (!rpcError) {
-             // NOTIFICAÇÃO WHATSAPP (Automática se habilitado)
-             const { data: profile } = await supabase
-               .from('store_profiles')
-               .select('wa_enabled, wa_instance_name, wa_notify_on_payment, whatsapp, store_name')
-               .eq('workspace_id', workspaceId)
-               .single();
-
-             if (profile?.wa_enabled && profile?.wa_notify_on_payment && profile?.wa_instance_name) {
-               try {
-                 const message = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
-                 
-                 // Enviar para o Log e disparar via Evolution
-                 await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
-                   number: profile.whatsapp.replace(/\D/g, ''),
-                   options: { delay: 1200, presence: "composing" },
-                   textMessage: { text: message }
-                 });
-
-                 await supabase.from('whatsapp_logs').insert({
-                   workspace_id: workspaceId,
-                   phone: profile.whatsapp,
-                   message,
-                   status: 'SENT'
-                 });
-               } catch (waErr) {
-                 console.error("[WA Sync Error]:", waErr);
-               }
-             }
-           }
-        }
-
-        // 2. ASSINATURAS (SUBSCRIPTION)
-        if (payment.status === "approved" && extRef.startsWith("SUBSCRIPTION|")) {
-          const [_, userId, planId] = extRef.split("|");
-          const { data: userProfile } = await supabase
-            .from('user_profiles')
-            .select('workspace_id, company_id')
-            .eq('id', userId)
-            .limit(1);
-          
-          const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
-          if (workspaceId) {
-            const now = new Date();
-            const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
-            await supabase.from('store_profiles').update({ 
-               pro_expires_at: expires,
-               ad_free_expires_at: expires
-            }).eq('workspace_id', workspaceId);
-          }
-        }
-
-        // 3. ANÚNCIOS (AD_BOOST)
-        if (payment.status === "approved" && extRef.startsWith("AD_BOOST|")) {
-          const [_, userId, adId] = extRef.split("|");
-          await supabase.from('app_banners').update({ 
-            payment_status: 'PAID',
-            is_approved: true
-          }).eq('id', adId);
-        }
-
-      } catch (err) {
-        console.error("[Webhook Global Error]:", err);
-      }
-    }
-  });
-
-  // Webhook para Assinaturas de Planos do Sistema (Legado - Mantendo para compatibilidade caso já configurado)
-  app.post("/api/mercadopago/plan-webhook", async (req, res) => {
-    const { action, data, type } = req.body;
-    
-    // Mercado Pago envia 'topic=payment' em alguns casos
-    const topic = req.query.topic || type;
-    const resourceId = data?.id || req.query.id;
-
-    console.log(`[MP Webhook] Recebido: ${action} | Topic: ${topic} | ID: ${resourceId}`);
-    
-    res.status(200).send("OK");
-
-    if ((action === "payment.created" || action === "payment.updated" || topic === "payment") && resourceId) {
-      try {
         const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
-        const response = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
-          headers: { Authorization: `Bearer ${adminAccessToken}` }
-        });
-        const payment = await response.json();
+        let token = adminAccessToken;
 
-        if (payment.status === "approved" && payment.external_reference?.startsWith("SUBSCRIPTION|")) {
-          const [_, userId, planId] = payment.external_reference.split("|");
-          console.log(`[SUBSCRIPTION SUCCESS] Usuário: ${userId} | Plano: ${planId}`);
-
-          const supabase = getSupabaseAdmin();
-          if (supabase) {
-            // Get the user's workspace
-            const { data: userProfile } = await supabase
-              .from('user_profiles')
-              .select('workspace_id, company_id')
-              .eq('id', userId)
-              .limit(1);
-            
-            const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
-            
-            if (workspaceId) {
-              const now = new Date();
-              const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString(); // 1 month
-
-              await supabase
-                .from('store_profiles')
-                .update({ 
-                  pro_expires_at: expires,
-                  ad_free_expires_at: expires
-                })
-                .eq('workspace_id', workspaceId);
-              console.log(`[SUBSCRIPTION ACTIVATED] Assinatura do workspace ${workspaceId} renovada até ${expires}`);
-            }
-          }
-        }
-
-        if (payment.status === "approved" && payment.external_reference?.startsWith("AD_BOOST|")) {
-          const [_, userId, adId] = payment.external_reference.split("|");
-          console.log(`[AD SUCCESS] Usuário: ${userId} | Anúncio: ${adId}`);
+        if (sellerId) {
+          const { data: store } = await supabase
+            .from('store_profiles')
+            .select('mp_access_token')
+            .eq('mp_user_id', String(sellerId))
+            .single();
           
-          const supabase = getSupabaseAdmin();
-          if (supabase) {
-            await supabase
-              .from('app_banners')
-              .update({ 
-                payment_status: 'PAID',
-                is_approved: true
-              })
-              .eq('id', adId);
-            console.log(`[AD ACTIVATED] Anuncio ${adId} definido como PAID e is_approved=true`);
+          if (store?.mp_access_token) {
+            token = store.mp_access_token;
           }
         }
+
+        const response = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+          if (token !== adminAccessToken) {
+             const retryResp = await fetch(`https://api.mercadopago.com/v1/payments/${resourceId}`, {
+               headers: { Authorization: `Bearer ${adminAccessToken}` }
+             });
+             if (retryResp.ok) {
+               const payment = await retryResp.json();
+               return processPaymentNotification(payment, resourceId, supabase);
+             }
+          }
+          return;
+        }
+
+        const payment = await response.json();
+        await processPaymentNotification(payment, resourceId, supabase);
       } catch (err) {
-        console.error("[Webhook Plan] Erro crítico:", err);
+        console.error("[MP Webhook Error]:", err);
       }
     }
-  });
+  };
+
+  app.post("/api/mercadopago/webhook", handleMPWebhook);
+  app.post("/api/mercadopago/plan-webhook", handleMPWebhook);
+
+  // Função auxiliar para processar a lógica de pagamento após obter os dados do MP
+  async function processPaymentNotification(payment: any, resourceId: any, supabase: any) {
+    const extRef = payment.external_reference || "";
+    const status = payment.status;
+
+    console.log(`[MP Process] Pagamento ${resourceId} | Status: ${status} | Ref: ${extRef}`);
+
+    // Auditoria opcional se a tabela existir
+    try {
+      await supabase.from('payment_webhooks').insert({
+        payload: payment,
+        status: status === 'approved' ? 'PROCESSED' : 'RECEIVED',
+        processed_at: status === 'approved' ? new Date().toISOString() : null
+      });
+    } catch(e) {}
+
+    if (status !== "approved") return;
+
+    // 1. QUITAÇÃO DE NOTAS (NOTE_PAYMENT)
+    if (extRef.startsWith("NOTE_PAYMENT|")) {
+       const [_, workspaceId, transactionId] = extRef.split("|");
+       console.log(`[PAYMENT] Quitando nota ${transactionId} do workspace ${workspaceId}`);
+       
+       const { data: success, error: rpcError } = await supabase.rpc('process_note_payment', {
+         p_external_reference: extRef,
+         p_payment_id: String(resourceId),
+         p_method: payment.payment_method_id
+       });
+
+       if (!rpcError) {
+         // NOTIFICAÇÃO WHATSAPP
+         const { data: profile } = await supabase
+           .from('store_profiles')
+           .select('wa_enabled, wa_instance_name, wa_notify_on_payment, whatsapp, store_name')
+           .eq('workspace_id', workspaceId)
+           .single();
+
+         if (profile?.wa_enabled && profile?.wa_notify_on_payment && profile?.wa_instance_name) {
+           try {
+             // Formatar número
+             let phone = profile.whatsapp.replace(/\D/g, '');
+             if (phone.length === 11 && !phone.startsWith('55')) phone = '55' + phone;
+             if (phone.length === 10 && !phone.startsWith('55')) phone = '55' + phone;
+
+             const message = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
+             
+             await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
+               number: phone,
+               options: { delay: 1200, presence: "composing" },
+               textMessage: { text: message }
+             });
+
+             await supabase.from('whatsapp_logs').insert({
+               workspace_id: workspaceId,
+               phone: phone,
+               message,
+               status: 'SENT'
+             });
+           } catch (waErr) {
+             console.error("[WA Sync Error]:", waErr);
+           }
+         }
+       } else {
+         console.error("[RPC Error]:", rpcError);
+       }
+    }
+
+    // 2. ASSINATURAS (SUBSCRIPTION)
+    if (extRef.startsWith("SUBSCRIPTION|")) {
+      const [_, userId, planId] = extRef.split("|");
+      const { data: userProfile } = await supabase
+        .from('user_profiles')
+        .select('workspace_id, company_id')
+        .eq('id', userId)
+        .limit(1);
+      
+      const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
+      if (workspaceId) {
+        const now = new Date();
+        const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
+        await supabase.from('store_profiles').update({ 
+           pro_expires_at: expires,
+           ad_free_expires_at: expires
+        }).eq('workspace_id', workspaceId);
+      }
+    }
+
+    // 3. ANÚNCIOS (AD_BOOST)
+    if (extRef.startsWith("AD_BOOST|")) {
+      const [_, userId, adId] = extRef.split("|");
+      await supabase.from('app_banners').update({ 
+        payment_status: 'PAID',
+        is_approved: true
+      }).eq('id', adId);
+    }
+  }
 
   // ROIAS PARA OAUTH MERCADO PAGO
   app.get("/api/mercadopago/auth-url", (req, res) => {
