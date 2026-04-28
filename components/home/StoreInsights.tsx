@@ -62,10 +62,11 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
       let rawSource = t.category || '';
       
       if (!rawSource || rawSource.trim() === '' || rawSource.toUpperCase() === 'GERAL') {
+        const creator = t.createdBy || t.created_by;
         if (subCat === 'VENDAS') {
-          rawSource = t.createdBy || 'Venda';
+          rawSource = creator || 'Venda';
         } else {
-          rawSource = t.createdBy || 'Operação';
+          rawSource = creator || 'Operação';
         }
       }
 
