@@ -158,6 +158,7 @@ async function startServer() {
           pending: `${baseUrl}/`,
         },
         auto_return: "approved",
+        notification_url: `${baseUrl}/api/mercadopago/webhook`,
         statement_descriptor: "SALGADOSPRO",
       };
 
@@ -217,6 +218,7 @@ async function startServer() {
           pending: `${baseUrl}/?status=pending&type=ad`,
         },
         auto_return: "approved",
+        notification_url: `${baseUrl}/api/mercadopago/webhook`,
         statement_descriptor: "SALGADOSPRO",
       };
 
@@ -266,6 +268,7 @@ async function startServer() {
           pending: `${baseUrl}/?status=pending&type=plan`,
         },
         auto_return: "approved",
+        notification_url: `${baseUrl}/api/mercadopago/webhook`,
         statement_descriptor: "SALGADOSPRO",
       };
 
@@ -512,6 +515,7 @@ async function startServer() {
           pending: `${baseUrl}/?status=pending&type=note_paid&tx=${ids[0]}`,
         },
         auto_return: "approved",
+        notification_url: `${baseUrl}/api/mercadopago/webhook`,
         statement_descriptor: "SALGADOSPRO",
       };
 
@@ -611,11 +615,29 @@ async function startServer() {
        const [_, workspaceId, transactionId] = extRef.split("|");
        console.log(`[PAYMENT] Quitando nota ${transactionId} do workspace ${workspaceId}`);
        
-       const { data: success, error: rpcError } = await supabase.rpc('process_note_payment', {
-         p_external_reference: extRef,
-         p_payment_id: String(resourceId),
-         p_method: payment.payment_method_id
-       });
+       // Vamos atualizar via Client Admin puro para garantir a baixa mesmo se a Function SQL falhar
+       // Buscamos as notas atreladas à esta referência
+       const { data: txs, error: fetchErr } = await supabase
+         .from('transactions')
+         .select('id')
+         .or(`external_reference.eq.${extRef},mp_preference_id.eq.${extRef}`);
+
+       let rpcError = fetchErr;
+       if (!fetchErr && txs && txs.length > 0) {
+         const { error: updErr } = await supabase
+           .from('transactions')
+           .update({
+             is_pending: false,
+             payment_status: 'APPROVED',
+             payment_method: payment.payment_method_id,
+             paid_at: new Date().toISOString()
+           })
+           .or(`external_reference.eq.${extRef},mp_preference_id.eq.${extRef}`);
+         rpcError = updErr;
+         console.log(`[PAYMENT] ${txs.length} nota(s) atualizada(s) para APPROVED`);
+       } else if (!fetchErr) {
+         rpcError = new Error("Nota não encontrada para a referência: " + extRef);
+       }
 
        if (!rpcError) {
          // NOTIFICAÇÃO WHATSAPP
