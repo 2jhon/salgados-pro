@@ -167,23 +167,33 @@ export const App: React.FC = () => {
     const txId = params.get('tx');
     
     if (mpStatus === 'approved' && paymentId) {
-      if (paymentType === 'note_paid' && txId) {
-        // Fallback local se o webhook falhar
-        supabase.from('transactions').update({
-          is_pending: false,
-          payment_status: 'APPROVED',
-          paid_at: new Date().toISOString()
-        }).or(`id.eq.${txId},external_reference.like.%${txId}%`).then(({ error }) => {
-          if (!error) {
-            toast.success("Pagamento da nota aprovado e baixado no sistema!", { duration: 5000 });
-            // Força a atualização do hook recalculando via re-fetch
-            const u = JSON.parse(localStorage.getItem('logged_user') || '{}');
-            if(u?.workspaceId) {
-               // Reloading the page logic for deep resets works, but silent refresh is preferred:
-               setTimeout(() => { window.location.reload(); }, 1500);
+      if ((paymentType === 'note_paid' && txId) || paymentType === 'ad' || paymentType === 'plan' || paymentType?.startsWith('ad') || paymentType?.startsWith('plan')) {
+        // Fallback robusto acionando o backend para verificar com Mercado Pago, abater/ativar e disparar WhatsApp (isento de blocos de RLS do front)
+        const queryParams = new URLSearchParams({ payment_id: paymentId });
+        if (txId) queryParams.append('tx_id', txId);
+        
+        fetch(`/api/mercadopago/process-payment-fallback?${queryParams.toString()}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.status === 'approved') {
+              if (paymentType === 'note_paid') toast.success("Pagamento da nota aprovado e baixado no sistema!", { duration: 5000 });
+              else if (paymentType === 'ad') toast.success("Pagamento aprovado! Seu impulsionamento está ativo.", { duration: 5000 });
+              else toast.success("Pagamento aprovado! Plano ativado.", { duration: 5000 });
+              
+              const u = JSON.parse(localStorage.getItem('logged_user') || '{}');
+              if(u?.workspaceId) {
+                 setTimeout(() => { window.location.reload(); }, 1500);
+              }
+            } else if (data.success) {
+               toast.info(`O status do pagamento é: ${data.status}`);
+            } else {
+               toast.error(`Falha ao validar na nuvem: ${data.error}`);
             }
-          }
-        });
+          })
+          .catch(e => {
+            console.error("Erro no fallback do Pix", e);
+            toast.error("Processando... fale com o suporte se o status não atualizar em instantes.");
+          });
       } else {
         const pendingNote = localStorage.getItem('marketplacePendingNote');
         if (pendingNote) {
@@ -451,13 +461,24 @@ export const App: React.FC = () => {
       reconnectTx();
       reconnectStock();
       if (currentUser) {
-        loadWorkspaceData(currentUser).catch(e => console.error("Erro ao recarregar dados pós-offline:", e));
+        supabase.auth.refreshSession().finally(() => {
+          loadWorkspaceData(currentUser).catch(e => console.error("Erro ao recarregar dados pós-offline:", e));
+        });
       }
     };
     const handleOffline = () => setIsOffline(true);
 
+    const handleVisibility = () => {
+       if (document.visibilityState === 'visible' && currentUser && !isOffline) {
+          // Quando o usuário volta pro app no celular após algum tempo, 
+          // força a renovação do token ANTES de qualquer query falhar com InvalidJWTToken
+          supabase.auth.refreshSession().catch(e => console.error("Auto-refresh background failed:", e));
+       }
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
@@ -469,6 +490,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
       authListener.subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

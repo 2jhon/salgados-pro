@@ -592,7 +592,46 @@ async function startServer() {
   app.post("/api/mercadopago/webhook", handleMPWebhook);
   app.post("/api/mercadopago/plan-webhook", handleMPWebhook);
 
-  // Função auxiliar para processar a lógica de pagamento após obter os dados do MP
+  app.get("/api/mercadopago/process-payment-fallback", async (req, res) => {
+    const { payment_id, tx_id } = req.query;
+    if (!payment_id) return res.status(400).json({ error: "Missing parameters" });
+
+    try {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) return res.status(500).json({ error: "DB admin failed" });
+
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      let token = adminAccessToken;
+
+      if (tx_id) {
+         const { data: tx } = await supabase.from('transactions').select('workspace_id').eq('id', tx_id).single();
+         if (tx && tx.workspace_id) {
+            const { data: storeProfile } = await supabase.from('store_profiles')
+              .select('mp_access_token').eq('workspace_id', tx.workspace_id).single();
+            token = storeProfile?.mp_access_token || adminAccessToken;
+         }
+      }
+
+      let response = await fetch(`https://api.mercadopago.com/v1/payments/${payment_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok && token !== adminAccessToken) {
+         response = await fetch(`https://api.mercadopago.com/v1/payments/${payment_id}`, {
+           headers: { Authorization: `Bearer ${adminAccessToken}` }
+         });
+      }
+
+      if (!response.ok) return res.status(400).json({ error: "Payment not found in MP" });
+
+      const payment = await response.json();
+      await processPaymentNotification(payment, payment_id, supabase);
+
+      return res.json({ success: true, status: payment.status });
+    } catch(e: any) {
+       return res.status(500).json({ error: e.message });
+    }
+  });
   async function processPaymentNotification(payment: any, resourceId: any, supabase: any) {
     const extRef = payment.external_reference || "";
     const status = payment.status;

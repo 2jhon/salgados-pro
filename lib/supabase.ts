@@ -42,6 +42,19 @@ const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit | und
          localStorage.removeItem('supabase-auth-token');
          localStorage.removeItem(`sb-${projectRef}-auth-token`);
          localStorage.removeItem('logged_user');
+      } else if (response.status === 401 || response.status === 403) {
+         try {
+           const cloned = response.clone();
+           const text = await cloned.text();
+           if (text.includes('InvalidJWTToken') || text.includes('expired')) {
+             console.warn("[Supabase Auth] JWT Expirado ou Inválido. Forçando logout...");
+             const projectRef = supabaseUrl.split('//')[1].split('.')[0];
+             localStorage.removeItem('supabase-auth-token');
+             localStorage.removeItem(`sb-${projectRef}-auth-token`);
+             localStorage.removeItem('logged_user');
+             if (typeof window !== 'undefined') window.location.reload();
+           }
+         } catch(e) {}
       }
       
       return response;
