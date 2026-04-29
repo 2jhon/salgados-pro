@@ -10,6 +10,7 @@ const TX_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 export const useTransactions = (
   workspaceId: string | undefined, 
+  user: { role?: string, phone?: string } | null,
   sections: AppSection[], 
   saveConfig: (s: AppSection[]) => Promise<boolean>,
   addNote?: (note: Omit<Note, 'id' | 'createdAt' | 'isRead'>) => Promise<boolean>
@@ -122,18 +123,21 @@ export const useTransactions = (
 
     try {
       const result = await withRetry(async () => {
-        // Busca transações do workspace com range para paginação
-        const historyPromise = supabase
-          .from('transactions')
-          .select('*')
-          .eq('workspace_id', cleanWid)
-          .order('date', { ascending: false })
-          .range(from, to);
+        // Busca transações do workspace com range para paginação (ou por telefone se cliente)
+        let historyQuery = supabase.from('transactions').select('*').order('date', { ascending: false }).range(from, to);
+        let pendingQuery = pageNum === 0 ? supabase.from('transactions').select('*').eq('is_pending', true) : null;
+        
+        if (user?.role === 'CUSTOMER' && user?.phone) {
+           const cleanedPhone = normalizePhone(user.phone);
+           historyQuery = historyQuery.eq('customer_phone', cleanedPhone);
+           if (pendingQuery) pendingQuery = pendingQuery.eq('customer_phone', cleanedPhone);
+        } else {
+           historyQuery = historyQuery.eq('workspace_id', cleanWid);
+           if (pendingQuery) pendingQuery = pendingQuery.eq('workspace_id', cleanWid);
+        }
 
-        // CRÍTICO: Se for a primeira página, buscamos TODAS as pendentes para garantir que a "Fábrica" tenha todas as notas!
-        const pendingPromise = pageNum === 0 
-          ? supabase.from('transactions').select('*').eq('workspace_id', cleanWid).eq('is_pending', true)
-          : Promise.resolve({ data: [], error: null });
+        const historyPromise = historyQuery;
+        const pendingPromise = pendingQuery || Promise.resolve({ data: [], error: null });
 
         const [historyRes, pendingRes] = await Promise.all([historyPromise, pendingPromise]);
 

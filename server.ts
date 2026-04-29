@@ -437,7 +437,7 @@ async function startServer() {
 
   // Rota: Desconectar/Remover
   app.post("/api/whatsapp/logout", async (req, res) => {
-    const workspaceId = req.body.workspaceId || req.params.workspaceId;
+    const workspaceId = req.body.workspaceId || (req as any).params?.workspaceId;
     
     if (!workspaceId) {
       return res.status(400).json({ error: "workspaceId is required" });

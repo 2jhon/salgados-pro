@@ -78,7 +78,7 @@ export const App: React.FC = () => {
     fetchNextTransactions,
     fetchUserGlobalDebts,
     archiveYear
-  } = useTransactions(currentUser?.workspaceId, sections, saveConfig, addNote);
+  } = useTransactions(currentUser?.workspaceId, currentUser, sections, saveConfig, addNote);
 
   const { ads, fetchAds, incrementClick, saveAd, deleteAd } = useAds();
   const { 
@@ -160,23 +160,44 @@ export const App: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     
-    // Processamento de Pedido Pendente (Checkout MP)
+    // Processamento de Pedido Pendente e Pagamento de Notas (Checkout MP)
     const mpStatus = params.get('collection_status') || params.get('status');
     const paymentId = params.get('payment_id');
+    const paymentType = params.get('type');
+    const txId = params.get('tx');
     
     if (mpStatus === 'approved' && paymentId) {
-      const pendingNote = localStorage.getItem('marketplacePendingNote');
-      if (pendingNote) {
-        try {
-          const noteData = JSON.parse(pendingNote);
-          supabase.from('notes').insert(noteData).then(({ error }) => {
-            if (!error) {
-              toast.success("Pagamento aprovado! O vendedor já foi notificado do seu pedido.", { duration: 5000 });
-              localStorage.removeItem('marketplacePendingNote');
+      if (paymentType === 'note_paid' && txId) {
+        // Fallback local se o webhook falhar
+        supabase.from('transactions').update({
+          is_pending: false,
+          payment_status: 'APPROVED',
+          paid_at: new Date().toISOString()
+        }).or(`id.eq.${txId},external_reference.like.%${txId}%`).then(({ error }) => {
+          if (!error) {
+            toast.success("Pagamento da nota aprovado e baixado no sistema!", { duration: 5000 });
+            // Força a atualização do hook recalculando via re-fetch
+            const u = JSON.parse(localStorage.getItem('logged_user') || '{}');
+            if(u?.workspaceId) {
+               // Reloading the page logic for deep resets works, but silent refresh is preferred:
+               setTimeout(() => { window.location.reload(); }, 1500);
             }
-          });
-        } catch (e) {
-          console.error("Erro ao enviar notificação de pedido: ", e);
+          }
+        });
+      } else {
+        const pendingNote = localStorage.getItem('marketplacePendingNote');
+        if (pendingNote) {
+          try {
+            const noteData = JSON.parse(pendingNote);
+            supabase.from('notes').insert(noteData).then(({ error }) => {
+              if (!error) {
+                toast.success("Pagamento aprovado! O vendedor já foi notificado do seu pedido.", { duration: 5000 });
+                localStorage.removeItem('marketplacePendingNote');
+              }
+            });
+          } catch (e) {
+            console.error("Erro ao enviar notificação de pedido: ", e);
+          }
         }
       }
       
