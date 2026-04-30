@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AppSection, User, StoreProfile } from '../../types';
 import { MarketplaceManager } from '../MarketplaceManager';
-import { StoreInsights } from '../home/StoreInsights';
+import { IntelligencePanel } from './IntelligencePanel';
 
 interface VitrineContainerProps {
   profile: StoreProfile | null;
@@ -47,9 +47,8 @@ export const VitrineContainer: React.FC<VitrineContainerProps> = (props) => {
           onDirtyChange={props.setIsMarketplaceDirty}
         />
       ) : (
-        <StoreInsights 
+        <IntelligencePanel 
           workspaceId={props.workspaceId}
-          transactions={props.transactions}
           profile={props.profile}
         />
       )}

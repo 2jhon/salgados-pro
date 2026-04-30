@@ -7,6 +7,8 @@ import { useStoreProfiles } from './useStoreProfiles';
 import { useStoreInteractions } from './useStoreInteractions';
 import { useAnalytics } from './useAnalytics';
 import { useAppConfig } from './useAppConfig';
+import { useMarketTelemetry } from './useMarketTelemetry';
+import { useMarketIntelligence } from './useMarketIntelligence';
 import { createMPPreference, redirectToMPCheckout, MPItem } from '../services/mercadopagoService';
 
 interface CartItem {
@@ -33,7 +35,10 @@ export const useMarketplaceLogic = ({
   const { fetchStallById } = useAppConfig();
   const { toggleInteraction, getUserInteractions, getStoreAverageRating, submitRating } = useStoreInteractions(user.id);
   const { trackView, trackProductClick } = useAnalytics(user.workspaceId);
-  
+  const { trackEvent, sessionId } = useMarketTelemetry();
+  const { trendingItems, hotKeywords, userAffinity, fetchTrendingItems, fetchHotKeywords, fetchUserAffinity } = useMarketIntelligence();
+
+  const [sponsoredAds, setSponsoredAds] = useState<any[]>([]);
   const [userInteractions, setUserInteractions] = useState<{follows: string[], favorites: string[], ratings: any[]}>({follows: [], favorites: [], ratings: []});
   const [storeRatings, setStoreRatings] = useState<Record<string, {average: number, count: number}>>({});
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'STORES' | 'STALLS'>('ALL');
@@ -144,7 +149,21 @@ export const useMarketplaceLogic = ({
   useEffect(() => {
     onRefresh();
     getUserInteractions().then(data => setUserInteractions(data));
-  }, [onRefresh, getUserInteractions]);
+    fetchHotKeywords(10);
+    fetchTrendingItems(10);
+    if (user.id || sessionId) {
+      fetchUserAffinity(user.id || sessionId, 5);
+    }
+
+    const fetchActiveAds = async () => {
+       const { data } = await supabase.from('app_banners')
+         .select('*')
+         .eq('is_approved', true)
+         .eq('active', true);
+       if (data) setSponsoredAds(data);
+    };
+    fetchActiveAds();
+  }, [onRefresh, getUserInteractions, fetchHotKeywords, fetchTrendingItems, fetchUserAffinity, user.id, sessionId]);
 
   useEffect(() => {
     const fetchRatings = async () => {
@@ -240,16 +259,31 @@ export const useMarketplaceLogic = ({
   }, [selectedStall, selectedProfile, stores, freshProfile, getStoreDisplayName]);
 
   useEffect(() => {
-    if (activeView) trackView(activeView.workspaceId, user.id);
-  }, [activeView?.workspaceId, trackView, user.id]);
+    if (activeView) {
+      trackView(activeView.workspaceId, user.id);
+      trackEvent('view_store', activeView.workspaceId, activeView.workspaceId);
+    }
+  }, [activeView?.workspaceId, trackView, user.id, trackEvent]);
 
   useEffect(() => {
-    if (selectedProduct && activeView) trackProductClick(activeView.workspaceId, selectedProduct.id, user.id);
-  }, [selectedProduct?.id, activeView?.workspaceId, trackProductClick, user.id]);
+    if (selectedProduct && activeView) {
+      trackProductClick(activeView.workspaceId, selectedProduct.id, user.id);
+      trackEvent('click_ad', selectedProduct.id, activeView.workspaceId, { name: selectedProduct.name });
+    }
+  }, [selectedProduct?.id, activeView?.workspaceId, trackProductClick, user.id, trackEvent]);
 
   useEffect(() => {
     if (!activeView) { setCart([]); setIsCartOpen(false); }
   }, [activeView]);
+
+  useEffect(() => {
+    if (searchTerm && searchTerm.trim().length > 2) {
+      const handler = setTimeout(() => {
+        trackEvent('search', searchTerm.trim(), activeView?.workspaceId || undefined, { filter: activeFilter });
+      }, 1000);
+      return () => clearTimeout(handler);
+    }
+  }, [searchTerm, trackEvent, activeFilter, activeView?.workspaceId]);
 
   useEffect(() => { setVisibleCount(15); }, [searchTerm, activeFilter]);
 
@@ -289,25 +323,48 @@ export const useMarketplaceLogic = ({
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       list = list.filter(item => {
-        const name = item.data.name;
+        const name = item.data.name || '';
         let extraSearch = '';
         if (item.type === 'STALL') {
             const profile = stores.find(p => p.workspaceId === item.data.workspaceId);
-            if (profile) extraSearch = profile.name;
+            if (profile) extraSearch = profile.name || '';
         }
         return name.toLowerCase().includes(lower) || extraSearch.toLowerCase().includes(lower);
       });
     }
 
-    if (userCoords) {
-        list.sort((a, b) => {
-            const distA = calculateDistance(userCoords.lat, userCoords.lng, a.data.latitude || 0, a.data.longitude || 0);
-            const distB = calculateDistance(userCoords.lat, userCoords.lng, b.data.latitude || 0, b.data.longitude || 0);
-            return distA - distB;
-        });
-    }
+    list.sort((a, b) => {
+      // 1. Personal Affinity Boost (Highest Priority)
+      const affinityA = userAffinity.find(u => u.workspace_id === a.data.workspaceId)?.interaction_count || 0;
+      const affinityB = userAffinity.find(u => u.workspace_id === b.data.workspaceId)?.interaction_count || 0;
+      
+      if (affinityA !== affinityB) {
+         return affinityB - affinityA;
+      }
+
+      // 2. Trending boost
+      const scoreA = trendingItems.find(t => t.workspace_id === a.data.workspaceId)?.engine_score || 0;
+      const scoreB = trendingItems.find(t => t.workspace_id === b.data.workspaceId)?.engine_score || 0;
+      
+      const isTrendingA = scoreA > 10 ? 1 : 0;
+      const isTrendingB = scoreB > 10 ? 1 : 0;
+
+      if (isTrendingA !== isTrendingB) {
+        return isTrendingB - isTrendingA;
+      }
+
+      // 3. Distance sorting if coordinates available
+      if (userCoords) {
+          const distA = calculateDistance(userCoords.lat, userCoords.lng, a.data.latitude || 0, a.data.longitude || 0);
+          const distB = calculateDistance(userCoords.lat, userCoords.lng, b.data.latitude || 0, b.data.longitude || 0);
+          return distA - distB;
+      }
+
+      return 0;
+    });
+
     return list;
-  }, [stalls, stores, activeFilter, searchTerm, userCoords, calculateDistance]);
+  }, [stalls, stores, activeFilter, searchTerm, userCoords, calculateDistance, trendingItems, userAffinity]);
 
   const displayItems = useMemo(() => {
     if (!activeView) return [];
@@ -383,7 +440,13 @@ export const useMarketplaceLogic = ({
 
   const isCartEnabled = useMemo(() => activeView?.fulfillmentMode === 'DELIVERY' || activeView?.fulfillmentMode === 'BOTH', [activeView]);
 
-  const addToCart = () => { if (selectedProduct) { setCart(prev => [...prev, { product: selectedProduct, qty: quantity }]); setSelectedProduct(null); } };
+  const addToCart = () => { 
+    if (selectedProduct) { 
+      setCart(prev => [...prev, { product: selectedProduct, qty: quantity }]); 
+      trackEvent('add_to_cart', selectedProduct.id, activeView?.workspaceId || undefined, { qty: quantity, price: getEffectivePrice(selectedProduct) });
+      setSelectedProduct(null); 
+    } 
+  };
   const removeFromCart = (index: number) => { const newCart = cart.filter((_, i) => i !== index); setCart(newCart); if (newCart.length === 0) setIsCartOpen(false); };
   const cartTotal = useMemo(() => cart.reduce((acc, item) => acc + (getEffectivePrice(item.product) * item.qty), 0), [cart, getEffectivePrice]);
   const discountAmount = useMemo(() => {
@@ -411,6 +474,8 @@ export const useMarketplaceLogic = ({
   const checkout = async () => {
     if (!activeView?.whatsapp || deliveryFee === -1 || isCheckingOut) return;
     setIsCheckingOut(true);
+
+    trackEvent('checkout_start', 'cart', activeView.workspaceId, { total: finalTotal, items: cart.length });
 
     try {
       // PREPARAÇÃO DO PEDIDO PENDENTE (Salva no localStorage para inserção segura caso seja pago via Mercado Pago)
@@ -520,6 +585,7 @@ export const useMarketplaceLogic = ({
     addToCart, removeFromCart, checkout, handleOrderSingle, handleMainAction,
     cartTotal, discountAmount, deliveryFee, finalTotal,
     toggleInteraction, getUserInteractions, getStoreAverageRating, submitRating,
-    setAppliedCoupon, isCartEnabled
+    setAppliedCoupon, isCartEnabled, hotKeywords, trendingItems, userAffinity,
+    sponsoredAds
   };
 };

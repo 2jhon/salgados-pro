@@ -1,4 +1,5 @@
 import React from 'react';
+import { supabase } from '../lib/supabase';
 import { User, AppSection, StoreProfile, SubscriptionPlan } from '../types';
 import { useMarketplaceLogic } from '../hooks/useMarketplaceLogic';
 import { StoryViewerModal } from './marketplace/StoryViewerModal';
@@ -51,7 +52,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
     addToCart, removeFromCart, checkout, handleOrderSingle, handleMainAction,
     cartTotal, discountAmount, deliveryFee, finalTotal,
     toggleInteraction, getUserInteractions, getStoreAverageRating, submitRating,
-    isCartEnabled
+    isCartEnabled, hotKeywords, trendingItems, userAffinity, sponsoredAds
   } = useMarketplaceLogic({
     user, stores, stalls, onRefresh,
     fetchPublicProfiles, fetchPublicStalls, hasMoreStores, hasMoreStalls
@@ -64,6 +65,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
         setSearchTerm={setSearchTerm}
         activeFilter={activeFilter}
         setActiveFilter={setActiveFilter}
+        hotKeywords={hotKeywords}
       />
 
       <div className="bg-white px-6 pb-6 rounded-b-[2.5rem] shadow-sm -mt-6 pt-6">
@@ -81,6 +83,40 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
         getStoreDisplayName={(profile) => getStoreDisplayName(profile, 'Loja Oficial')}
         getStoryToken={getStoryToken}
       />
+
+      {sponsoredAds && sponsoredAds.length > 0 && (
+        <div className="px-4 mt-6 mb-2">
+            <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-3 flex items-center gap-2">
+               <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+               Patrocinado
+            </h3>
+            <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-hide">
+              {sponsoredAds.map((ad, idx) => {
+                 return (
+                   <div 
+                     key={idx} 
+                     onClick={() => {
+                       supabase.rpc('increment_ad_clicks', { ad_id: ad.id });
+                       window.open(ad.link, '_blank');
+                     }}
+                     className="snap-center shrink-0 w-[280px] h-[140px] rounded-3xl relative overflow-hidden shadow-lg cursor-pointer transform transition text-white"
+                     style={{ backgroundColor: ad.background_color || '#f97316' }}
+                   >
+                     {ad.media_url ? (
+                       <img src={ad.media_url} alt={ad.title} className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-overlay" />
+                     ) : (
+                       <div className="absolute inset-0 bg-white/10"></div>
+                     )}
+                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex flex-col justify-end">
+                       <h4 className="font-extrabold text-sm uppercase tracking-wider">{ad.title}</h4>
+                       <p className="text-xs text-white/80 line-clamp-1">{ad.description}</p>
+                     </div>
+                   </div>
+                 );
+              })}
+            </div>
+        </div>
+      )}
 
       <div className="p-4 space-y-4">
          {user.role === 'OWNER' && <SystemPromoBanner plans={plans} user={user} onNavigate={onNavigate} variant="MARKETPLACE" />}
@@ -103,6 +139,8 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
                getStoreDisplayName={getStoreDisplayName}
                calculateDistance={calculateDistance}
                onClick={(data) => item.type === 'STALL' ? setSelectedStall(data) : setSelectedProfile(data)}
+               trendingItems={trendingItems}
+               userAffinity={userAffinity}
             />
          ))}
          

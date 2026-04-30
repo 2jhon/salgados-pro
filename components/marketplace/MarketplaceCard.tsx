@@ -1,6 +1,7 @@
 import React from 'react';
-import { Smartphone, Store, Navigation, Star, Heart, ChevronRight } from 'lucide-react';
+import { Smartphone, Store, Navigation, Star, Heart, Flame, ChevronRight, Wand2 } from 'lucide-react';
 import { StoreProfile } from '../../types';
+import { TrendingItem, AffinityScore } from '../../hooks/useMarketIntelligence';
 
 interface MarketplaceCardProps {
   item: any;
@@ -11,6 +12,8 @@ interface MarketplaceCardProps {
   getStoreDisplayName: (store: StoreProfile | null | undefined, fallback: string, prioritizeStoreName?: boolean) => string;
   calculateDistance: (lat1: number, lon1: number, lat2: number, lon2: number) => number;
   onClick: (data: any) => void;
+  trendingItems?: TrendingItem[];
+  userAffinity?: AffinityScore[];
 }
 
 export const MarketplaceCard: React.FC<MarketplaceCardProps> = ({
@@ -21,7 +24,9 @@ export const MarketplaceCard: React.FC<MarketplaceCardProps> = ({
   userInteractions,
   getStoreDisplayName,
   calculateDistance,
-  onClick
+  onClick,
+  trendingItems = [],
+  userAffinity = []
 }) => {
   const isStall = item.type === 'STALL';
   const data = item.data;
@@ -35,12 +40,16 @@ export const MarketplaceCard: React.FC<MarketplaceCardProps> = ({
     ? (data.name && data.name !== 'Minha Barraca' ? data.name : 'Unidade Móvel / Barraca') 
     : (data.address && data.address !== 'Sem Endereço' ? data.address : 'Loja Oficial / Matriz');
 
+  // Verifica se a loja está em alta
+  const isTrending = trendingItems.some(t => t.workspace_id === data.workspaceId && t.engine_score > 10);
+  const isRecommended = userAffinity.some(a => a.workspace_id === data.workspaceId && a.interaction_count >= 2);
+
   return (
     <button 
       onClick={() => onClick(data)}
       className="w-full bg-white p-5 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center gap-5 text-left group active:scale-95 transition-all relative overflow-hidden"
     >
-      <div className="w-20 h-20 bg-slate-100 rounded-[1.8rem] overflow-hidden shrink-0 shadow-inner">
+      <div className="w-20 h-20 bg-slate-100 rounded-[1.8rem] overflow-hidden shrink-0 shadow-inner relative">
         {displayImage ? (
           <img src={displayImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
         ) : (
@@ -48,13 +57,33 @@ export const MarketplaceCard: React.FC<MarketplaceCardProps> = ({
             {isStall ? <Smartphone /> : <Store />}
           </div>
         )}
+        {isTrending && !isRecommended && (
+          <div className="absolute top-1 left-1 bg-orange-500 text-white rounded-full p-1 shadow-md">
+            <Flame size={12} fill="currentColor" />
+          </div>
+        )}
+        {isRecommended && (
+          <div className="absolute top-1 left-1 bg-indigo-500 text-white rounded-full p-1 shadow-md ring-2 ring-white">
+            <Wand2 size={12} />
+          </div>
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${isStall ? 'bg-blue-100 text-blue-600' : 'bg-indigo-100 text-indigo-600'}`}>
+          <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${isStall ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
             {isStall ? 'Barraca' : 'Loja Oficial'}
           </span>
-          {distance !== null && (
+          {isRecommended && (
+            <span className="flex items-center gap-0.5 text-[8px] font-bold text-indigo-500 uppercase tracking-widest">
+              Para Você
+            </span>
+          )}
+          {isTrending && !isRecommended && (
+            <span className="flex items-center gap-0.5 text-[8px] font-bold text-orange-500 uppercase tracking-widest">
+              <Flame size={10} /> Em Alta
+            </span>
+          )}
+          {distance !== null && !isTrending && !isRecommended && (
             <span className="flex items-center gap-1 text-[8px] font-bold text-slate-400">
               <Navigation size={10} /> {(distance || 0).toFixed(1)}km
             </span>

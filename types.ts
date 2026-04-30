@@ -25,10 +25,12 @@ export interface User {
   hideSalesValues: boolean; 
   enableSounds: boolean;
   hasProPlan?: boolean;
+  hasBiPlan?: boolean;
   userType?: UserType;
   latitude?: number;
   longitude?: number;
   proExpiresAt?: string;
+  biExpiresAt?: string;
   adFreeExpiresAt?: string;
   advertiserExpiresAt?: string;
   avatarUrl?: string;
@@ -280,6 +282,7 @@ export interface SubscriptionPlan {
   grants_pro: boolean;
   grants_ad_free: boolean;
   grants_advertiser: boolean;
+  grants_bi?: boolean;
   free_ads_per_month: number;
   promo_price?: number;
   promo_ends_at?: string;

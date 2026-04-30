@@ -12,6 +12,8 @@ import {
   Package, ChevronUp, ChevronDown
 } from 'lucide-react';
 
+import { GlobalIntelligence } from './super_admin/GlobalIntelligence';
+
 interface GlobalCompany {
   workspaceId: string;
   name: string;
@@ -121,7 +123,7 @@ const AdTimer: React.FC<{ expiresAt: string; label?: string; lightMode?: boolean
 };
 
 export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
-  const [activeTab, setActiveTab] = useState<'EMPRESAS' | 'PINS' | 'ANUNCIOS' | 'DENUNCIAS' | 'SISTEMA' | 'FINANCEIRO'>('EMPRESAS');
+  const [activeTab, setActiveTab] = useState<'EMPRESAS' | 'PINS' | 'ANUNCIOS' | 'DENUNCIAS' | 'SISTEMA' | 'FINANCEIRO' | 'INTELIGENCIA'>('EMPRESAS');
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -824,9 +826,9 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       </header>
 
       <div className="flex bg-slate-900 p-1.5 rounded-[2.2rem] gap-1 shadow-xl overflow-x-auto no-scrollbar">
-        {['EMPRESAS', 'PINS', 'ANUNCIOS', 'DENUNCIAS', 'FINANCEIRO', 'SISTEMA'].map(tab => (
+        {['EMPRESAS', 'PINS', 'ANUNCIOS', 'DENUNCIAS', 'FINANCEIRO', 'INTELIGENCIA', 'SISTEMA'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-4 px-6 rounded-[1.8rem] text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-            {tab === 'PINS' && pinRequests.length > 0 ? `${tab} (${pinRequests.length})` : tab === 'DENUNCIAS' && reports.filter(r => r.status === 'PENDING').length > 0 ? `${tab} (${reports.filter(r => r.status === 'PENDING').length})` : tab === 'ANUNCIOS' && pendingAdsCount > 0 ? `${tab} (${pendingAdsCount})` : tab}
+            {tab === 'PINS' && pinRequests.length > 0 ? `${tab} (${pinRequests.length})` : tab === 'DENUNCIAS' && reports.filter(r => r.status === 'PENDING').length > 0 ? `${tab} (${reports.filter(r => r.status === 'PENDING').length})` : tab === 'ANUNCIOS' && pendingAdsCount > 0 ? `${tab} (${pendingAdsCount})` : tab === 'INTELIGENCIA' ? 'BI & INTELIGÊNCIA' : tab}
           </button>
         ))}
       </div>
@@ -852,7 +854,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                 const isAdvertiserActive = c.isAdvertiser && c.advertiserExpiresAt && new Date(c.advertiserExpiresAt).getTime() > now;
 
                 return (
-                  <div key={c.workspaceId} className={`bg-white p-6 rounded-[2.5rem] border-2 shadow-sm ${c.isBlocked ? 'border-red-500/50 bg-red-50/30' : 'border-slate-50'}`}>
+                  <div key={`${c.workspaceId}_${c.ownerId}`} className={`bg-white p-6 rounded-[2.5rem] border-2 shadow-sm ${c.isBlocked ? 'border-red-500/50 bg-red-50/30' : 'border-slate-50'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <button onClick={() => setSelectedCompany(c)} className="flex items-center gap-4 text-left hover:opacity-70 transition-opacity">
                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl ${c.isBlocked ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-400'}`}>{(c.name || '?').charAt(0).toUpperCase()}</div>
@@ -1209,6 +1211,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
             </div>
           )}
 
+          {activeTab === 'INTELIGENCIA' && (
+             <GlobalIntelligence />
+          )}
+
           {activeTab === 'SISTEMA' && (
              <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50 space-y-6">
                 <div className="flex items-center gap-4 mb-4"><div className="p-4 bg-blue-600 text-white rounded-2xl"><SettingsIcon size={24} /></div><div><h3 className="text-xl font-black text-slate-800">Kernel Config</h3><p className="text-[10px] font-bold text-slate-400 uppercase">Número Global de Suporte</p></div></div>
@@ -1409,6 +1415,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                   <label className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-100 cursor-pointer">
                     <input type="checkbox" checked={editingPlan.grants_advertiser} onChange={e => setEditingPlan({...editingPlan, grants_advertiser: e.target.checked})} className="w-4 h-4 accent-amber-500" />
                     <span className="text-[10px] font-bold text-slate-600 uppercase">Anunciante</span>
+                  </label>
+                  <label className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-100 cursor-pointer">
+                    <input type="checkbox" checked={editingPlan.grants_bi} onChange={e => setEditingPlan({...editingPlan, grants_bi: e.target.checked})} className="w-4 h-4 accent-violet-500" />
+                    <span className="text-[10px] font-bold text-slate-600 uppercase">Telemetria BI</span>
                   </label>
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase ml-1">Ads Grátis/Mês</label>
