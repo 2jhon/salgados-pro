@@ -137,12 +137,50 @@ export const useTransactions = (
         }
 
         const historyPromise = historyQuery;
-        const pendingPromise = pendingQuery || Promise.resolve({ data: [], error: null });
+        const pendingPromise = pendingQuery 
+          ? pendingQuery.then(async res => {
+              if (res.error) {
+                console.warn("Pendings fetch error with boolean true:", res.error);
+                // Fallback to integer 1 if the column is numeric
+                let fallbackQuery = supabase.from('transactions').select('*').eq('is_pending', 1);
+                
+                if (user?.role === 'CUSTOMER' && user?.phone) {
+                   const cleanedPhone = normalizePhone(user.phone);
+                   fallbackQuery = fallbackQuery.eq('customer_phone', cleanedPhone);
+                } else {
+                   fallbackQuery = fallbackQuery.eq('workspace_id', cleanWid);
+                }
+                
+                const fallbackRes = await fallbackQuery;
+                if (fallbackRes.error) {
+                  console.warn("Pendings fetch error with integer 1:", fallbackRes.error);
+                  
+                  // Fallback 2: String 'true'
+                  let stringQuery = supabase.from('transactions').select('*').eq('is_pending', 'true');
+                  if (user?.role === 'CUSTOMER' && user?.phone) {
+                     stringQuery = stringQuery.eq('customer_phone', normalizePhone(user.phone));
+                  } else {
+                     stringQuery = stringQuery.eq('workspace_id', cleanWid);
+                  }
+                  
+                  const strRes = await stringQuery;
+                  if (strRes.error) {
+                     console.warn("Pendings fetch error with string 'true':", strRes.error);
+                     return { data: [], error: null };
+                  }
+                  return strRes;
+                }
+                return fallbackRes;
+              }
+              return res;
+            })
+          : Promise.resolve({ data: [], error: null });
 
         const [historyRes, pendingRes] = await Promise.all([historyPromise, pendingPromise]);
 
         if (historyRes.error) throw historyRes.error;
-        if (pendingRes.error) throw pendingRes.error;
+        // pendingRes error is already caught above
+
 
         const combined = [...(historyRes.data || []), ...(pendingRes.data || [])];
         
@@ -180,6 +218,9 @@ export const useTransactions = (
       }
     } catch (e: any) {
       console.error("Erro Fetch Transactions:", e);
+      if (e.message) {
+        console.warn("DB_FETCH_ERROR:", e.message);
+      }
       if (pageNum === 0) {
         try {
           const cached: any = await localforage.getItem(`cached_tx_${cleanWid}`);

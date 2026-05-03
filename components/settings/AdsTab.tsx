@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Megaphone, Plus, Search, Sparkles, Image as ImageIcon, 
   Send, Clock, Trash2, Edit3, MessageCircle, AlertTriangle, 
@@ -33,6 +33,9 @@ export const AdsTab: React.FC<AdsTabProps> = ({
   editingAdId, setEditingAdId, effectiveAdPrice, freeAdsRemaining,
   adFileInputRef, handleAdImageUpload, currentUser
 }) => {
+  const [confirmDeleteAdId, setConfirmDeleteAdId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   const filteredAds = ads.filter(ad => ad.ownerId === currentUser.id);
 
   return (
@@ -201,7 +204,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                             Pagar
                           </button>
                         )}
-                         <button onClick={() => deleteAd(ad.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
+                         <button onClick={() => setConfirmDeleteAdId(ad.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
                             <Trash2 size={16} />
                          </button>
                       </div>
@@ -210,6 +213,40 @@ export const AdsTab: React.FC<AdsTabProps> = ({
               </div>
            </div>
         </div>
+
+        {confirmDeleteAdId && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Anúncio</h3>
+              <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+                Tem certeza que deseja apagar permanentemente este anúncio da vitrine?
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setConfirmDeleteAdId(null)} 
+                  className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    await deleteAd(confirmDeleteAdId);
+                    setIsDeleting(false);
+                    setConfirmDeleteAdId(null);
+                  }}
+                  disabled={isDeleting}
+                  className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+                >
+                  {isDeleting ? 'Excluindo...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Info Column */}
         <div className="space-y-6">

@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { Plus, Layout, Edit3, Trash2, Package, Store, Factory } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Layout, Edit3, Trash2, Package, Store, Factory, Loader2 } from 'lucide-react';
 import { AppSection } from '../../types';
 
 interface StructureTabProps {
@@ -13,6 +13,8 @@ interface StructureTabProps {
 export const StructureTab: React.FC<StructureTabProps> = ({ 
   sections, setShowSectionModal, setEditingSection, deleteSection 
 }) => {
+  const [confirmDeleteSectionId, setConfirmDeleteSectionId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const getIcon = (type: string) => {
     switch (type) {
       case 'FACTORY_STYLE': return <Factory size={24} className="text-orange-600" />;
@@ -68,7 +70,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                  <Edit3 size={18} />
                </button>
                <button 
-                 onClick={() => deleteSection(section.id)}
+                 onClick={() => setConfirmDeleteSectionId(section.id)}
                  className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-rose-50 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100"
                >
                  <Trash2 size={18} />
@@ -86,6 +88,40 @@ export const StructureTab: React.FC<StructureTabProps> = ({
           </div>
         )}
       </div>
+
+      {confirmDeleteSectionId && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Repartição</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              Certeza que deseja apagar esta seção? O histórico nela pode ser comprometido.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmDeleteSectionId(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  setIsDeleting(true);
+                  await deleteSection(confirmDeleteSectionId);
+                  setIsDeleting(false);
+                  setConfirmDeleteSectionId(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+              >
+                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Exclusão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

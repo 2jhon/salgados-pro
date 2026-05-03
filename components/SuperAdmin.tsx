@@ -126,6 +126,8 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   const [activeTab, setActiveTab] = useState<'EMPRESAS' | 'PINS' | 'ANUNCIOS' | 'DENUNCIAS' | 'SISTEMA' | 'FINANCEIRO' | 'INTELIGENCIA'>('EMPRESAS');
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmDeletePlanId, setConfirmDeletePlanId] = useState<string | null>(null);
+  const [confirmBlockCompanyModal, setConfirmBlockCompanyModal] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -600,7 +602,6 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   };
 
   const handleDeletePlan = async (id: string) => {
-    if (!window.confirm("Tem certeza que deseja excluir este plano?")) return;
     setIsSaving(true);
     try {
       const { error } = await supabase.from('subscription_plans').delete().eq('id', id);
@@ -653,7 +654,6 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   const handleBlockCompany = async () => {
     if (!selectedCompany) return;
     const newStatus = !selectedCompany.isBlocked;
-    if (!window.confirm(`Tem certeza que deseja ${newStatus ? 'BLOQUEAR' : 'DESBLOQUEAR'} a empresa ${selectedCompany.name}?`)) return;
     
     setIsSaving(true);
     try {
@@ -1199,7 +1199,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setEditingPlan(plan)} className="p-3 bg-white text-slate-400 hover:text-blue-600 rounded-xl shadow-sm transition-colors"><Edit2 size={16} /></button>
-                        <button onClick={() => handleDeletePlan(plan.id)} className="p-3 bg-white text-slate-400 hover:text-rose-600 rounded-xl shadow-sm transition-colors"><Trash2 size={16} /></button>
+                        <button onClick={() => setConfirmDeletePlanId(plan.id)} className="p-3 bg-white text-slate-400 hover:text-rose-600 rounded-xl shadow-sm transition-colors"><Trash2 size={16} /></button>
                       </div>
                     </div>
                   ))}
@@ -1701,7 +1701,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
                 <div className="grid grid-cols-2 gap-3">
                   <button 
-                    onClick={handleBlockCompany}
+                    onClick={() => setConfirmBlockCompanyModal(true)}
                     disabled={isSaving}
                     className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${selectedCompany.isBlocked ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100' : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100'}`}
                   >
@@ -1784,6 +1784,74 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
               >
                 {isSaving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
                 Salvar Taxa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAR EXCLUSÃO DE PLANO */}
+      {confirmDeletePlanId && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Plano</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              Certeza que deseja excluir este plano? Esta alteração não poderá ser desfeita.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmDeletePlanId(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  await handleDeletePlan(confirmDeletePlanId);
+                  setConfirmDeletePlanId(null);
+                }}
+                disabled={isSaving}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAR BLOQUEIO DE EMPRESA */}
+      {confirmBlockCompanyModal && selectedCompany && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${selectedCompany.isBlocked ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+              <Ban size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">
+              {selectedCompany.isBlocked ? 'Desbloquear a Empresa' : 'Bloquear a Empresa'}
+            </h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              Certeza que deseja {selectedCompany.isBlocked ? 'DESBLOQUEAR' : 'BLOQUEAR'} a empresa <span className="text-slate-800">{selectedCompany.name}</span>?
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmBlockCompanyModal(false)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  await handleBlockCompany();
+                  setConfirmBlockCompanyModal(false);
+                }}
+                disabled={isSaving}
+                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg disabled:animate-pulse ${selectedCompany.isBlocked ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-red-500 hover:bg-red-600 shadow-red-500/20'}`}
+              >
+                Confirmar
               </button>
             </div>
           </div>

@@ -645,10 +645,10 @@ export const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-orange-400/10 via-slate-950 to-black" />
+        <div className={`absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] ${targetType === 'CUSTOMER' ? 'from-blue-400/10' : 'from-orange-400/10'} via-slate-950 to-black`} />
         <div className="w-full max-w-md relative z-10">
           <div className="text-center mb-12">
-            <div className="w-20 h-20 bg-orange-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-orange-900/40"><ShieldCheck className="w-10 h-10 text-white" /></div>
+            <div className={`w-20 h-20 ${targetType === 'CUSTOMER' ? 'bg-blue-600 shadow-blue-900/40' : 'bg-orange-600 shadow-orange-900/40'} rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl`}><ShieldCheck className="w-10 h-10 text-white" /></div>
             <h1 className="text-4xl font-black mb-2 tracking-tighter">Salgados Pro</h1>
           </div>
           {authMode === 'IDENTIFY' ? (
@@ -666,10 +666,10 @@ export const App: React.FC = () => {
               <button onClick={() => setAuthMode('LOGIN')} className="flex items-center gap-2 text-slate-400 font-black text-[10px] uppercase"><ArrowLeft className="w-4 h-4" /> Voltar</button>
               {!recoverySuccess ? (
                 <form onSubmit={async (e) => { e.preventDefault(); setIsProcessing(true); const user = targetType === 'COMPANY' ? await findUserByEmail(email) : await findUserByPhone(phone); if(user){ setRecoverySuccess(true); setRecoveryMessage("Pedido de PIN enviado. Fale com o suporte."); } else { setAuthError("Usuário não encontrado."); } setIsProcessing(false); }} className="space-y-4">
-                  <KeyRound className="w-12 h-12 text-orange-500 mx-auto" />
+                  <KeyRound className={`w-12 h-12 ${targetType === 'CUSTOMER' ? 'text-blue-500' : 'text-orange-500'} mx-auto`} />
                   <input required value={userName} onChange={e => setUserName(e.target.value)} placeholder="NOME CADASTRADO" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs uppercase" />
                   {targetType === 'COMPANY' ? <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-MAIL" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs" /> : <input required type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="WHATSAPP" className="w-full p-4 bg-slate-50 rounded-xl font-bold text-xs" />}
-                  <button type="submit" disabled={isProcessing} className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs">Solicitar Recuperação</button>
+                  <button type="submit" disabled={isProcessing} className={`w-full py-5 ${targetType === 'CUSTOMER' ? 'bg-blue-600' : 'bg-orange-600'} text-white rounded-2xl font-black uppercase text-xs`}>Solicitar Recuperação</button>
                 </form>
               ) : <div className="text-center py-10"><CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" /><p className="text-xs font-bold">{recoveryMessage}</p></div>}
             </div>
@@ -846,7 +846,7 @@ export const App: React.FC = () => {
                  </button>
               )}
 
-              <button type="submit" disabled={isProcessing} className="w-full py-5 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs shadow-lg">{isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode.startsWith('CREATE_') ? 'Criar Conta' : 'Entrar')}</button>
+              <button type="submit" disabled={isProcessing} className={`w-full py-5 ${targetType === 'CUSTOMER' ? 'bg-blue-600' : 'bg-orange-600'} text-white rounded-2xl font-black uppercase text-xs shadow-lg`}>{isProcessing ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode.startsWith('CREATE_') ? 'Criar Conta' : 'Entrar')}</button>
               
               {authMode === 'LOGIN' && (
                 <button 

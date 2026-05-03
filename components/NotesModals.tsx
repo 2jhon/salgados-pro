@@ -85,6 +85,9 @@ interface NotesInboxProps {
 }
 
 export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAsRead, onMarkAllAsRead, onDelete, onClearAll }) => {
+  const [confirmDeleteNote, setConfirmDeleteNote] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+
   const formatDate = (dateStr: string) => {
     try {
       if (!dateStr) return '';
@@ -120,7 +123,7 @@ export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAs
                 )}
                 {hasReadNotes && onClearAll && (
                   <button 
-                    onClick={onClearAll} 
+                    onClick={() => setConfirmClearAll(true)} 
                     className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[8px] font-black uppercase flex items-center gap-1 hover:bg-red-100 transition-colors"
                   >
                     <Trash2 size={10} /> Limpar Lidas
@@ -163,7 +166,7 @@ export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAs
                     </button>
                   ) : (
                     onDelete && (
-                      <button onClick={() => onDelete(note.id)} className="p-2 bg-slate-200 text-slate-400 rounded-xl hover:bg-red-100 hover:text-red-500 transition-colors" title="Excluir">
+                      <button onClick={() => setConfirmDeleteNote(note.id)} className="p-2 bg-slate-200 text-slate-400 rounded-xl hover:bg-red-100 hover:text-red-500 transition-colors" title="Excluir">
                         <Trash2 size={14} />
                       </button>
                     )
@@ -189,6 +192,34 @@ export const NotesInbox: React.FC<NotesInboxProps> = ({ notes, onClose, onMarkAs
             ))
           )}
         </div>
+        
+        {confirmDeleteNote && (
+          <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 rounded-3xl animate-in fade-in">
+            <div className="bg-white rounded-2xl p-6 text-center max-w-[250px] shadow-xl animate-in zoom-in-95">
+               <Trash2 className="w-10 h-10 text-rose-500 mx-auto mb-3" />
+               <h4 className="font-black text-slate-800 tracking-tighter mb-1">EXCLUIR NOTA</h4>
+               <p className="text-xs text-slate-500 mb-4 leading-relaxed tracking-tight">Deseja realmente apagar esta nota?</p>
+               <div className="flex gap-2">
+                 <button onClick={() => setConfirmDeleteNote(null)} className="flex-1 py-3 bg-slate-100 font-bold text-slate-500 rounded-xl text-[10px] tracking-widest uppercase hover:bg-slate-200">Cancelar</button>
+                 <button onClick={() => { onDelete?.(confirmDeleteNote); setConfirmDeleteNote(null); }} className="flex-1 py-3 bg-rose-500 font-bold text-white rounded-xl text-[10px] tracking-widest uppercase hover:bg-rose-600">Apagar</button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {confirmClearAll && (
+          <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 rounded-3xl animate-in fade-in">
+            <div className="bg-white rounded-2xl p-6 text-center max-w-[250px] shadow-xl animate-in zoom-in-95">
+               <Trash2 className="w-10 h-10 text-rose-500 mx-auto mb-3" />
+               <h4 className="font-black text-slate-800 tracking-tighter mb-1">LIMPAR HISTÓRICO</h4>
+               <p className="text-xs text-slate-500 mb-4 leading-relaxed tracking-tight">Deseja apagar todas as notas lidas?</p>
+               <div className="flex gap-2">
+                 <button onClick={() => setConfirmClearAll(false)} className="flex-1 py-3 bg-slate-100 font-bold text-slate-500 rounded-xl text-[10px] tracking-widest uppercase hover:bg-slate-200">Cancelar</button>
+                 <button onClick={() => { onClearAll?.(); setConfirmClearAll(false); }} className="flex-1 py-3 bg-rose-500 font-bold text-white rounded-xl text-[10px] tracking-widest uppercase hover:bg-rose-600">Limpar</button>
+               </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

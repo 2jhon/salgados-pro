@@ -288,6 +288,16 @@ export const Factory: React.FC<FactoryProps> = ({
     const cleanCustomerName = customerName.trim();
 
     // VALIDAÇÃO RIGOROSA DE IDENTIFICAÇÃO
+    if (globalMethod === 'A_PRAZO' && isUnregistered) {
+      setIsUnregistered(false);
+      setValidationError({
+        title: "Venda a Prazo Requer Cliente",
+        message: "Não é permitida a venda a prazo para clientes avulsos. Você precisa identificar o cliente para registrar essa dívida perfeitamente.",
+        type: 'MISSING_ID'
+      });
+      return;
+    }
+
     if (!isUnregistered) {
       // Se NÃO for venda avulsa, a identificação é obrigatória
       if (!cleanCustomerName) {
@@ -972,7 +982,14 @@ export const Factory: React.FC<FactoryProps> = ({
         <>
           <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50 space-y-4">
             <div className="relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-5 h-5" /><input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar item..." className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-bold text-xs uppercase outline-none focus:ring-2 focus:ring-indigo-100 transition-all" /></div>
-            <div className="flex gap-2"><button onClick={() => setGlobalMethod('A_VISTA')} className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all ${globalMethod === 'A_VISTA' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-100 text-slate-400'}`}>À Vista</button><button onClick={() => setGlobalMethod('A_PRAZO')} className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all ${globalMethod === 'A_PRAZO' ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white border-slate-100 text-slate-400'}`}>À Prazo</button></div>
+            <div className="flex gap-2">
+              <button onClick={() => setGlobalMethod('A_VISTA')} className={`flex-1 py-4 flex items-center justify-center gap-2 rounded-2xl border-2 font-black text-[11px] uppercase transition-all active:scale-95 ${globalMethod === 'A_VISTA' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100'}`}>
+                <DollarSign className="w-4 h-4" /> À Vista
+              </button>
+              <button onClick={() => setGlobalMethod('A_PRAZO')} className={`flex-1 py-4 flex items-center justify-center gap-2 rounded-2xl border-2 font-black text-[11px] uppercase transition-all active:scale-95 ${globalMethod === 'A_PRAZO' ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100'}`}>
+                <Clock className="w-4 h-4" /> À Prazo
+              </button>
+            </div>
             
             <div className="animate-in slide-in-from-top-2 relative space-y-3">
               <div className="flex items-center justify-between px-2">
@@ -1092,7 +1109,7 @@ export const Factory: React.FC<FactoryProps> = ({
                  )}
                  </div><div className="w-24"><input type="number" inputMode="decimal" value={qty} onChange={e => handleQtyChange(item.id, e.target.value)} placeholder="Qtd" className={`w-full p-3 rounded-xl font-black text-center outline-none transition-all ${qty ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-800 border-2 border-slate-200 focus:border-indigo-300 focus:bg-white'}`} /></div></div>);
             })}</div>
-          {productionTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-500' : 'bg-emerald-600'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : `CONFIRMAR ${formatCurrency(productionTotal)}`}</button></div>)}
+          {productionTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
         </>
       )}
 

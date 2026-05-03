@@ -14,6 +14,8 @@ export const CouponManager: React.FC<CouponManagerProps> = ({ workspaceId }) => 
   const [showModal, setShowModal] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Partial<Coupon> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchCoupons();
@@ -122,8 +124,6 @@ export const CouponManager: React.FC<CouponManagerProps> = ({ workspaceId }) => 
   };
 
   const deleteCoupon = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este cupom?')) return;
-    
     try {
       const { error } = await supabase
         .from('coupons')
@@ -198,7 +198,7 @@ export const CouponManager: React.FC<CouponManagerProps> = ({ workspaceId }) => 
                   {coupon.active ? 'Desativar' : 'Ativar'}
                 </button>
                 <button onClick={() => { setEditingCoupon(coupon); setShowModal(true); }} className="p-3 bg-slate-50 text-blue-500 rounded-xl hover:bg-blue-50 transition-all"><Edit3 size={16} /></button>
-                <button onClick={() => deleteCoupon(coupon.id)} className="p-3 bg-slate-50 text-rose-500 rounded-xl hover:bg-rose-50 transition-all"><Trash2 size={16} /></button>
+                <button onClick={() => setConfirmDeleteId(coupon.id)} className="p-3 bg-slate-50 text-rose-500 rounded-xl hover:bg-rose-50 transition-all"><Trash2 size={16} /></button>
               </div>
             </div>
           ))
@@ -308,6 +308,40 @@ export const CouponManager: React.FC<CouponManagerProps> = ({ workspaceId }) => 
               {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
               Salvar Cupom
             </button>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Cupom</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              Certeza que deseja excluir este cupom permanentemente?
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmDeleteId(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  setIsDeleting(true);
+                  await deleteCoupon(confirmDeleteId);
+                  setIsDeleting(false);
+                  setConfirmDeleteId(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+              >
+                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Exclusão'}
+              </button>
+            </div>
           </div>
         </div>
       )}

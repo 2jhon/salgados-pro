@@ -76,6 +76,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmClearInfo, setConfirmClearInfo] = useState<{ isFactoryReset: boolean } | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -95,8 +96,6 @@ export const SystemTab: React.FC<SystemTabProps> = ({
      try {
        setIsProcessing(true);
        if (isFactoryReset) {
-          const confirm = window.confirm("ATENÇÃO: Você está prestes a apagar TODOS os dados desta loja. Deseja continuar?");
-          if (!confirm) return;
           await clearTransactions('all', workspaceId);
           showToast("Dados resetados com sucesso.");
        } else {
@@ -366,7 +365,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
                <Download size={18} /> BAIXAR RELATÓRIO
             </button>
             <button 
-              onClick={() => handleClear(false)}
+              onClick={() => setConfirmClearInfo({ isFactoryReset: false })}
               disabled={isProcessing}
               className={`flex-1 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all ${isProcessing ? 'bg-slate-100 text-slate-400' : 'bg-rose-100 hover:bg-rose-200 text-rose-600'}`}
             >
@@ -400,7 +399,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
         <AlertTriangle size={56} className="text-orange-500 mb-6 stroke-[2] relative z-10" />
         <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight relative z-10">ZONA DE PERIGO</h4>
         <button 
-          onClick={() => handleClear(true)}
+          onClick={() => setConfirmClearInfo({ isFactoryReset: true })}
           disabled={isProcessing}
           className="mt-8 w-full py-5 sm:py-6 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black uppercase text-xs sm:text-sm tracking-widest shadow-xl shadow-rose-600/30 flex items-center justify-center gap-2 transition-all relative z-10"
         >
@@ -417,6 +416,40 @@ export const SystemTab: React.FC<SystemTabProps> = ({
           A C E S S O  R O O T
         </button>
       </div>
+
+      {confirmClearInfo && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Histórico</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              {confirmClearInfo.isFactoryReset 
+                ? "ATENÇÃO: Você está prestes a apagar TODOS os dados desta loja. Deseja continuar?" 
+                : "Certeza que deseja apagar o histórico do período selecionado? ISSO NÃO PODE SER DESFEITO."}
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmClearInfo(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  await handleClear(confirmClearInfo.isFactoryReset);
+                  setConfirmClearInfo(null);
+                }}
+                disabled={isProcessing}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* TOAST SYSTEM */}
       {toastMessage && (

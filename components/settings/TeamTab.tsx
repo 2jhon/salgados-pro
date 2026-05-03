@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { UserPlus, Trash2, Edit3 } from 'lucide-react';
+import React, { useState } from 'react';
+import { UserPlus, Trash2, Edit3, Loader2 } from 'lucide-react';
 import { User } from '../../types';
 
 interface TeamTabProps {
@@ -15,6 +15,8 @@ interface TeamTabProps {
 export const TeamTab: React.FC<TeamTabProps> = ({
   users, setShowUserModal, setEditingUser, setUserForm, removeUser, currentUser
 }) => {
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const getRoleLabel = (role: string) => {
     switch (role) {
       case 'OWNER': return 'Proprietário';
@@ -82,7 +84,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                 <Edit3 size={18} />
               </button>
               <button 
-                onClick={() => user.id !== currentUser.id && removeUser(user.id)}
+                onClick={() => user.id !== currentUser.id && setConfirmDeleteUserId(user.id)}
                 disabled={user.id === currentUser.id}
                 className="p-3 text-rose-500 bg-rose-50 hover:bg-rose-600 hover:text-white rounded-2xl transition-all border border-rose-100 shadow-sm disabled:opacity-0"
               >
@@ -92,6 +94,40 @@ export const TeamTab: React.FC<TeamTabProps> = ({
           </div>
         ))}
       </div>
+
+      {confirmDeleteUserId && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">Excluir Membro</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              Certeza absoluta que deseja revogar o acesso deste membro?
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmDeleteUserId(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  setIsDeleting(true);
+                  await removeUser(confirmDeleteUserId);
+                  setIsDeleting(false);
+                  setConfirmDeleteUserId(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center shadow-lg shadow-rose-600/20 disabled:animate-pulse"
+              >
+                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Exclusão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
