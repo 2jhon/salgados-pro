@@ -1039,17 +1039,17 @@ export const App: React.FC = () => {
               if (prev.find(t => t.id === String(newTx.id))) return prev;
               const mapped = {
                 id: String(newTx.id),
-                workspaceId: newTx.workspace_id,
+                workspaceId: String(newTx.workspace_id || '').trim().toLowerCase(),
                 date: newTx.date || newTx.created_at,
-                category: newTx.category,
-                subCategory: newTx.sub_category,
-                item: newTx.item,
-                value: Number(newTx.value),
+                category: String(newTx.category || '').trim(),
+                subCategory: String(newTx.sub_category || '').trim().toUpperCase(),
+                item: String(newTx.item || '').trim(),
+                value: Number(newTx.value || 0),
                 quantity: newTx.quantity,
-                paymentMethod: newTx.payment_method,
-                customerName: newTx.customer_name,
+                paymentMethod: String(newTx.payment_method || '').trim(),
+                customerName: newTx.customer_name ? String(newTx.customer_name).trim() : undefined,
                 isPending: !!newTx.is_pending,
-                createdBy: newTx.created_by
+                createdBy: String(newTx.created_by || '').trim()
               };
               return [mapped, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             });

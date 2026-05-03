@@ -403,18 +403,21 @@ export const useTransactions = (
     try {
       const dbIds = transactionIds.map(id => isNaN(Number(id)) ? id : Number(id));
       
-      // 1. Update old transactions to not pending
-      const { error } = await supabase.from('transactions').update({ is_pending: false }).in('id', dbIds);
+      // 1. Update old transactions to not pending and mark as consolidated to avoid double counting in BI
+      const { error } = await supabase.from('transactions').update({ 
+        is_pending: false,
+        sub_category: 'CONSOLIDADO' 
+      }).in('id', dbIds);
       if (error) throw error;
 
-      // 2. Create a new transaction for the payment today
+      // 2. Create a new transaction for the payment today (this reflects cash flow)
       if (totalPaid > 0 && txsToSettle.length > 0) {
         const firstTx = txsToSettle[0];
         const paymentPayload = {
           workspace_id: String(firstTx.workspaceId).trim().toLowerCase(),
           category: firstTx.category, // Usually the section name
-          sub_category: 'VENDAS', // It's an income
-          item: `Pagamento de Fiado (${txsToSettle.length} itens)`,
+          sub_category: 'VENDAS', // It's an income today
+          item: `Recebimento de Fiado: ${customerName}`,
           value: totalPaid,
           quantity: 1,
           payment_method: 'A_VISTA',
@@ -451,16 +454,16 @@ export const useTransactions = (
 
     const dbId = Number(originalTx.id) || originalTx.id;
     try {
-      // 1. Update the old transaction to the remaining debt
+      // 1. Update the old transaction to the remaining debt (keeps it pending)
       const { error: upErr } = await supabase.from('transactions').update({ value: remainingDebt }).eq('id', dbId);
       if (upErr) throw upErr;
       
-      // 2. Create a new transaction for the partial payment today
+      // 2. Create a new transaction for the partial payment today (cash in)
       const receiptPayload = {
         workspace_id: String(originalTx.workspaceId).trim().toLowerCase(),
         category: originalTx.category,
-        sub_category: targetSubCategory || originalTx.subCategory,
-        item: `${originalTx.item} (Pagamento Parcial)`,
+        sub_category: 'VENDAS',
+        item: `${originalTx.item} (Recebimento Parcial)`,
         value: amountPaid,
         quantity: originalTx.quantity,
         payment_method: 'A_VISTA',
@@ -589,12 +592,18 @@ export const useTransactions = (
       t.workspaceId.toLowerCase() === cleanWid &&
       (t.category || '').trim().toLowerCase() === cleanCat && 
       (!subCategory || t.subCategory === subCategory.toUpperCase()) && 
+      t.subCategory !== 'CONSOLIDADO' &&
       !t.isPending &&
       !t.isExternal 
     );
     
     return {
-      daily: filtered.filter(t => new Date(t.date).getTime() >= startOfDay).reduce((acc, t) => acc + t.value, 0),
+      daily: filtered.filter(t => {
+        const txDate = new Date(t.date);
+        return txDate.getFullYear() === now.getFullYear() &&
+               txDate.getMonth() === now.getMonth() &&
+               txDate.getDate() === now.getDate();
+      }).reduce((acc, t) => acc + t.value, 0),
       weekly: filtered.filter(t => new Date(t.date).getTime() >= startOfWeek.getTime()).reduce((acc, t) => acc + t.value, 0),
       monthly: filtered.filter(t => new Date(t.date).getTime() >= startOfMonth.getTime()).reduce((acc, t) => acc + t.value, 0)
     };

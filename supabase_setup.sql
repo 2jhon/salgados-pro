@@ -36,54 +36,39 @@ TO authenticated
 WITH CHECK (true);
 
 -- 4. Criar a função RPC para decrementar o estoque atomicamente
-CREATE OR REPLACE FUNCTION decrement_stock(
+DROP FUNCTION IF EXISTS public.decrement_stock(TEXT, TEXT, TEXT, NUMERIC);
+
+CREATE OR REPLACE FUNCTION public.decrement_stock(
     p_workspace_id TEXT,
     p_section_id TEXT,
     p_item_id TEXT,
     p_amount NUMERIC
-) RETURNS BOOLEAN AS $$
+) RETURNS NUMERIC AS $$
 DECLARE
-    v_current_stock NUMERIC;
+    v_new_quantity NUMERIC;
     v_my_workspace TEXT;
 BEGIN
     -- SEGURANÇA: Verifica se o usuário tem permissão para este workspace
-    -- Usamos a função get_my_workspace_id() que já está definida
     v_my_workspace := public.get_my_workspace_id();
     
-    -- Admins específicos ou o próprio dono do workspace podem operar
-    IF v_my_workspace <> p_workspace_id AND NOT public.is_super_admin() THEN
+    -- Se v_my_workspace for nulo ou não bater, e não for super admin, barramos
+    IF (v_my_workspace IS NULL OR v_my_workspace <> p_workspace_id) AND NOT public.is_super_admin() THEN
         RAISE EXCEPTION 'Acesso negado ao estoque deste workspace.';
     END IF;
 
-    -- Bloqueia a linha para atualização (evita race condition)
-    SELECT quantity INTO v_current_stock 
-    FROM public.inventory 
-    WHERE workspace_id = p_workspace_id 
-      AND section_id = p_section_id 
-      AND item_id = p_item_id 
-    FOR UPDATE;
-
-    -- Se o item não existir, insere com estoque negativo (ou zero, dependendo da regra)
-    IF NOT FOUND THEN
-        INSERT INTO public.inventory (workspace_id, section_id, item_id, quantity)
-        VALUES (p_workspace_id, p_section_id, p_item_id, -p_amount);
-        RETURN TRUE;
-    END IF;
-
-    -- Atualiza o estoque
-    UPDATE public.inventory 
-    SET quantity = quantity - p_amount,
+    -- Upsert atômico com retorno do novo valor
+    -- Se p_amount é negativo (ex: -10), quantity aumenta 10.
+    INSERT INTO public.inventory (workspace_id, section_id, item_id, quantity, updated_at)
+    VALUES (p_workspace_id, p_section_id, p_item_id, -p_amount, NOW())
+    ON CONFLICT (workspace_id, section_id, item_id)
+    DO UPDATE SET 
+        quantity = COALESCE(inventory.quantity, 0) - p_amount,
         updated_at = NOW()
-    WHERE workspace_id = p_workspace_id 
-      AND section_id = p_section_id 
-      AND item_id = p_item_id;
+    RETURNING quantity INTO v_new_quantity;
 
-    RETURN TRUE;
-EXCEPTION
-    WHEN OTHERS THEN
-        RETURN FALSE;
+    RETURN v_new_quantity;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- 5. Habilitar Realtime para a tabela transactions (Se ainda não estiver)
 -- Vá em Database -> Replication -> supabase_realtime e ative para a tabela 'transactions'

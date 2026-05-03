@@ -321,10 +321,27 @@ export const Factory: React.FC<FactoryProps> = ({
           if (item) {
             const normalize = (s: string) => s.trim().toLowerCase();
             const targetName = normalize(item.name);
-            let stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL' && s.linkedSectionId === section.id && s.items.some(i => normalize(i.name) === targetName));
-            if (!stockSection) {
-                stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'GLOBAL' && s.items.some(i => normalize(i.name) === targetName));
+            const isStrictlyLocal = sections.some(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL');
+            
+            let stockSection: AppSection | undefined;
+
+            // PRIORIDADE 1: Busca vínculo LOCAL
+            stockSection = sections.find(s => 
+              s.type === 'STOCK_STYLE' && 
+              s.globalStockMode === 'LOCAL' && 
+              s.linkedSectionId === section.id && 
+              s.items.some(i => normalize(i.name) === targetName)
+            );
+
+            // PRIORIDADE 2: Fallback para GLOBAL apenas se não houver modo estritamente local ativo
+            if (!stockSection && !isStrictlyLocal) {
+                stockSection = sections.find(s => 
+                  s.type === 'STOCK_STYLE' && 
+                  s.globalStockMode === 'GLOBAL' && 
+                  s.items.some(i => normalize(i.name) === targetName)
+                );
             }
+
             if (stockSection) {
                 const stockItem = stockSection.items.find(i => normalize(i.name) === targetName);
                 if (stockItem && (stockItem.currentStock || 0) < qty) {
@@ -398,16 +415,34 @@ export const Factory: React.FC<FactoryProps> = ({
         }
       });
 
-      // Group updates by section to minimize atomic calls
+      // 1. Vincular e descontar do estoque Central (Kardex) se configurado
       const stockUpdates: Record<string, { id: string, quantity: number }[]> = {};
+      const isStrictlyLocal = sections.some(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL');
 
       soldItems.forEach(({ name, qty }) => {
           const normalize = (s: string) => s.trim().toLowerCase();
           const targetName = normalize(name);
-          let stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL' && s.linkedSectionId === section.id && s.items.some(i => normalize(i.name) === targetName));
-          if (!stockSection) {
-              stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'GLOBAL' && s.items.some(i => normalize(i.name) === targetName));
+          
+          let stockSection: AppSection | undefined;
+
+          // PRIORIDADE 1: Busca vínculo LOCAL (Apenas se a aba de estoque estiver vinculada a esta aba da fábrica)
+          stockSection = sections.find(s => 
+            s.type === 'STOCK_STYLE' && 
+            s.globalStockMode === 'LOCAL' && 
+            s.linkedSectionId === section.id && 
+            s.items.some(i => normalize(i.name) === targetName)
+          );
+
+          // PRIORIDADE 2: Fallback para GLOBAL apenas se o sistema NÃO estiver operando em modo estritamente LOCAL
+          // Ou se não encontramos um vínculo local mas existe um estoque marcado como GLOBAL (bucket único)
+          if (!stockSection && !isStrictlyLocal) {
+              stockSection = sections.find(s => 
+                s.type === 'STOCK_STYLE' && 
+                s.globalStockMode === 'GLOBAL' && 
+                s.items.some(i => normalize(i.name) === targetName)
+              );
           }
+
           if (stockSection) {
               const item = stockSection.items.find(i => normalize(i.name) === targetName);
               if (item) {

@@ -285,10 +285,26 @@ export const Stall: React.FC<StallProps> = ({
         if (sold > 0) {
           const normalize = (s: string) => s.trim().toLowerCase();
           const targetName = normalize(item.name);
-          let stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL' && s.linkedSectionId === section.id && s.items.some(i => normalize(i.name) === targetName));
-          if (!stockSection) {
-              stockSection = sections.find(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'GLOBAL' && s.items.some(i => normalize(i.name) === targetName));
+          const isStrictlyLocal = sections.some(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL');
+          let stockSection: AppSection | undefined;
+
+          // PRIORIDADE 1: Busca vínculo LOCAL
+          stockSection = sections.find(s => 
+            s.type === 'STOCK_STYLE' && 
+            s.globalStockMode === 'LOCAL' && 
+            s.linkedSectionId === section.id && 
+            s.items.some(i => normalize(i.name) === targetName)
+          );
+
+          // PRIORIDADE 2: Fallback para GLOBAL apenas se não houver modo estritamente local ativo
+          if (!stockSection && !isStrictlyLocal) {
+              stockSection = sections.find(s => 
+                s.type === 'STOCK_STYLE' && 
+                s.globalStockMode === 'GLOBAL' && 
+                s.items.some(i => normalize(i.name) === targetName)
+              );
           }
+
           if (stockSection) {
               const stockItem = stockSection.items.find(i => normalize(i.name) === targetName);
               if (stockItem && (stockItem.currentStock || 0) < sold) {

@@ -1,7 +1,7 @@
 
 import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { StoreAnalyticsSummary, ProductClickDetail } from '../types';
+import { StoreAnalyticsSummary, ProductClickDetail, Transaction } from '../types';
 
 export const useAnalytics = (userWorkspaceId?: string) => {
   
@@ -126,7 +126,18 @@ export const useAnalytics = (userWorkspaceId?: string) => {
         .gte('date', sevenDaysAgo);
 
       if (error) throw error;
-      return data || [];
+      
+      // Map to Transaction typing
+      return (data || []).map(t => ({
+        id: String(t.id),
+        workspaceId: workspaceId,
+        date: t.date,
+        value: Number(t.value),
+        subCategory: String(t.sub_category || '').toUpperCase(),
+        isPending: !!t.is_pending,
+        category: t.category,
+        createdBy: t.created_by
+      })) as Transaction[];
     } catch (e) {
       console.error("[Analytics] Erro ao buscar insights financeiros:", e);
       return [];

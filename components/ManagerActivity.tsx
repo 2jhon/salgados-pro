@@ -53,6 +53,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
 
   const observerRef = React.useRef<IntersectionObserver | null>(null);
   const loadMoreRef = React.useCallback((node: HTMLDivElement | null) => {
@@ -141,7 +142,15 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     }
 
-    return data.filter(t => new Date(t.date).getTime() >= startTime);
+    return data.filter(t => {
+      const txDate = new Date(t.date);
+      if (period === 'day') {
+        return txDate.getFullYear() === now.getFullYear() &&
+               txDate.getMonth() === now.getMonth() &&
+               txDate.getDate() === now.getDate();
+      }
+      return txDate.getTime() >= startTime;
+    });
   };
 
   const filteredManagerNames = Object.keys(managerGroups).filter(name => 
@@ -174,16 +183,18 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0 || isBulkDeleting) return;
     
-    const count = selectedIds.size;
-    if (!window.confirm(`Deseja excluir ${count} registros selecionados permanentemente?`)) return;
-
     setIsBulkDeleting(true);
     try {
       const idsArray = Array.from(selectedIds);
-      // Process deletions in parallel with a small delay to avoid overwhelming the system
-      await Promise.all(idsArray.map(id => deleteTransaction(id)));
+      
+      // Execução sequencial para maior estabilidade em massa
+      for (const id of idsArray) {
+        await deleteTransaction(id);
+      }
+
       setSelectedIds(new Set());
       setIsSelectionMode(false);
+      setShowBulkDeleteModal(false);
     } catch (error) {
       console.error("Erro ao excluir em massa:", error);
     } finally {
@@ -225,9 +236,10 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       }
       groups[dateKey].items.push(t);
       
-      if (t.subCategory === 'GASTOS') {
+      const sc = String(t.subCategory || '').toUpperCase();
+      if (sc === 'GASTOS') {
         groups[dateKey].expenses += t.value;
-      } else {
+      } else if (sc === 'VENDAS' && !t.isPending) {
         groups[dateKey].sales += t.value;
       }
     });
@@ -443,15 +455,31 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
           
           // Calculos rápidos para o cabeçalho do card
           const todayData = filterByPeriod(allManagerData, 'day');
-          const todaySales = todayData.reduce((acc, t) => acc + (t.subCategory === 'GASTOS' ? 0 : t.value), 0);
-          const todayExpenses = todayData.reduce((acc, t) => acc + (t.subCategory === 'GASTOS' ? t.value : 0), 0);
+          const todaySales = todayData.reduce((acc, t) => {
+            const sc = String(t.subCategory || '').toUpperCase();
+            if (t.isPending || sc === 'CONSOLIDADO') return acc;
+            return acc + (sc === 'VENDAS' ? t.value : 0);
+          }, 0);
+          const todayExpenses = todayData.reduce((acc, t) => {
+            const sc = String(t.subCategory || '').toUpperCase();
+            if (sc === 'GASTOS') return acc + t.value;
+            return acc;
+          }, 0);
 
           // Dados filtrados para exibição expandida
           const displayData = filterByPeriod(allManagerData, activePeriod);
           const groupedData = groupTransactionsByDate(displayData);
 
-          const periodSales = displayData.filter(t => t.subCategory !== 'GASTOS').reduce((acc, t) => acc + t.value, 0);
-          const periodExpenses = displayData.filter(t => t.subCategory === 'GASTOS').reduce((acc, t) => acc + t.value, 0);
+          const periodSales = displayData.reduce((acc, t) => {
+            const sc = String(t.subCategory || '').toUpperCase();
+            if (t.isPending || sc === 'CONSOLIDADO') return acc;
+            return acc + (sc === 'VENDAS' ? t.value : 0);
+          }, 0);
+          const periodExpenses = displayData.reduce((acc, t) => {
+            const sc = String(t.subCategory || '').toUpperCase();
+            if (sc === 'GASTOS') return acc + t.value;
+            return acc;
+          }, 0);
 
           return (
             <div 
@@ -839,7 +867,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
                   Cancelar
                 </button>
                 <button 
-                  onClick={handleBulkDelete}
+                  onClick={() => setShowBulkDeleteModal(true)}
                   disabled={isBulkDeleting}
                   className="px-6 py-3 bg-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-rose-900/40 hover:bg-rose-700 transition-all flex items-center gap-2 disabled:opacity-50"
                 >
@@ -848,6 +876,38 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
                 </button>
               </div>
            </div>
+        </div>
+      )}
+      {/* Modal de Confirmação de Exclusão em Massa */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="bg-rose-100 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8 text-rose-600" />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">Excluir em Massa?</h3>
+              <p className="text-sm text-slate-500 leading-relaxed">
+                Você selecionou <b className="text-rose-600">{selectedIds.size}</b> registros para remoção definitiva. Esta ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="flex p-4 gap-3 bg-slate-50 border-t border-slate-100">
+              <button 
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+                className="flex-1 py-4 bg-white text-slate-400 font-black uppercase text-[10px] tracking-widest rounded-2xl border border-slate-200 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleBulkDelete}
+                disabled={isBulkDeleting}
+                className="flex-1 py-4 bg-rose-600 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-lg shadow-rose-900/20 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isBulkDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Confirmar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

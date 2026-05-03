@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import localforage from 'localforage';
 import { AppSection } from '../types';
-import { supabase, withRetry, safeStringifyError, isNetworkError, registerStockMovement } from '../lib/supabase';
+import { supabase, withRetry, safeStringifyError, isNetworkError, isTimeoutError, registerStockMovement } from '../lib/supabase';
 import { toast } from 'sonner';
 
 const LS_CONFIG_KEY = 'salgados_app_config_v1';
@@ -99,7 +99,7 @@ export const useAppConfig = () => {
     // Ensure every item has at least a name placeholder if missing AND a valid ID
     const finalItems = cleanItems.map((i: any, idx: number) => ({
         ...i,
-        id: i.id || `gen_item_${s.id}_${idx}_${Date.now()}`, // Fallback ID to prevent key=undefined
+        id: i.id || `gen_item_${s.id}_${idx}`, // ID Estável baseado no índice se faltar
         name: i.name || 'Item Sem Nome'
     }));
 
@@ -108,7 +108,7 @@ export const useAppConfig = () => {
     if (!Array.isArray(rawExpenses)) rawExpenses = [];
     const finalExpenses = rawExpenses.filter((i: any) => i && typeof i === 'object').map((i: any, idx: number) => ({
         ...i,
-        id: i.id || `gen_exp_${s.id}_${idx}_${Date.now()}`,
+        id: i.id || `gen_exp_${s.id}_${idx}`,
         name: i.name || 'Despesa Sem Nome'
     }));
 
@@ -189,31 +189,12 @@ export const useAppConfig = () => {
                 currentStock: Number(invItem.quantity),
                 minStock: invItem.min_stock !== null ? Number(invItem.min_stock) : item.minStock
               };
-            } else {
-              // Item is missing from inventory table, queue for upsert
-              missingInventory.push({
-                workspace_id: workspaceId,
-                section_id: section.id,
-                item_id: item.id,
-                quantity: item.currentStock || 0,
-                min_stock: item.minStock || 0,
-                updated_at: new Date().toISOString()
-              });
             }
             return item;
           });
           
           return { ...section, items: updatedItems };
         });
-
-        // Background sync missing inventory
-        if (missingInventory.length > 0) {
-          supabase.from('inventory').upsert(missingInventory, { onConflict: 'workspace_id, section_id, item_id' })
-            .then(({ error }) => {
-              if (error) console.error('Failed to sync missing inventory:', error);
-              else console.log(`Synced ${missingInventory.length} missing items to inventory table.`);
-            });
-        }
 
         const finalMapped = mapped.filter(s => s.type !== 'ARCHIVE_SUMMARY');
         const archiveList = mapped.filter(s => s.type === 'ARCHIVE_SUMMARY');
@@ -355,8 +336,35 @@ export const useAppConfig = () => {
       )
       .subscribe();
 
+    const inventoryChannel = supabase
+      .channel(`inventory_changes_${activeWorkspace}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory',
+          filter: `workspace_id=eq.${activeWorkspace}`
+        },
+        (payload) => {
+          console.log('[STOCK_DEBUG] Realtime Inventory Change:', payload);
+          const { item_id, quantity } = (payload.new || payload.old) as any;
+          if (item_id) {
+            setSections(prev => prev.map(s => {
+              if (!(s.items || []).some(i => i.id === item_id)) return s;
+              return {
+                ...s,
+                items: s.items.map(i => i.id === item_id ? { ...i, currentStock: Number(quantity) } : i)
+              };
+            }));
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(configChannel);
+      supabase.removeChannel(inventoryChannel);
     };
   }, [activeWorkspace, mapSection]);
 
@@ -547,39 +555,86 @@ export const useAppConfig = () => {
     }
 
     const taskId = `STOCK_ATOMIC_${sectionId}`;
-    nexusReport(`Atualizando estoque atômico para aba ${sectionId}...`, 'START', 'NETWORK', taskId);
+    console.log(`[STOCK_DEBUG] updateStockAtomic Start - taskId: ${taskId}, updates:`, itemUpdates);
+    
+    // Lógica de Redirecionamento de Estoque Global
+    let targetSectionId = sectionId;
+    const currentSection = sections.find(s => s.id === sectionId);
+    if (currentSection && currentSection.globalStockMode === 'GLOBAL') {
+      const stockSection = sections.find(s => s.type === 'STOCK_STYLE');
+      if (stockSection) {
+        console.log(`[STOCK_DEBUG] Redirecionando estoque GLOBAL de ${sectionId} para ${stockSection.id}`);
+        targetSectionId = stockSection.id;
+      }
+    }
+
+    nexusReport(`Atualizando estoque atômico para aba ${targetSectionId}...`, 'START', 'NETWORK', taskId);
     
     try {
       // Tenta usar a função RPC (se o usuário já rodou o script SQL)
       let rpcSuccess = true;
+      const serverQuantities: Record<string, number> = {};
+
       for (const update of itemUpdates) {
-        const { error: rpcError } = await supabase.rpc('decrement_stock', {
-          p_workspace_id: activeWorkspace || '',
-          p_section_id: sectionId,
-          p_item_id: update.id,
-          p_amount: update.quantity
-        });
-        if (rpcError) {
+        try {
+          console.log(`[STOCK_DEBUG] Calling RPC decrement_stock for item ${update.id}, amount: ${update.quantity} on section ${targetSectionId}`);
+          const { data: newQty, error: rpcError } = await supabase.rpc('decrement_stock', {
+            p_workspace_id: activeWorkspace || '',
+            p_section_id: targetSectionId,
+            p_item_id: update.id,
+            p_amount: update.quantity
+          });
+          
+          if (rpcError) {
+            console.error('[STOCK_DEBUG] RPC Error:', rpcError);
+            
+            // Se o erro for que a função não existe, tentamos o fallback
+            // Caso contrário (erro de rede/timeout), lançamos para cair no catch global e ir para a fila offline
+            if (rpcError.code === 'PGRST103') {
+              rpcSuccess = false;
+              break;
+            } else {
+              throw rpcError;
+            }
+          }
+
+          // Armazena o valor REAL que o banco de dados retornou
+          serverQuantities[update.id] = Number(newQty);
+        } catch (innerErr: any) {
+          console.error('[STOCK_DEBUG] Inner RPC Exception:', innerErr);
+          // Se for erro de rede, sobe para o catch principal
+          if (isNetworkError(innerErr) || isTimeoutError(innerErr)) {
+            throw innerErr;
+          }
+          // Outros erros (tipo função não existe) podem tentar o fallback
           rpcSuccess = false;
           break;
         }
       }
 
       if (rpcSuccess) {
+        console.log(`[STOCK_DEBUG] RPC Success. Updating local state with SERVER values:`, serverQuantities);
         nexusReport("Estoque atualizado via RPC.", 'DONE', 'NETWORK', taskId);
-        // Atualiza o estado local para refletir a mudança
-        setSections(prev => prev.map(s => {
-          if (s.id !== sectionId) return s;
-          const updatedItems = [...s.items];
-          itemUpdates.forEach(update => {
-            const itemIdx = updatedItems.findIndex(i => i.id === update.id);
-            if (itemIdx !== -1) {
-              const currentStock = updatedItems[itemIdx].currentStock || 0;
-              updatedItems[itemIdx].currentStock = Math.max(0, currentStock - update.quantity);
-            }
+        
+        // Atualiza o estado local para refletir EXATAMENTE o que está no banco
+        setSections(prev => {
+          const newSections = prev.map(s => {
+            // No modo GLOBAL, atualizamos a seção de estoque central
+            // No modo SEPARATED/LOCAL, atualizamos a seção original
+            if (s.id !== targetSectionId) return s;
+            const updatedItems = [...s.items];
+            itemUpdates.forEach(update => {
+              const itemIdx = updatedItems.findIndex(i => i.id === update.id);
+              if (itemIdx !== -1 && serverQuantities[update.id] !== undefined) {
+                const newVal = serverQuantities[update.id];
+                console.log(`[STOCK_DEBUG] Syncing item ${update.id} in section ${targetSectionId}: Server=${newVal}`);
+                updatedItems[itemIdx].currentStock = newVal;
+              }
+            });
+            return { ...s, items: updatedItems };
           });
-          return { ...s, items: updatedItems };
-        }));
+          return newSections;
+        });
         return true;
       }
 
@@ -588,14 +643,14 @@ export const useAppConfig = () => {
         const { data, error: fetchError } = await supabase
           .from('app_config')
           .select('*')
-          .eq('id', sectionId)
+          .eq('id', targetSectionId)
           .single();
         
         if (fetchError) throw fetchError;
         if (!data) throw new Error("Seção não encontrada no servidor.");
 
-        const currentSection = mapSection(data);
-        const updatedItems = [...currentSection.items];
+        const remoteSection = mapSection(data);
+        const updatedItems = [...remoteSection.items];
 
         itemUpdates.forEach(update => {
           const itemIdx = updatedItems.findIndex(i => i.id === update.id);
@@ -606,10 +661,8 @@ export const useAppConfig = () => {
         });
 
         // 2. Save back to app_config
-        // Fallback: Full App Config update if RPC fails
-        // We use a functional approach to construct the payload for saveConfig
         const success = await saveConfig((prev) => prev.map(s => {
-          if (s.id !== sectionId) return s;
+          if (s.id !== targetSectionId) return s;
           return {
             ...s,
             items: (s.items || []).map(item => {
@@ -627,7 +680,7 @@ export const useAppConfig = () => {
             const item = updatedItems.find(i => i.id === update.id);
             return {
               workspace_id: activeWorkspace,
-              section_id: sectionId,
+              section_id: targetSectionId,
               item_id: update.id,
               quantity: item?.currentStock || 0,
               updated_at: new Date().toISOString()
@@ -649,11 +702,11 @@ export const useAppConfig = () => {
       return true;
     } catch (e: any) {
       if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
-        await addToOfflineStockQueue(sectionId, itemUpdates);
+        await addToOfflineStockQueue(targetSectionId, itemUpdates);
         
         // Optimistic update locally
         setSections(prev => prev.map(s => {
-          if (s.id !== sectionId) return s;
+          if (s.id !== targetSectionId) return s;
           const updatedItems = [...s.items];
           itemUpdates.forEach(update => {
             const itemIdx = updatedItems.findIndex(i => i.id === update.id);
@@ -702,15 +755,15 @@ export const useAppConfig = () => {
   }, [activeWorkspace, updateStockAtomic]);
 
   const adjustStockItem = useCallback(async (sectionId: string, itemId: string, amount: number, reason: string, userName: string) => {
+    console.log(`[STOCK_DEBUG] adjustStockItem Start - item: ${itemId}, amount: ${amount}, reason: ${reason}`);
     const taskId = `ADJUST_STOCK_${itemId}_${Date.now()}`;
     
-    // Let updateStockAtomic handle the optimistic update and technical details
     try {
-      // Note: updateStockAtomic subtracts, so we pass -amount for an adjustment
+      // O updateStockAtomic já cuida de tudo: RPC, Fallback e Sincronização de Estado
+      // Não devemos fazer setSections manual aqui para evitar duplicidade!
       const success = await updateStockAtomic(sectionId, [{ id: itemId, quantity: -amount }], false);
       
       if (success) {
-        // Register movement
         const section = sections.find(s => s.id === sectionId);
         const item = section?.items.find(i => i.id === itemId);
         
@@ -729,11 +782,9 @@ export const useAppConfig = () => {
           });
         }
       }
-
       return success;
     } catch (e) {
-      console.error("Error adjusting stock:", e);
-      // Revert if needed? Usually Realtime will sync back the truth if update fails
+      console.error("[STOCK_DEBUG] Error in adjustStockItem:", e);
       return false;
     }
   }, [activeWorkspace, sections, updateStockAtomic]);

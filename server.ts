@@ -521,11 +521,14 @@ async function startServer() {
 
       const result = await preference.create({ body });
       
-      // Salva o ID da preferência e a referência externa em TODAS as notas do grupo
-      await supabase
+      const { error: updErr } = await supabase
         .from('transactions')
         .update({ mp_preference_id: result.id, external_reference: externalRef })
         .in('id', ids);
+
+      if (updErr) {
+        console.error("[MP Note] DB Update Error:", updErr);
+      }
 
       res.json({ id: result.id, init_point: result.init_point });
     } catch (error: any) {
@@ -658,11 +661,12 @@ async function startServer() {
        // Buscamos as notas atreladas à esta referência
        const { data: txs, error: fetchErr } = await supabase
          .from('transactions')
-         .select('id')
+         .select('id, customer_name')
          .or(`external_reference.eq.${extRef},mp_preference_id.eq.${extRef}`);
 
        let rpcError = fetchErr;
        if (!fetchErr && txs && txs.length > 0) {
+         const txIds = txs.map((t: any) => t.id);
          const { error: updErr } = await supabase
            .from('transactions')
            .update({
@@ -671,7 +675,7 @@ async function startServer() {
              payment_method: payment.payment_method_id,
              paid_at: new Date().toISOString()
            })
-           .or(`external_reference.eq.${extRef},mp_preference_id.eq.${extRef}`);
+           .in('id', txIds);
          rpcError = updErr;
          console.log(`[PAYMENT] ${txs.length} nota(s) atualizada(s) para APPROVED`);
        } else if (!fetchErr) {
@@ -689,24 +693,53 @@ async function startServer() {
          if (profile?.wa_enabled && profile?.wa_notify_on_payment && profile?.wa_instance_name) {
            try {
              // Formatar número
-             let phone = profile.whatsapp.replace(/\D/g, '');
-             if (phone.length === 11 && !phone.startsWith('55')) phone = '55' + phone;
-             if (phone.length === 10 && !phone.startsWith('55')) phone = '55' + phone;
+             const formatPhone = (p: string) => {
+               let f = p.replace(/\D/g, '');
+               if (f.length === 11 && !f.startsWith('55')) f = '55' + f;
+               if (f.length === 10 && !f.startsWith('55')) f = '55' + f;
+               return f;
+             };
 
-             const message = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
+             const storePhone = profile.whatsapp ? formatPhone(profile.whatsapp) : '';
+             const customerName = txs && txs.length > 0 ? txs[0].customer_name : '';
              
-             await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
-               number: phone,
-               options: { delay: 1200, presence: "composing" },
-               textMessage: { text: message }
-             });
+             const messageStore = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n🧑 Cliente: ${customerName || 'Não identificado'}\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
+             
+             const sendMsg = async (targetPhone: string, text: string) => {
+               if (targetPhone.length >= 10) {
+                 await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
+                   number: targetPhone,
+                   options: { delay: 1200, presence: "composing" },
+                   textMessage: { text }
+                 });
+                 await supabase.from('whatsapp_logs').insert({
+                   workspace_id: workspaceId,
+                   phone: targetPhone,
+                   message: text,
+                   status: 'SENT'
+                 });
+               }
+             };
 
-             await supabase.from('whatsapp_logs').insert({
-               workspace_id: workspaceId,
-               phone: phone,
-               message,
-               status: 'SENT'
-             });
+             if (storePhone) await sendMsg(storePhone, messageStore);
+
+             // Enviar para o cliente
+             if (customerName) {
+                const { data: customerData } = await supabase
+                  .from('customers')
+                  .select('phone')
+                  .eq('workspace_id', workspaceId)
+                  .ilike('name', customerName)
+                  .limit(1)
+                  .maybeSingle();
+
+                if (customerData?.phone) {
+                  const customerPhone = formatPhone(customerData.phone);
+                  const messageClient = `🧾 *COMPROVANTE DE PAGAMENTO*\n\nSeu pagamento de *R$ ${payment.transaction_amount}* foi confirmado e sua nota quitada!\nObrigado pela preferência!\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
+                  await sendMsg(customerPhone, messageClient);
+                }
+             }
+
            } catch (waErr) {
              console.error("[WA Sync Error]:", waErr);
            }
