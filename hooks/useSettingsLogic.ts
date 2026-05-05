@@ -19,11 +19,15 @@ interface UseSettingsLogicProps {
   transactions: Transaction[];
   clearTransactions: (period: 'day' | 'week' | 'month' | 'all' | 'custom', wid: string, customRange?: { start: string, end: string }, categoryFilter?: string[]) => Promise<void>;
   archiveYear: (wid: string, year: number) => Promise<number>;
+  customers: Customer[];
+  addCustomer: (name: string, phone?: string, type?: 'CLIENT' | 'SUPPLIER') => Promise<Customer | null>;
+  removeCustomer: (id: string) => Promise<void>;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
 }
 
 export const useSettingsLogic = ({
   sections, saveConfig, addUser, removeUser, updateUser, currentUser, saveAd, deleteAd, addNote,
-  transactions, clearTransactions, archiveYear
+  transactions, clearTransactions, archiveYear, customers, addCustomer, removeCustomer, updateCustomer
 }: UseSettingsLogicProps) => {
   const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'INSIGHTS' | 'MARKETING' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS' | 'AUDITORIA'>('ESTRUTURA');
   const [isMarketplaceDirty, setIsMarketplaceDirty] = useState(false);
@@ -35,8 +39,6 @@ export const useSettingsLogic = ({
   const [promoAdPrice, setPromoAdPrice] = useState<number | null>(null);
   const [promoAdEndsAt, setPromoAdEndsAt] = useState<string | null>(null);
   const [plans, setPlans] = useState<any[]>([]);
-
-  const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser.workspaceId);
 
   useEffect(() => {
     const pendingTab = localStorage.getItem('settings_pending_tab');

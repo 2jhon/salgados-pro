@@ -85,7 +85,7 @@ export const App: React.FC = () => {
     profiles: marketplaceStores, fetchPublicProfiles, getMyProfile, saveProfile, 
     hasMore: hasMoreStores, loading: loadingProfiles 
   } = useStoreProfiles();
-  const { customers, addCustomer } = useCustomers(currentUser?.workspaceId);
+  const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser?.workspaceId);
   const { trackView, getStoreSummary, getFinancialInsights, getArchivedSummaries } = useAnalytics(currentUser?.workspaceId);
 
   const [activeTab, setActiveTab] = useState<string>('HOME');
@@ -1122,7 +1122,7 @@ export const App: React.FC = () => {
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <div className="p-4 pt-6 max-w-7xl mx-auto">
           {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} historicalSummaries={historicalSummaries} />}
-        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} />}
+        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} customers={customers} addCustomer={addCustomer} removeCustomer={removeCustomer} updateCustomer={updateCustomer} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} adjustStockItem={adjustStockItem} />}
         {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}

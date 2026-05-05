@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { AppSection, User, Transaction, Ad, StoreProfile } from '../types';
+import { AppSection, User, Transaction, Ad, StoreProfile, Customer } from '../types';
 import { useSettingsLogic } from '../hooks/useSettingsLogic';
 import { StructureTab } from './settings/StructureTab';
 import { VitrineContainer } from './settings/VitrineContainer';
@@ -40,6 +40,11 @@ interface SettingsProps {
   isGodModeUnlocked?: boolean;
   onUnlockGodMode: () => void;
   addNote?: (note: any) => Promise<boolean>;
+  onDirtyChange?: (isDirty: boolean) => void;
+  customers: Customer[];
+  addCustomer: (name: string, phone?: string, type?: 'CLIENT' | 'SUPPLIER') => Promise<Customer | null>;
+  removeCustomer: (id: string) => Promise<void>;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
 }
 
 export const Settings: React.FC<SettingsProps> = (props) => {

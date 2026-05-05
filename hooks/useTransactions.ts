@@ -454,11 +454,13 @@ export const useTransactions = (
       // 2. Create a new transaction for the payment today (this reflects cash flow)
       if (totalPaid > 0 && txsToSettle.length > 0) {
         const firstTx = txsToSettle[0];
+        const isExpense = txsToSettle.some(t => t.subCategory === 'GASTOS') || txsToSettle.some((t: any) => t.sub_category === 'GASTOS');
+        
         const paymentPayload = {
           workspace_id: String(firstTx.workspaceId).trim().toLowerCase(),
-          category: firstTx.category, // Usually the section name
-          sub_category: 'VENDAS', // It's an income today
-          item: `Recebimento de Fiado: ${customerName}`,
+          category: firstTx.category,
+          sub_category: isExpense ? 'GASTOS' : 'VENDAS',
+          item: isExpense ? `Pgto de Dívida: ${customerName}` : `Recebimento de Fiado: ${customerName}`,
           value: totalPaid,
           quantity: 1,
           payment_method: 'A_VISTA',
@@ -499,12 +501,13 @@ export const useTransactions = (
       const { error: upErr } = await supabase.from('transactions').update({ value: remainingDebt }).eq('id', dbId);
       if (upErr) throw upErr;
       
-      // 2. Create a new transaction for the partial payment today (cash in)
+      // 2. Create a new transaction for the partial payment today (cash in or out)
+      const isExpense = originalTx.subCategory === 'GASTOS' || (originalTx as any).sub_category === 'GASTOS';
       const receiptPayload = {
         workspace_id: String(originalTx.workspaceId).trim().toLowerCase(),
         category: originalTx.category,
-        sub_category: 'VENDAS',
-        item: `${originalTx.item} (Recebimento Parcial)`,
+        sub_category: isExpense ? 'GASTOS' : 'VENDAS',
+        item: isExpense ? `${originalTx.item} (Pgto Parcial)` : `${originalTx.item} (Recebimento Parcial)`,
         value: amountPaid,
         quantity: originalTx.quantity,
         payment_method: 'A_VISTA',

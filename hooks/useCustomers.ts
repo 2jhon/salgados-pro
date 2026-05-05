@@ -8,11 +8,12 @@ const LS_CUSTOMERS_KEY = 'salgados_customers_v1';
 export const useCustomers = (workspaceId?: string) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const cleanWid = workspaceId ? String(workspaceId).trim().toLowerCase() : undefined;
 
   const fetchCustomers = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!cleanWid) return;
     
-    const saved = localStorage.getItem(`${LS_CUSTOMERS_KEY}_${workspaceId}`);
+    const saved = localStorage.getItem(`${LS_CUSTOMERS_KEY}_${cleanWid}`);
     if (saved) {
       setCustomers(JSON.parse(saved));
     }
@@ -21,7 +22,7 @@ export const useCustomers = (workspaceId?: string) => {
       const { data, error } = await supabase
         .from('customers')
         .select('*')
-        .eq('workspace_id', workspaceId)
+        .eq('workspace_id', cleanWid)
         .order('name');
       
       if (!error && data) {
@@ -33,29 +34,29 @@ export const useCustomers = (workspaceId?: string) => {
           type: c.type || 'CLIENT'
         }));
         setCustomers(mapped);
-        localStorage.setItem(`${LS_CUSTOMERS_KEY}_${workspaceId}`, JSON.stringify(mapped));
+        localStorage.setItem(`${LS_CUSTOMERS_KEY}_${cleanWid}`, JSON.stringify(mapped));
       }
     } catch (e) {
       console.warn("Supabase não disponível, usando dados locais.");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [cleanWid]);
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!cleanWid) return;
 
     fetchCustomers();
 
     const channel = supabase
-      .channel(`customers_changes_${workspaceId}`)
+      .channel(`customers_changes_${cleanWid}`)
       .on(
         'postgres_changes',
         { 
           event: '*', 
           schema: 'public', 
           table: 'customers', 
-          filter: `workspace_id=eq.${workspaceId}` 
+          filter: `workspace_id=eq.${cleanWid}` 
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
@@ -87,10 +88,10 @@ export const useCustomers = (workspaceId?: string) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [workspaceId, fetchCustomers]);
+  }, [cleanWid, fetchCustomers]);
 
   const addCustomer = useCallback(async (name: string, phone?: string, type: 'CLIENT' | 'SUPPLIER' = 'CLIENT') => {
-    if (!workspaceId) return null;
+    if (!cleanWid) return null;
     
     // Ensure clean phone number
     const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
@@ -100,7 +101,7 @@ export const useCustomers = (workspaceId?: string) => {
     try {
       const { data, error } = await supabase
         .from('customers')
-        .insert([{ name, phone: cleanPhone, workspace_id: workspaceId, type }])
+        .insert([{ name, phone: cleanPhone, workspace_id: cleanWid, type }])
         .select();
       
       if (error) {
@@ -116,7 +117,7 @@ export const useCustomers = (workspaceId?: string) => {
            console.warn('[DEBUG_CUSTOMER_ADD] Retrying insert without "type" field...');
            const { data: retryData, error: retryError } = await supabase
             .from('customers')
-            .insert([{ name, phone: cleanPhone, workspace_id: workspaceId }])
+            .insert([{ name, phone: cleanPhone, workspace_id: cleanWid }])
             .select();
             
            if (!retryError && retryData) {
@@ -163,7 +164,7 @@ export const useCustomers = (workspaceId?: string) => {
       console.error("Erro ao adicionar cliente:", safeStringifyError(err));
     }
     return null;
-  }, [workspaceId]);
+  }, [cleanWid]);
 
   const removeCustomer = useCallback(async (id: string) => {
     setCustomers(prev => prev.filter(c => String(c.id) !== String(id)));
