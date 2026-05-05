@@ -8,6 +8,7 @@ import { playSoundFromCategory } from '../lib/utils';
 interface RealtimeBrokerProps {
   workspaceId: string;
   onNewTransaction?: (tx: any) => void;
+  onTransactionUpdate?: (tx: any) => void;
   onNewNote?: (note: any) => void;
   enabledSounds?: boolean;
   currentUserName?: string;
@@ -16,16 +17,22 @@ interface RealtimeBrokerProps {
 export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({ 
   workspaceId, 
   onNewTransaction, 
+  onTransactionUpdate,
   onNewNote,
   enabledSounds = true, // We still use this to disable entirely if needed
   currentUserName
 }) => {
   const onNewTransactionRef = useRef(onNewTransaction);
+  const onTransactionUpdateRef = useRef(onTransactionUpdate);
   const onNewNoteRef = useRef(onNewNote);
 
   useEffect(() => {
     onNewTransactionRef.current = onNewTransaction;
   }, [onNewTransaction]);
+
+  useEffect(() => {
+    onTransactionUpdateRef.current = onTransactionUpdate;
+  }, [onTransactionUpdate]);
 
   useEffect(() => {
     onNewNoteRef.current = onNewNote;
@@ -110,6 +117,33 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           }
 
           if (onNewTransactionRef.current) onNewTransactionRef.current(tx);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'transactions', filter: `workspace_id=eq.${workspaceId}` },
+        (payload) => {
+          console.log('[RealtimeBroker] Transação Atualizada:', payload.new);
+          
+          const tx = payload.new;
+          const oldTx = payload.old;
+
+          // Notify about payment if it was pending and now it's not (paid via MP)
+          if (oldTx && oldTx.is_pending === true && tx.is_pending === false) {
+             toast.success(
+               <div className="flex items-center gap-3">
+                 <div className="bg-emerald-100 p-2 rounded-lg">
+                   <ShoppingBag className="text-emerald-600" size={18} />
+                 </div>
+                 <div>
+                   <p className="font-bold text-xs uppercase tracking-tight">Nota Paga</p>
+                   <p className="text-[10px] text-slate-500 line-clamp-1">{tx.customer_name ? `Pagamento recebido de ${tx.customer_name}` : 'A sua nota foi quitada via MP'}</p>
+                 </div>
+               </div>,
+               { duration: 6000 }
+             );
+          }
+          if (onTransactionUpdateRef.current) onTransactionUpdateRef.current(tx);
         }
       )
       .subscribe((status) => {

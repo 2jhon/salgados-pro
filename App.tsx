@@ -1054,6 +1054,24 @@ export const App: React.FC = () => {
               return [mapped, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             });
           }}
+          onTransactionUpdate={(updTx) => {
+            setTransactions(prev => {
+              return prev.map(t => {
+                if (t.id === String(updTx.id)) {
+                  return {
+                    ...t,
+                    subCategory: String(updTx.sub_category || t.subCategory || '').trim().toUpperCase(),
+                    item: String(updTx.item || '').trim(),
+                    value: Number(updTx.value || 0),
+                    quantity: updTx.quantity !== undefined ? Number(updTx.quantity) : t.quantity,
+                    paymentMethod: String(updTx.payment_method || '').trim(),
+                    isPending: !!updTx.is_pending
+                  };
+                }
+                return t;
+              });
+            });
+          }}
         />
       )}
       {activeTab !== 'GOD_MODE' && (

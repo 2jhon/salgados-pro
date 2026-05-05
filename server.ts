@@ -690,10 +690,13 @@ async function startServer() {
            .eq('workspace_id', workspaceId)
            .single();
 
+         console.log("[PAYMENT] Profile configs para WA:", profile);
+
          if (profile?.wa_enabled && profile?.wa_notify_on_payment && profile?.wa_instance_name) {
            try {
              // Formatar número
              const formatPhone = (p: string) => {
+               if (!p) return '';
                let f = p.replace(/\D/g, '');
                if (f.length === 11 && !f.startsWith('55')) f = '55' + f;
                if (f.length === 10 && !f.startsWith('55')) f = '55' + f;
@@ -703,21 +706,31 @@ async function startServer() {
              const storePhone = profile.whatsapp ? formatPhone(profile.whatsapp) : '';
              const customerName = txs && txs.length > 0 ? txs[0].customer_name : '';
              
+             console.log(`[PAYMENT] Preparando envio de mensagem -> Loja: ${storePhone}, Cliente: ${customerName}`);
+             
              const messageStore = `✅ *PAGAMENTO CONFIRMADO!*\n\nA nota no valor de *R$ ${payment.transaction_amount}* acaba de ser quitada via Pix.\n🧑 Cliente: ${customerName || 'Não identificado'}\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
              
              const sendMsg = async (targetPhone: string, text: string) => {
                if (targetPhone.length >= 10) {
-                 await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
-                   number: targetPhone,
-                   options: { delay: 1200, presence: "composing" },
-                   textMessage: { text }
-                 });
-                 await supabase.from('whatsapp_logs').insert({
-                   workspace_id: workspaceId,
-                   phone: targetPhone,
-                   message: text,
-                   status: 'SENT'
-                 });
+                 console.log(`[PAYMENT] Enviando WA para: ${targetPhone}`);
+                 try {
+                   await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
+                     number: targetPhone,
+                     options: { delay: 1200, presence: "composing" },
+                     textMessage: { text }
+                   });
+                   await supabase.from('whatsapp_logs').insert({
+                     workspace_id: workspaceId,
+                     phone: targetPhone,
+                     message: text,
+                     status: 'SENT'
+                   });
+                   console.log(`[PAYMENT] WA enviado com sucesso para ${targetPhone}`);
+                 } catch (evoErr: any) {
+                   console.error(`[PAYMENT] Erro EvoApi ao enviar msg para ${targetPhone}:`, evoErr.message || evoErr);
+                 }
+               } else {
+                 console.warn(`[PAYMENT] Telefone inválido para envio: ${targetPhone}`);
                }
              };
 
@@ -725,6 +738,7 @@ async function startServer() {
 
              // Enviar para o cliente
              if (customerName) {
+                console.log(`[PAYMENT] Buscando telefone do cliente: ${customerName}`);
                 const { data: customerData } = await supabase
                   .from('customers')
                   .select('phone')
@@ -733,16 +747,24 @@ async function startServer() {
                   .limit(1)
                   .maybeSingle();
 
+                console.log(`[PAYMENT] Dados do cliente no DB:`, customerData);
+
                 if (customerData?.phone) {
                   const customerPhone = formatPhone(customerData.phone);
                   const messageClient = `🧾 *COMPROVANTE DE PAGAMENTO*\n\nSeu pagamento de *R$ ${payment.transaction_amount}* foi confirmado e sua nota quitada!\nObrigado pela preferência!\n\n🏪 *${profile.store_name}*\n📅 ${new Date().toLocaleString('pt-BR')}`;
-                  await sendMsg(customerPhone, messageClient);
+                  if (customerPhone) {
+                    await sendMsg(customerPhone, messageClient);
+                  }
+                } else {
+                  console.log(`[PAYMENT] Cliente não tem telefone cadastrado no banco.`);
                 }
              }
 
            } catch (waErr) {
              console.error("[WA Sync Error]:", waErr);
            }
+         } else {
+           console.log(`[PAYMENT] Store não tem WA ativo, configurado ou notificação habilitada.`);
          }
        } else {
          console.error("[RPC Error]:", rpcError);
