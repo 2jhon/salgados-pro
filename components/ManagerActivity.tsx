@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { ProductInsights } from './ProductInsights';
 
 interface ManagerActivityProps {
   transactions: Transaction[];
@@ -42,6 +43,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
   fetchNext,
   loading
 }) => {
+  const [mainTab, setMainTab] = useState<'MANAGERS' | 'PRODUTOS'>('MANAGERS');
   const [expandedManager, setExpandedManager] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState<PeriodType>('day');
   const [searchTerm, setSearchTerm] = useState('');
@@ -425,7 +427,16 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Barra de Busca de Gerentes */}
+      <div className="flex gap-2 mb-4 bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100">
+         <button onClick={() => setMainTab('MANAGERS')} className={`flex-1 py-4 font-black text-[10px] sm:text-xs uppercase tracking-widest rounded-[1.6rem] transition-all flex items-center justify-center gap-2 ${mainTab === 'MANAGERS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><UserCircle className="w-4 h-4" /> Logs & Gerentes</button>
+         <button onClick={() => setMainTab('PRODUTOS')} className={`flex-1 py-4 font-black text-[10px] sm:text-xs uppercase tracking-widest rounded-[1.6rem] transition-all flex items-center justify-center gap-2 ${mainTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingUp className="w-4 h-4" /> Painel de Produtos</button>
+      </div>
+
+      {mainTab === 'PRODUTOS' ? (
+        <ProductInsights transactions={transactions} title="Produtos & Estoque" />
+      ) : (
+      <>
+        {/* Barra de Busca de Gerentes */}
       <div className="sticky top-0 z-40 bg-slate-50 py-2 -mx-2 px-2">
         <div className="relative group">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
@@ -909,6 +920,8 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

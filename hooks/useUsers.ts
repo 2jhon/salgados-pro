@@ -221,14 +221,48 @@ export const useUsers = () => {
         }
       }
 
-      let authUserId = null;
+      let authUserId = (payload as any).auth_id || null;
+      
+      // If no valid auth session exists (new registration), create it first to pass RLS
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session?.user) {
+         const targetEmail = (payload.email || `${payload.phone || Date.now()}@salgados.app`).toLowerCase();
+         const pin = userData.accessCode || '123456';
+         try {
+            let authRes = await supabase.auth.signUp({ email: targetEmail, password: pin });
+            if (authRes.error && authRes.error.message.includes('already registered')) {
+               authRes = await supabase.auth.signInWithPassword({ email: targetEmail, password: pin });
+            }
+            if (authRes.data?.user) {
+               authUserId = authRes.data.user.id;
+            }
+         } catch(e) { console.warn('Pre-signup failed', e); }
+      } else {
+         authUserId = authUserId || sessionData.session.user.id;
+      }
+
       const finalPayload = { ...payload, auth_id: authUserId };
 
-      const insertResult = await withRetry(async () => await supabase.from('users').insert([finalPayload]).select());
-      const { data, error } = insertResult as any;
-      if (error) throw error;
-      if (data) {
-        const created = mapUser(data[0]);
+      let dataToMap = null;
+      try {
+        const res = await fetch('/api/auth/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userData: finalPayload })
+        });
+        const resData = await res.json();
+        if (!res.ok) throw new Error(resData.error || "Failed to create user via API");
+        dataToMap = resData.user;
+      } catch (err: any) {
+        console.warn('API creation failed, trying local insert fallback', err);
+        const insertResult = await withRetry(async () => await supabase.from('users').insert([finalPayload]).select());
+        const { data, error } = insertResult as any;
+        if (error) throw error;
+        if (data && data[0]) dataToMap = data[0];
+      }
+
+      if (dataToMap) {
+        const created = mapUser(dataToMap);
         if (userData.avatarUrl || userData.bannerUrl) {
            saveLocalMeta(created.id, { avatarUrl: userData.avatarUrl, bannerUrl: userData.bannerUrl });
         }
@@ -399,12 +433,19 @@ export const useUsers = () => {
         const isActuallyEmail = cleanIdentifier.includes('@');
         const phoneC = isActuallyEmail ? '' : cleanIdentifier.replace(/\D/g, '');
         
-        const { data: rpcSearch } = await supabase.rpc('find_user_bypass_rls', {
-           p_email: isActuallyEmail ? lowC : '',
-           p_phone: phoneC
-        });
+        let searchData: any[] = [];
+        try {
+           const res = await fetch('/api/auth/find-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ identifier: cleanIdentifier })
+           });
+           if (res.ok) {
+              const d = await res.json();
+              searchData = d.users || [];
+           }
+        } catch(e) { console.warn("Failed find-user via edge runtime", e); }
         
-        let searchData = Array.isArray(rpcSearch) ? rpcSearch : (rpcSearch ? [rpcSearch] : []);
         if (searchData.length === 0) {
            try {
               const { data: q1 } = await supabase.from('users').select('*').eq('email', lowC);
@@ -435,20 +476,40 @@ export const useUsers = () => {
         try {
           const { data: syncedEmail } = await supabase.rpc('sync_user_auth', { p_user_id: publicUser.id });
           syncedEmailResult = syncedEmail;
-        } catch (rpcErr) {
-          console.warn("[Auth Sync] Falha na sincronização de email durante login:", rpcErr);
-        }
+        } catch (rpcErr) {}
+        
         const targetEmail = (syncedEmailResult || publicUser.email || `${publicUser.phone}@salgados.app`).toLowerCase();
 
         let forcedAuth = await withRetry(() => supabase.auth.signInWithPassword({ email: targetEmail, password: pin }));
         if (forcedAuth.error) {
            forcedAuth = await withRetry(() => supabase.auth.signUp({ email: targetEmail, password: pin }));
            if (forcedAuth.data?.user) {
-              await supabase.rpc('relink_user_auth', { p_user_id: publicUser.id, p_auth_id: forcedAuth.data.user.id, p_pin: pin.trim() });
+              try {
+                 await fetch('/api/auth/relink-user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: publicUser.id, authId: forcedAuth.data.user.id, pin: pin.trim() })
+                 });
+                 // Also try RPC as backup
+                 try { await supabase.rpc('relink_user_auth', { p_user_id: publicUser.id, p_auth_id: forcedAuth.data.user.id, p_pin: pin.trim() }); } catch(err){}
+              } catch(e){}
+           } else {
+              // signUp failed (likely user exists but password mismatch)
+              try {
+                  const syncRes = await fetch('/api/auth/force-sync-pin', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userId: publicUser.id, pin: pin.trim() })
+                  });
+                  if (syncRes.ok) {
+                      forcedAuth = await withRetry(() => supabase.auth.signInWithPassword({ email: targetEmail, password: pin }));
+                  }
+              } catch(syncErr) { console.warn("Pin sync failed", syncErr); }
            }
         }
         if (forcedAuth.error) throw new Error(`Erro Crítico Auth: ${forcedAuth.error.message}`);
         authResult = forcedAuth;
+        return publicUser;
       } else if (authResult.error) throw authResult.error;
 
       if (authResult.data?.user) {
@@ -470,10 +531,25 @@ export const useUsers = () => {
             const target = filtered.length > 0 ? filtered[0] : sorted[0];
             return mapUser(target);
          } else {
-            const lowC = cleanIdentifier.toLowerCase();
+            const authEmail = authResult.data?.user?.email || searchEmail;
+            const lowC = authEmail ? authEmail.toLowerCase() : cleanIdentifier.toLowerCase();
             const phoneC = cleanIdentifier.replace(/\D/g, '');
             const { data: rpcSearch } = await supabase.rpc('find_user_bypass_rls', { p_email: lowC, p_phone: phoneC });
             let searchData = Array.isArray(rpcSearch) ? rpcSearch : (rpcSearch ? [rpcSearch] : []);
+            
+            if (searchData.length === 0) {
+                 try {
+                     const res = await fetch('/api/auth/find-user', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ identifier: lowC })
+                     });
+                     if (res.ok) {
+                        const d = await res.json();
+                        searchData = d.users || [];
+                     }
+                 } catch(e) {}
+            }
             if (searchData.length > 0) {
                const sorted = [...searchData].sort((a, b) => {
                   const score = (u: any) => u.role === 'OWNER' ? 3 : (u.role && u.role.includes('MANAGER') ? 2 : 1);
@@ -483,8 +559,8 @@ export const useUsers = () => {
                   ? (sorted.find(u => (u.user_type === 'COMPANY' || u.user_type === 'EMPLOYEE') && u.role !== 'CUSTOMER') || sorted[0])
                   : (sorted.find(u => u.user_type === 'CUSTOMER' || u.role === 'CUSTOMER') || sorted[0]);
 
-               if (orphan && String(orphan.access_code).trim() === pin.trim()) {
-                  await supabase.rpc('relink_user_auth', { p_user_id: orphan.id, p_auth_id: authResult.data!.user!.id, p_pin: pin.trim() });
+               if (orphan) {
+                  try { await supabase.rpc('relink_user_auth', { p_user_id: orphan.id, p_auth_id: authResult.data!.user!.id, p_pin: pin.trim() }); } catch(err){}
                   return mapUser(orphan);
                }
             }

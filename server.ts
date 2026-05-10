@@ -179,6 +179,70 @@ async function startServer() {
     }
   });
 
+  app.post("/api/auth/find-user", async (req, res) => {
+    const { identifier } = req.body;
+    if (!identifier) return res.status(400).json({ error: "Missing identifier" });
+    
+    const lowC = identifier.toLowerCase();
+    const isEmail = identifier.includes('@');
+    const phoneC = isEmail ? '' : identifier.replace(/\D/g, '');
+
+    try {
+      let query = supabaseAdmin.from('users').select('*');
+      if (isEmail) query = query.eq('email', lowC);
+      else query = query.eq('phone', phoneC);
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      res.json({ users: data || [] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/auth/relink-user", async (req, res) => {
+    const { userId, authId, pin } = req.body;
+    if (!userId || !authId || !pin) return res.status(400).json({ error: "Missing parameters" });
+    try {
+      const { data: user, error: fetchErr } = await supabaseAdmin.from('users').select('access_code').eq('id', userId).single();
+      if (fetchErr) throw fetchErr;
+      if (String(user.access_code).trim() !== String(pin).trim()) throw new Error("Invalid access code for relink");
+      
+      const { data, error } = await supabaseAdmin.from('users').update({ auth_id: authId }).eq('id', userId).select();
+      if (error) throw error;
+      res.json({ success: true, user: data[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/auth/force-sync-pin", async (req, res) => {
+    const { userId, pin } = req.body;
+    try {
+       const { data: user } = await supabaseAdmin.from('users').select('auth_id, access_code').eq('id', userId).single();
+       if (!user || String(user.access_code).trim() !== String(pin).trim() || !user.auth_id) {
+           return res.status(400).json({ error: "Invalid pin or auth_id not found" });
+       }
+       const { error } = await supabaseAdmin.auth.admin.updateUserById(user.auth_id, { password: pin });
+       if (error) throw error;
+       res.json({ success: true });
+    } catch (e: any) {
+       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/auth/create-user", async (req, res) => {
+    const { userData } = req.body;
+    if (!userData) return res.status(400).json({ error: "Missing userdata" });
+    try {
+      const { data, error } = await supabaseAdmin.from('users').insert([userData]).select();
+      if (error) throw error;
+      res.json({ success: true, user: data[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Rota para PAGAMENTO DE ANÚNCIOS (Vai para a conta do Administrador do Sistema)
   app.post("/api/mercadopago/create-ad-preference", async (req, res) => {
     const { adId, userId, adTitle, price, duration, returnUrl } = req.body;
@@ -306,20 +370,36 @@ async function startServer() {
         body: body ? JSON.stringify(body) : undefined
       });
       
-      const data = await resp.json();
+      const data = await resp.json().catch(() => ({}));
       
       if (!resp.ok) {
         // Handle instance not found as a special case for status checks
         if (resp.status === 404 && path.includes('connectionState')) {
           return { instance: { state: 'not_found' } };
         }
-        console.error(`[Evolution API Error] ${path}:`, JSON.stringify(data));
-        throw new Error(data.message || JSON.stringify(data) || "Erro na Evolution API");
+        
+        let errorMsg = data?.response?.message?.[0] || data?.error || data?.message || "Erro na Evolution API";
+        
+        // Verifica se é erro do banco da Evolution
+        if (resp.status >= 500 || (typeof errorMsg === 'string' && errorMsg.includes('PrismaClient'))) {
+           console.error(`[Evolution API Error] ${path}: 500 - Database/Service Unavailable`);
+           throw new Error("Serviço do WhatsApp temporariamente indisponível. Tente novamente mais tarde.");
+        }
+        
+        // Sanitiza erros muito longos
+        if (typeof errorMsg === 'string' && errorMsg.length > 200) {
+           errorMsg = errorMsg.substring(0, 100) + '...';
+        }
+        
+        console.error(`[Evolution API Error] ${path}:`, errorMsg);
+        throw new Error(errorMsg);
       }
       
       return data;
     } catch (err: any) {
-      console.error(`[Evolution Connection Error] ${path}:`, err.message);
+      if (!err.message.includes("Serviço do WhatsApp") && !err.message.includes("URL não configurada")) {
+         console.error(`[Evolution Connection Error] ${path}:`, err.message);
+      }
       throw err;
     }
   };
@@ -430,8 +510,10 @@ async function startServer() {
 
       res.json({ state: newState, qrcode });
     } catch (error: any) {
-      console.error("[Status WA Detail]:", error);
-      res.status(500).json({ error: "Erro ao consultar status do WhatsApp" });
+      if (!error.message.includes("Serviço do WhatsApp")) {
+         console.error("[Status WA Detail]:", error.message);
+      }
+      res.json({ state: 'ERROR', error: error.message || "Erro ao consultar status do WhatsApp" });
     }
   });
 
@@ -673,7 +755,8 @@ async function startServer() {
              is_pending: false,
              payment_status: 'APPROVED',
              payment_method: payment.payment_method_id,
-             paid_at: new Date().toISOString()
+             paid_at: new Date().toISOString(),
+             workspace_id: workspaceId
            })
            .in('id', txIds);
          rpcError = updErr;
@@ -717,7 +800,8 @@ async function startServer() {
                    await evoApi('POST', `/message/sendText/${profile.wa_instance_name}`, {
                      number: targetPhone,
                      options: { delay: 1200, presence: "composing" },
-                     textMessage: { text }
+                     textMessage: { text },
+                     text: text
                    });
                    await supabase.from('whatsapp_logs').insert({
                      workspace_id: workspaceId,

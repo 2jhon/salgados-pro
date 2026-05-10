@@ -7,12 +7,13 @@ import {
   Save, Loader2, Check, AlertCircle, Search, TrendingDown,
   ShoppingBag, Settings, Globe, MessageCircle, Bike, Store as StoreIcon, X,
   ArrowRight, Minus, Edit3, Camera, Image as ImageIcon, MapPin, Info,
-  Printer, CheckCircle2, Share2
+  Printer, CheckCircle2, Share2, BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
 
 import { registerStockMovement } from '../lib/supabase';
+import { ProductInsights } from './ProductInsights';
 
 interface StallProps {
   section: AppSection;
@@ -30,10 +31,10 @@ interface StallProps {
 }
 
 export const Stall: React.FC<StallProps> = ({ 
-  section, user, addTransactions, 
+  section, user, addTransactions, transactions,
   sections, saveConfig, updateSingleSection, updateStockAtomic, customers, addNote
 }) => {
-  const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS'>('VENDAS');
+  const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS' | 'PRODUTOS'>('VENDAS');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   
@@ -506,18 +507,26 @@ export const Stall: React.FC<StallProps> = ({
             <ShoppingBag className="w-4 h-4" /> Vendas
           </button>
           <button 
+            onClick={() => setActiveTab('PRODUTOS')} 
+            className={`flex-1 py-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+          >
+            <BarChart3 className="w-4 h-4" /> Produtos
+          </button>
+          <button 
             onClick={() => setActiveTab('GASTOS')} 
             className={`flex-1 py-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
           >
             <TrendingDown className="w-4 h-4" /> Despesas
           </button>
         </div>
-        <button 
-          onClick={() => setShowConfig(true)}
-          className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors"
-        >
-          <Settings className="w-6 h-6" />
-        </button>
+        {user.role === 'OWNER' && (
+          <button 
+            onClick={() => setShowConfig(true)}
+            className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors"
+          >
+            <Settings className="w-6 h-6" />
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -701,6 +710,10 @@ export const Stall: React.FC<StallProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'PRODUTOS' && (
+        <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} />
       )}
 
       {showConfig && (

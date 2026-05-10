@@ -119,7 +119,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
 
   // Polling em background
   useEffect(() => {
-    if ((profile?.waInstanceName || hasWaInstanceLocal) && waState.state !== 'CONNECTED') {
+    if ((profile?.waInstanceName || hasWaInstanceLocal) && waState.state !== 'CONNECTED' && waState.state !== 'ERROR') {
       const interval = setInterval(() => {
         fetchWaStatus(false, true);
       }, 10000);
@@ -738,6 +738,26 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                                 >
                                    Desconectar Dispositivo
                                 </button>
+                              </div>
+                            ) : waState.state === 'ERROR' ? (
+                              <div className="space-y-4">
+                                <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                   <AlertTriangle size={32} />
+                                </div>
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                   <span className="text-[10px] font-black text-red-600 uppercase tracking-widest">SERVIÇO INDISPONÍVEL</span>
+                                   <p className="text-[9px] text-slate-500 font-bold uppercase text-center max-w-[200px]">A API do WhatsApp está fora do ar ou reiniciando no momento.</p>
+                                </div>
+                                <div className="flex items-center justify-center gap-4 mt-4">
+                                   <button 
+                                      onClick={() => fetchWaStatus(true)} 
+                                      disabled={loadingWa}
+                                      type="button" 
+                                      className="bg-white border border-slate-200 text-[9px] font-black text-slate-600 px-4 py-2 rounded-xl shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+                                   >
+                                      <RefreshCcw size={12} className={loadingWa ? 'animate-spin' : ''} /> TENTAR NOVAMENTE
+                                   </button>
+                                </div>
                               </div>
                             ) : (
                               <div className="space-y-6 w-full">

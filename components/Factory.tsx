@@ -11,12 +11,13 @@ import {
   MoreVertical, Scissors, Edit3, Trash2, Square, CheckSquare,
   AlertTriangle, FileText, Printer, Calculator, Truck, Image as ImageIcon,
   ArrowUpCircle, ArrowDownCircle, ExternalLink, RefreshCw, Link as LinkIcon, Link2Off, Lock,
-  Phone, Bluetooth, MessageCircle, Share2
+  Phone, Bluetooth, MessageCircle, Share2, BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
 import { safeStringifyError } from '../lib/supabase';
 import { normalizeString, formatCurrency } from '../lib/utils';
+import { ProductInsights } from './ProductInsights';
 
 import { registerStockMovement } from '../lib/supabase';
 
@@ -45,7 +46,7 @@ export const Factory: React.FC<FactoryProps> = ({
   transactions, settleCustomerDebt, updateTransaction, partialSettleTransaction, deleteTransaction,
   customers, addCustomer, saveConfig, updateSingleSection, updateStockAtomic, sections, onRefreshData, addNote
 }) => {
-  const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS' | 'A_RECEBER'>('VENDAS');
+  const [activeTab, setActiveTab] = useState<'VENDAS' | 'GASTOS' | 'A_RECEBER' | 'PRODUTOS'>('VENDAS');
   const [billsTab, setBillsTab] = useState<'RECEIVABLES' | 'PAYABLES'>('RECEIVABLES');
   const [globalMethod, setGlobalMethod] = useState<'A_VISTA' | 'A_PRAZO'>('A_VISTA');
   const [customerName, setCustomerName] = useState('');
@@ -933,6 +934,7 @@ export const Factory: React.FC<FactoryProps> = ({
     <div className="space-y-6 pb-24 animate-in fade-in">
       <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex overflow-x-auto no-scrollbar">
         <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
+        <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
         <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
           <Wallet className="w-4 h-4" /> Contas
           {(receivablesCount + payablesCount) > 0 && <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{receivablesCount + payablesCount}</span>}
@@ -1363,6 +1365,9 @@ export const Factory: React.FC<FactoryProps> = ({
               </div>
            </div>
         </div>
+      )}
+      {activeTab === 'PRODUTOS' && (
+        <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} />
       )}
       </div>
     </React.Fragment>
