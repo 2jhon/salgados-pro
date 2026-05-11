@@ -181,6 +181,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   // Novo estado para o modal de exclusão de empresa
   const [companyToDelete, setCompanyToDelete] = useState<GlobalCompany | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [confirmSuperAdminAction, setConfirmSuperAdminAction] = useState<{title: string, msg: string, onConfirm: () => void} | null>(null);
 
   const [approvalDays, setApprovalDays] = useState(30);
 
@@ -979,7 +980,18 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                        <div className="flex items-center gap-2">
                           <div><p className="text-[8px] font-black text-slate-400 uppercase">Novo PIN</p><p className="text-xl font-black text-slate-900">{req.requested_pin}</p></div>
                           <button onClick={() => handleSendPin(req)} className="p-4 bg-emerald-600 text-white rounded-2xl"><MessageSquare size={20} /></button>
-                          <button onClick={() => handleDeletePinRequest(req.id)} className="p-4 bg-rose-100 text-rose-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-colors"><Trash2 size={20} /></button>
+                          <button 
+                            onClick={() => {
+                              setConfirmSuperAdminAction({
+                                title: "Excluir Pedido de PIN",
+                                msg: "Deseja excluir este pedido e apagar a nota vinculada?",
+                                onConfirm: () => handleDeletePinRequest(req.id)
+                              });
+                            }} 
+                            className="p-4 bg-rose-100 text-rose-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-colors"
+                          >
+                            <Trash2 size={20} />
+                          </button>
                        </div>
                     </div>
                   ))
@@ -1019,7 +1031,21 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                        </div>
                        <div className="flex gap-2">
                           <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : isPendingApproval ? 'bg-amber-500 text-slate-950 animate-bounce' : 'bg-orange-500 text-white'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
-                          <button onClick={() => supabase.from('app_banners').delete().eq('id', ad.id).then(() => fetchData())} className="p-4 bg-rose-600 text-white rounded-2xl"><Trash2 size={20} /></button>
+                          <button 
+                            onClick={() => {
+                              setConfirmSuperAdminAction({
+                                title: "Excluir Anúncio",
+                                msg: "Deseja forçar a exclusão deste anúncio do banco de dados global?",
+                                onConfirm: async () => {
+                                  await supabase.from('app_banners').delete().eq('id', ad.id);
+                                  fetchData();
+                                }
+                              });
+                            }} 
+                            className="p-4 bg-rose-600 text-white rounded-2xl"
+                          >
+                            <Trash2 size={20} />
+                          </button>
                        </div>
                     </div>
                   );
@@ -1501,7 +1527,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
       {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE EMPRESA */}
       {companyToDelete && (
-        <div className="fixed inset-0 z-[1300] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
            <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl text-center border-4 border-rose-100">
               <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner animate-pulse">
                  <Trash2 className="w-10 h-10 text-rose-600" />
@@ -1792,7 +1818,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
       {/* CONFIRMAR EXCLUSÃO DE PLANO */}
       {confirmDeletePlanId && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
@@ -1857,6 +1883,38 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
           </div>
         </div>
       )}
+
+      {confirmSuperAdminAction && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-2">{confirmSuperAdminAction.title}</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              {confirmSuperAdminAction.msg}
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmSuperAdminAction(null)} 
+                className="flex-1 py-4 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={() => {
+                  confirmSuperAdminAction.onConfirm();
+                  setConfirmSuperAdminAction(null);
+                }}
+                className="flex-1 py-4 text-white bg-rose-600 hover:bg-rose-700 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-rose-600/20"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

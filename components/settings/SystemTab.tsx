@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Database, Trash2, Calendar, Clock, AlertTriangle, FileText, ArrowRight, Printer, Bluetooth, Download, Archive, Music, CheckCircle2 } from 'lucide-react';
+import { Database, Trash2, Calendar, Clock, AlertTriangle, FileText, ArrowRight, Printer, Bluetooth, Download, Archive, Music, CheckCircle2, Folder, UploadCloud } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Transaction } from '../../types';
 import { playSystemSound } from '../../lib/utils';
+import { printer } from '../../lib/printer';
 
 interface SystemTabProps {
   transactions: Transaction[];
@@ -77,6 +78,28 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [confirmClearInfo, setConfirmClearInfo] = useState<{ isFactoryReset: boolean } | null>(null);
+  const [printerConnected, setPrinterConnected] = useState(false);
+
+  const handleConnectPrinter = async () => {
+    try {
+      if (!printerConnected) {
+        await printer.connect();
+        setPrinterConnected(true);
+        showToast('Impressora conectada com sucesso!');
+      } else {
+        showToast('Impressora já está conectada!');
+      }
+    } catch (err: any) {
+      if (err.message === 'IOS_NOT_SUPPORTED') {
+         showToast('Dispositivos iOS não suportam Bluetooth Web.');
+      } else if (err.name === 'NotFoundError' || err.message.includes('User cancelled')) {
+         // Silently ignore or show a gentle message
+         console.warn('Bluetooth picker cancelled by user.');
+      } else {
+         showToast('Erro ao conectar: ' + err.message);
+      }
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -251,8 +274,15 @@ export const SystemTab: React.FC<SystemTabProps> = ({
         <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed mb-6 tracking-widest">
           CONECTE SUA IMPRESSORA TÉRMICA BLUETOOTH (58MM OU 80MM) PARA IMPRIMIR RECIBOS DIRETAMENTE DO APLICATIVO.
         </p>
-        <button className="w-full py-5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all">
-          <Bluetooth size={16} /> CONECTAR IMPRESSORA
+        <button 
+          onClick={handleConnectPrinter}
+          className={`w-full py-5 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all ${
+            printerConnected 
+              ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-200 hover:bg-emerald-100' 
+              : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+          }`}
+        >
+          <Bluetooth size={16} /> {printerConnected ? 'IMPRESSORA CONECTADA' : 'CONECTAR IMPRESSORA'}
         </button>
       </div>
 
@@ -264,24 +294,31 @@ export const SystemTab: React.FC<SystemTabProps> = ({
         </div>
         
         {/* SOM DE VENDAS */}
-        <div className="mb-6">
+        <div className="mb-8">
           <p className="text-[10px] font-black tracking-widest text-slate-400 mb-3 px-2">SOM DE VENDAS (PDV)</p>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'GALERIA', 'OFF'].map(mode => (
-              <div key={mode} className={`relative flex-1 min-w-[80px]`}>
-                <button 
-                  onClick={() => handleSoundChangeSales(mode)}
-                  className={`w-full py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeSales === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                >
-                  {mode}
-                </button>
-                {mode === 'GALERIA' && soundModeSales === 'GALERIA' && (
-                  <div className="absolute -bottom-8 left-0 right-0 flex justify-center">
-                    <label className="text-[9px] font-black tracking-widest bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-200 transition-colors whitespace-nowrap shadow-sm border border-emerald-200">
-                      SUBSTITUIR SOM
-                      <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadSales} />
-                    </label>
-                  </div>
+            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'CASH', 'GALERIA', 'OFF'].map(mode => (
+              <div key={mode} className="flex-1 min-w-[80px]">
+                {mode === 'GALERIA' && soundModeSales === 'GALERIA' ? (
+                  <label className="w-full py-2 px-2 flex flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all bg-emerald-50 border-2 border-emerald-200 text-emerald-700 cursor-pointer hover:bg-emerald-100">
+                    <UploadCloud size={16} className="mb-0.5" />
+                    TROCAR
+                    <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadSales} />
+                  </label>
+                ) : (
+                  <button 
+                    onClick={() => handleSoundChangeSales(mode)}
+                    className={`w-full ${mode === 'GALERIA' ? 'py-2 flex flex-col items-center justify-center gap-1' : 'py-4'} px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeSales === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                  >
+                    {mode === 'GALERIA' ? (
+                      <>
+                        <Folder size={16} className="mb-0.5" />
+                        GALERIA
+                      </>
+                    ) : (
+                      mode
+                    )}
+                  </button>
                 )}
               </div>
             ))}
@@ -289,24 +326,31 @@ export const SystemTab: React.FC<SystemTabProps> = ({
         </div>
 
         {/* SOM DE PEDIDOS ONLINE */}
-        <div className={soundModeSales === 'GALERIA' ? "mt-10" : "mt-2"}>
+        <div className="mb-4">
           <p className="text-[10px] font-black tracking-widest text-slate-400 mb-3 px-2">PEDIDOS ONLINE / NOTIFICAÇÕES</p>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'GALERIA_PEDIDOS', 'OFF'].map(mode => (
-              <div key={mode} className={`relative flex-1 min-w-[80px]`}>
-                <button 
-                  onClick={() => handleSoundChangeOrders(mode)}
-                  className={`w-full py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeOrders === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                >
-                  {mode === 'GALERIA_PEDIDOS' ? 'GALERIA' : mode}
-                </button>
-                {mode === 'GALERIA_PEDIDOS' && soundModeOrders === 'GALERIA_PEDIDOS' && (
-                  <div className="absolute -bottom-8 left-0 right-0 flex justify-center z-10">
-                    <label className="text-[9px] font-black tracking-widest bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-200 transition-colors whitespace-nowrap shadow-sm border border-emerald-200">
-                      SUBSTITUIR SOM
-                      <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadOrders} />
-                    </label>
-                  </div>
+            {['PADRÃO', 'SUAVE', 'MEC.', 'CAIXA', 'MOEDA', 'CHECK', 'GALERIA_PEDIDOS', 'OFF'].map(mode => (
+              <div key={mode} className="flex-1 min-w-[80px]">
+                {mode === 'GALERIA_PEDIDOS' && soundModeOrders === 'GALERIA_PEDIDOS' ? (
+                  <label className="w-full py-2 px-2 flex flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all bg-emerald-50 border-2 border-emerald-200 text-emerald-700 cursor-pointer hover:bg-emerald-100">
+                    <UploadCloud size={16} className="mb-0.5" />
+                    TROCAR
+                    <input type="file" accept="audio/*" className="hidden" onChange={handleGaleriaUploadOrders} />
+                  </label>
+                ) : (
+                  <button 
+                    onClick={() => handleSoundChangeOrders(mode)}
+                    className={`w-full ${mode === 'GALERIA_PEDIDOS' ? 'py-2 flex flex-col items-center justify-center gap-1' : 'py-4'} px-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${soundModeOrders === mode ? 'bg-indigo-50 border-2 border-indigo-100 text-indigo-700' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                  >
+                    {mode === 'GALERIA_PEDIDOS' ? (
+                      <>
+                        <Folder size={16} className="mb-0.5" />
+                        GALERIA
+                      </>
+                    ) : (
+                      mode
+                    )}
+                  </button>
                 )}
               </div>
             ))}
@@ -418,7 +462,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
       </div>
 
       {confirmClearInfo && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />

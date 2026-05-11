@@ -283,7 +283,7 @@ export const useUsers = () => {
     const payload: any = {};
     if (updates.name !== undefined) payload.name = updates.name;
     if (updates.email !== undefined) payload.email = updates.email;
-    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.phone !== undefined) payload.phone = updates.phone?.replace(/\D/g, '') || null;
     if (updates.cpf !== undefined) payload.cpf = updates.cpf;
     if (updates.role !== undefined) payload.role = updates.role;
     if (updates.accessCode !== undefined) payload.access_code = String(updates.accessCode).trim();

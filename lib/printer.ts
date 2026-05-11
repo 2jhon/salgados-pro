@@ -29,8 +29,8 @@ export class ThermalPrinter {
       }
 
       this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
-        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+        acceptAllDevices: true,
+        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', 'e7e11101-4966-4a5a-a972-467144c433c0']
       });
 
       const server = await this.device.gatt?.connect();

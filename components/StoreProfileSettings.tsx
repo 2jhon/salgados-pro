@@ -358,7 +358,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
            name: formData.name,
            description: formData.description,
            address: formData.address,
-           whatsapp: formData.whatsapp,
+           whatsapp: formData.whatsapp?.replace(/\D/g, '') || '',
            cnpj: formData.cnpj,
            instagram: formData.instagram,
            facebook: formData.facebook,

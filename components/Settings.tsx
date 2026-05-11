@@ -223,7 +223,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
       </div>
 
       {confirmModal && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-300">
            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300">
              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter mb-4">{confirmModal.title}</h3>
              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-relaxed mb-8">{confirmModal.message}</p>
@@ -558,7 +558,21 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                             </div>
                             <div className="flex gap-1">
                                <button onClick={() => startEditManageItem(item)} className="p-2.5 text-indigo-400 hover:bg-indigo-50 rounded-xl transition-all"><Edit3 size={16} /></button>
-                               <button onClick={() => handleDeleteManageItem(item.id)} className="p-2.5 text-rose-300 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={16} /></button>
+                               <button 
+                                 onClick={() => {
+                                   setConfirmModal({
+                                     title: 'Excluir Item',
+                                     message: `Tem certeza que deseja excluir '${item.name}'?`,
+                                     onConfirm: async () => {
+                                       await handleDeleteManageItem(item.id);
+                                       setConfirmModal(null);
+                                     }
+                                   });
+                                 }} 
+                                 className="p-2.5 text-rose-300 hover:bg-rose-50 rounded-xl transition-all"
+                               >
+                                 <Trash2 size={16} />
+                               </button>
                             </div>
                          </div>
                        ))}

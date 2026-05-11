@@ -741,7 +741,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       )}
 
       {deleteConfirm && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-8 text-center">
               <div className="bg-red-100 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-6">

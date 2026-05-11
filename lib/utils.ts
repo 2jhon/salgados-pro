@@ -174,6 +174,12 @@ export const playSystemSound = (mode: string) => {
       
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.4);
+    } else if (mode === 'CASH') {
+      const audio = new Audio('/cash.mp3');
+      audio.play().catch(e => console.warn('Audio play failed', e));
+    } else if (mode === 'CHECK') {
+      const audio = new Audio('/check.mp3');
+      audio.play().catch(e => console.warn('Audio play failed', e));
     } else if (mode === 'GALERIA') {
       const base64 = localStorage.getItem('customSoundSales');
       if (base64) {
