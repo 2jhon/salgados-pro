@@ -802,7 +802,9 @@ export const Stall: React.FC<StallProps> = ({
                       await printer.printReceipt(section.name, successModal.items, successModal.total, successModal.customer, section.workspaceId);
                       toast.success("Recibo impresso!", { id: toastId });
                     } catch (e: any) {
-                      if (e.message === "IOS_NOT_SUPPORTED") {
+                      if (e.message === 'USER_CANCELLED') {
+                        toast.dismiss(toastId);
+                      } else if (e.message === 'IOS_NOT_SUPPORTED') {
                         toast.dismiss(toastId);
                         toast.error(
                           <div className="flex flex-col gap-2">

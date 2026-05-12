@@ -14,8 +14,8 @@ let supabaseAdmin: any = null;
 function getSupabaseAdmin() {
   if (!supabaseAdmin) {
     // Forçamos a URL e a Service Key do projeto para garantir consistência total
-    const supabaseUrl = 'https://vvxvwntjwjzalzjiwrmm.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eHZ3bnRqd2p6YWx6aml3cm1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjA5OTIyNywiZXhwIjoyMDgxNjc1MjI3fQ.KGjXwoLbnfycQOdHLSy564ujtnx2LopIgAGNg1Vo63E';
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://vvxvwntjwjzalzjiwrmm.supabase.co';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eHZ3bnRqd2p6YWx6aml3cm1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjA5OTIyNywiZXhwIjoyMDgxNjc1MjI3fQ.KGjXwoLbnfycQOdHLSy564ujtnx2LopIgAGNg1Vo63E';
 
     try {
       supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
@@ -41,7 +41,7 @@ let mpClient: MercadoPagoConfig | null = null;
 
 function getMPClient() {
   if (!mpClient) {
-    const accessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || 'APP_USR-dummy-token-for-oauth';
+    const accessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN || 'APP_USR-dummy-token-for-oauth';
     mpClient = new MercadoPagoConfig({ accessToken });
   }
   return mpClient;
@@ -109,7 +109,7 @@ async function startServer() {
 
       // 2. Determinar qual token usar (da loja ou do admin)
       // Se a loja não tem token próprio, tentamos usar o global (fallback)
-      const sellerAccessToken = storeProfile.mp_access_token || process.env.MP_ACCESS_TOKEN;
+      const sellerAccessToken = storeProfile.mp_access_token || process.env.MP_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
       
       if (!sellerAccessToken) {
         console.error("[MP] Nenhum token disponível para workspace:", workspace_id);
@@ -248,7 +248,7 @@ async function startServer() {
     const { adId, userId, adTitle, price, duration, returnUrl } = req.body;
 
     try {
-      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
       
       if (!adminAccessToken) {
         return res.status(500).json({ error: "Configuração do sistema incompleta (Token Admin não encontrado)." });
@@ -300,7 +300,7 @@ async function startServer() {
 
     try {
       // O token do ADMIN deve estar no .env como MP_ACCESS_TOKEN
-      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
       
       if (!adminAccessToken) {
         return res.status(500).json({ error: "Configuração do sistema incompleta (Token Admin não encontrado)." });
@@ -566,7 +566,7 @@ async function startServer() {
         .eq('workspace_id', workspace_id)
         .single();
 
-      const accessToken = storeProfile?.mp_access_token || process.env.MP_ACCESS_TOKEN;
+      const accessToken = storeProfile?.mp_access_token || process.env.MP_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
       if (!accessToken) return res.status(400).json({ error: "Loja sem checkout configurado." });
 
       const client = new MercadoPagoConfig({ accessToken });
@@ -634,7 +634,7 @@ async function startServer() {
         const supabase = getSupabaseAdmin();
         if (!supabase) return;
 
-        const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
         let token = adminAccessToken;
 
         if (sellerId) {
@@ -685,7 +685,7 @@ async function startServer() {
       const supabase = getSupabaseAdmin();
       if (!supabase) return res.status(500).json({ error: "DB admin failed" });
 
-      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+      const adminAccessToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
       let token = adminAccessToken;
 
       if (tx_id) {
@@ -859,20 +859,16 @@ async function startServer() {
     if (extRef.startsWith("SUBSCRIPTION|")) {
       const [_, userId, planId] = extRef.split("|");
       const { data: userProfile } = await supabase
-        .from('user_profiles')
-        .select('workspace_id, company_id')
+        .from('users')
+        .select('workspace_id')
         .eq('id', userId)
         .limit(1);
       
-      const workspaceId = userProfile?.[0]?.company_id || userProfile?.[0]?.workspace_id;
-      if (workspaceId) {
-        const now = new Date();
+      const workspaceId = userProfile?.[0]?.workspace_id;
+      const now = new Date();
         const expires = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
-        await supabase.from('store_profiles').update({ 
-           pro_expires_at: expires,
-           ad_free_expires_at: expires
-        }).eq('workspace_id', workspaceId);
-      }
+        await supabase.from('users').update({ pro_expires_at: expires, ad_free_expires_at: expires, active_plan_id: planId, advertiser_expires_at: expires }).eq('id', userId);
+
     }
 
     // 3. ANÚNCIOS (AD_BOOST)

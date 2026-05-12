@@ -50,6 +50,11 @@ export class ThermalPrinter {
       return true;
     } catch (error: any) {
       console.error('Printer connection error:', error);
+      const errMsg = error?.message || String(error);
+      if (errMsg.includes('User cancelled') || errMsg.includes('CANCELLED')) {
+        console.warn('Usuário cancelou a seleção da impressora.');
+        throw new Error('USER_CANCELLED');
+      }
       throw error;
     }
   }

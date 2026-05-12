@@ -284,12 +284,13 @@ export const Factory: React.FC<FactoryProps> = ({
      return Object.values(expenseEntries).reduce((acc: number, val: any) => acc + (parseFloat(String(val).replace(',', '.')) || 0), 0);
   }, [expenseEntries]);
 
-  const confirmProduction = async (forceNegativeStock: boolean = false) => {
+  const confirmProduction = async (forceNegativeStock: boolean = false, forceUnregistered: boolean = false) => {
     if (productionTotal <= 0) return;
     const cleanCustomerName = customerName.trim();
+    const effectiveIsUnregistered = isUnregistered || forceUnregistered;
 
     // VALIDAÇÃO RIGOROSA DE IDENTIFICAÇÃO
-    if (globalMethod === 'A_PRAZO' && isUnregistered) {
+    if (globalMethod === 'A_PRAZO' && effectiveIsUnregistered) {
       setIsUnregistered(false);
       setValidationError({
         title: "Venda a Prazo Requer Cliente",
@@ -299,7 +300,7 @@ export const Factory: React.FC<FactoryProps> = ({
       return;
     }
 
-    if (!isUnregistered) {
+    if (!effectiveIsUnregistered) {
       // Se NÃO for venda avulsa, a identificação é obrigatória
       if (!cleanCustomerName) {
         setValidationError({
@@ -379,7 +380,7 @@ export const Factory: React.FC<FactoryProps> = ({
       let finalCustomerName = cleanCustomerName || undefined;
 
       // Se não for venda avulsa e houver um nome, tentamos vincular ou cadastrar
-      if (!isUnregistered && cleanCustomerName) {
+      if (!effectiveIsUnregistered && cleanCustomerName) {
         let foundCustomer = customers.find(c => normalizeString(c.name) === normalizeString(cleanCustomerName));
         
         // Se não encontrou e tem telefone preenchido para cadastro rápido
@@ -516,6 +517,7 @@ export const Factory: React.FC<FactoryProps> = ({
         setBatchQuantities({});
         setCustomerName('');
         setNewCustomerPhone('');
+        setIsUnregistered(false);
         toast.success("Venda registrada com sucesso!");
       } else {
         throw new Error("Não foi possível salvar os registros.");
@@ -807,7 +809,9 @@ export const Factory: React.FC<FactoryProps> = ({
                       await printer.printReceipt(section.name, successModal.items, successModal.total, successModal.customer, section.workspaceId);
                       toast.success("Recibo impresso!", { id: toastId });
                     } catch (e: any) {
-                      if (e.message === "IOS_NOT_SUPPORTED") {
+                      if (e.message === 'USER_CANCELLED') {
+                        toast.dismiss(toastId);
+                      } else if (e.message === 'IOS_NOT_SUPPORTED') {
                         toast.dismiss(toastId);
                         toast.error(
                           <div className="flex flex-col gap-2">
@@ -1311,7 +1315,7 @@ export const Factory: React.FC<FactoryProps> = ({
                  {validationError.type === 'MISSING_ID' && (
                     <>
                        <button 
-                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false), 100); }} 
+                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false, true), 100); }} 
                           className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all"
                        >
                           Seguir como Venda Avulsa
@@ -1334,7 +1338,7 @@ export const Factory: React.FC<FactoryProps> = ({
                           Informar Telefone
                        </button>
                        <button 
-                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false), 100); }} 
+                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false, true), 100); }} 
                           className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-colors"
                        >
                           Usar apenas como Venda Avulsa
