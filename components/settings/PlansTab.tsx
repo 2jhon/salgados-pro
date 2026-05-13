@@ -35,7 +35,10 @@ export const PlansTab: React.FC<PlansTabProps> = ({
 
       const data = await response.json();
       if (data.init_point) {
-        window.location.href = data.init_point;
+        const w = window.open(data.init_point, '_blank');
+        if (!w) {
+          window.location.href = data.init_point;
+        }
       } else {
         throw new Error(data.error || "Ponto de início não retornado");
       }

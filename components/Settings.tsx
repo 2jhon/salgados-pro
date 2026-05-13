@@ -194,6 +194,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             archiveYear={props.archiveYear}
             workspaceId={props.currentUser.workspaceId}
             onUnlockGodMode={props.onUnlockGodMode}
+            sections={props.sections}
+            saveConfig={props.saveConfig}
           />
         )}
         {activeTab === 'PLANOS' && (

@@ -464,7 +464,7 @@ export const Factory: React.FC<FactoryProps> = ({
                   // Low Stock Notification (Predictive)
                   const currentStock = item.currentStock || 0;
                   const newStock = Math.max(0, currentStock - qty);
-                  if (addNote && item.minStock !== undefined && newStock <= item.minStock) {
+                  if (addNote && item.trackStock === true && typeof item.minStock === 'number' && item.minStock > 0 && newStock <= item.minStock) {
                     addNote({
                       workspaceId: section.workspaceId,
                       createdById: 'system',

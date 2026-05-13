@@ -261,7 +261,10 @@ export const useHomeLogic = ({
       toast.dismiss(loadingToast);
 
       if (data.init_point) {
-        window.location.href = data.init_point;
+        const w = window.open(data.init_point, '_blank');
+        if (!w) {
+          window.location.href = data.init_point;
+        }
       } else {
         throw new Error(data.error || "Erro ao gerar checkout");
       }

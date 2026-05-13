@@ -1,6 +1,6 @@
 
 export type TabType = 'HOME' | 'FABRICA' | 'BARRACA' | 'ESTOQUE' | 'ADMIN' | 'CONFIG' | 'ACTIVITY' | 'MARKETPLACE';
-export type SectionType = 'FACTORY_STYLE' | 'STALL_STYLE' | 'STOCK_STYLE' | 'ARCHIVE_SUMMARY';
+export type SectionType = 'FACTORY_STYLE' | 'STALL_STYLE' | 'STOCK_STYLE' | 'ARCHIVE_SUMMARY' | 'SYSTEM_SETTINGS';
 
 export type UserRole = 'OWNER' | 'MANAGER_FACTORY' | 'MANAGER_STALL' | 'CUSTOMER';
 export type UserType = 'COMPANY' | 'CUSTOMER';

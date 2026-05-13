@@ -377,7 +377,7 @@ export const Stall: React.FC<StallProps> = ({
            const newStock = Math.max(0, currentStock - (tx.quantity || 0));
            
            // Low Stock Notification
-           if (addNote && item.minStock !== undefined && newStock <= item.minStock) {
+           if (addNote && item.trackStock === true && typeof item.minStock === 'number' && item.minStock > 0 && newStock <= item.minStock) {
              addNote({
                workspaceId: section.workspaceId,
                createdById: 'system',

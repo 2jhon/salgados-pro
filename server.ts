@@ -674,8 +674,141 @@ async function startServer() {
     }
   };
 
+  
+  app.post("/api/admin/hard-delete-workspace", async (req, res) => {
+    const { workspaceId, token } = req.body;
+    
+    if (!workspaceId) return res.status(400).json({ error: "Missing workspaceId" });
+    
+    try {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) return res.status(500).json({ error: "No DB" });
+
+      if (token) {
+         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+         if (userError || !user || !['hacker3d22@gmail.com', 'brasilanonymous66@gmail.com'].includes(user.email || '')) {
+             return res.status(200).json({ success: false, error: "Não autorizado: Acesso negado." });
+         }
+      } else {
+         return res.status(200).json({ success: false, error: "Acesso root não verificado na sessão." });
+      }
+      
+      // Buscar uids para excluir da auth antes de apagar a tabela users
+      const { data: usersToKill } = await supabase.from('users').select('auth_id').eq('workspace_id', workspaceId);
+      if (usersToKill && usersToKill.length > 0) {
+         for (const u of usersToKill) {
+            if (u.auth_id) {
+               await supabase.auth.admin.deleteUser(u.auth_id).catch(() => {});
+            }
+         }
+      }
+      
+      const tables = ['store_interactions', 'store_ratings', 'market_telemetry', 'coupons', 'historical_summaries', 'whatsapp_logs', 'payment_webhooks', 'stock_movements', 'store_analytics_views', 'store_analytics_clicks', 'transactions', 'inventory', 'notes', 'ads', 'app_banners', 'customers', 'reports', 'app_config', 'store_profiles', 'users'];
+      const results = {};
+      
+      for (const t of tables) {
+         let matchCol = 'workspace_id';
+         if (t === 'reports') matchCol = 'reported_workspace_id';
+         const { data, error } = await supabase.from(t).delete().eq(matchCol, workspaceId);
+         results[t] = error ? error.message : 'ok';
+      }
+      
+      console.log('Admin Delete Workspace:', workspaceId, results);
+      return res.json({ success: true, results });
+    } catch (err) {
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+
   app.post("/api/mercadopago/webhook", handleMPWebhook);
   app.post("/api/mercadopago/plan-webhook", handleMPWebhook);
+
+  // --- ADMINISTRAÇÃO DE ANÚNCIOS (ANÁLISE MANUAL E REEMBOLSO) ---
+  app.post("/api/admin/ads/approve", async (req, res) => {
+    const { adId, token } = req.body;
+    
+    try {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) throw new Error("DB Admin failed");
+
+      if (token) {
+         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+         if (userError || !user || !['hacker3d22@gmail.com', 'brasilanonymous66@gmail.com'].includes(user.email || '')) {
+             return res.status(200).json({ success: false, error: "Não autorizado: Acesso negado." });
+         }
+      } else {
+         return res.status(200).json({ success: false, error: "Acesso root não verificado na sessão." });
+      }
+
+      const { error } = await supabase.from('app_banners').update({ 
+        is_approved: true, 
+        active: true,
+        payment_status: 'PAID' 
+      }).eq('id', adId);
+
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(200).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post("/api/admin/ads/refund", async (req, res) => {
+    const { adId, token, reason } = req.body;
+    
+    try {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) throw new Error("DB Admin failed");
+
+      if (token) {
+         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+         if (userError || !user || !['hacker3d22@gmail.com', 'brasilanonymous66@gmail.com'].includes(user.email || '')) {
+             return res.status(200).json({ success: false, error: "Não autorizado: Acesso negado." });
+         }
+      } else {
+         return res.status(200).json({ success: false, error: "Acesso root não verificado na sessão." });
+      }
+
+      const adminToken = process.env.MP_ACCESS_TOKEN || process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.VITE_MP_ACCESS_TOKEN;
+
+      // 1. Buscar o ID do pagamento
+      const { data: ad } = await supabase.from('app_banners').select('mp_payment_id, title').eq('id', adId).single();
+      
+      if (!ad) throw new Error("Anúncio não encontrado");
+
+      // 2. Tentar estorno no Mercado Pago se houver ID de pagamento
+      if (ad.mp_payment_id) {
+        console.log(`[MP Refund] Iniciando estorno para o pagamento ${ad.mp_payment_id}`);
+        const mpResp = await fetch(`https://api.mercadopago.com/v1/payments/${ad.mp_payment_id}/refunds`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${adminToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!mpResp.ok) {
+          const errData = await mpResp.json();
+          console.error("[MP Refund] Erro MP:", errData);
+          // Opcional: Você pode querer parar aqui se o estorno falhar, 
+          // ou prosseguir se for apenas um erro de "já estornado".
+        }
+      }
+
+      // 3. Atualizar o banco para refletir a recusa
+      await supabase.from('app_banners').update({ 
+        payment_status: 'REFUNDED',
+        is_approved: false,
+        active: false,
+        rejection_reason: reason || "Recusado pelo administrador"
+      }).eq('id', adId);
+
+      res.json({ success: true, message: ad.mp_payment_id ? "Anúncio recusado e estorno solicitado." : "Anúncio recusado." });
+    } catch (e: any) {
+      console.error("[MP Refund] Erro:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   app.get("/api/mercadopago/process-payment-fallback", async (req, res) => {
     const { payment_id, tx_id } = req.query;
@@ -874,10 +1007,33 @@ async function startServer() {
     // 3. ANÚNCIOS (AD_BOOST)
     if (extRef.startsWith("AD_BOOST|")) {
       const [_, userId, adId] = extRef.split("|");
-      await supabase.from('app_banners').update({ 
-        payment_status: 'PAID',
-        is_approved: true
-      }).eq('id', adId);
+      console.log(`[PAYMENT] Ativando pagamento do anúncio ${adId} para usuário ${userId}`);
+      
+      try {
+        // Tentativa de update completo (com novas colunas se existirem)
+        const { error: updErr } = await supabase.from('app_banners').update({ 
+          payment_status: 'PAID',
+          mp_payment_id: String(resourceId), 
+          is_approved: false 
+        }).eq('id', adId);
+
+        if (updErr && updErr.message.includes('mp_payment_id')) {
+           console.warn("[PAYMENT] Coluna mp_payment_id ausente, tentando update simplificado...");
+           await supabase.from('app_banners').update({ 
+             payment_status: 'PAID',
+             is_approved: false 
+           }).eq('id', adId);
+        } else if (updErr) {
+           throw updErr;
+        }
+      } catch (e: any) {
+        console.error("[PAYMENT] Falha ao atualizar anúncio:", e.message || e);
+        // Fallback final
+        await supabase.from('app_banners').update({ 
+          payment_status: 'PAID',
+          is_approved: false 
+        }).eq('id', adId);
+      }
     }
   }
 

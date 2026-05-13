@@ -187,9 +187,13 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                          <div className="flex items-center gap-2">
                             <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
                                ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
+                               ad.paymentStatus === 'PAID' ? 'bg-amber-100 text-amber-600' :
                                ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'
                             }`}>
-                               {ad.isApproved ? 'Ativo' : ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 'Recusado/Inativo'}
+                               {ad.isApproved ? 'Ativo' : 
+                                ad.paymentStatus === 'PAID' ? 'Em Análise (Pago)' :
+                                ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 
+                                ad.paymentStatus === 'REFUNDED' ? 'Recusado (Estornado)' : 'Recusado/Inativo'}
                             </span>
                              {ad.expiresAt && <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expira em {new Date(ad.expiresAt).toLocaleDateString()}</span>}
                          </div>

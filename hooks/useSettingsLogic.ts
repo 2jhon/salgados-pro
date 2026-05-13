@@ -314,6 +314,7 @@ export const useSettingsLogic = ({
     setIsProcessing(true);
     try {
       if (effectiveAdPrice > 0) {
+        const totalPrice = effectiveAdPrice * (ad.requestedDuration || 7);
         const response = await fetch('/api/mercadopago/create-ad-preference', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -321,7 +322,7 @@ export const useSettingsLogic = ({
             adId: ad.id,
             userId: currentUser.id,
             adTitle: ad.title,
-            price: effectiveAdPrice,
+            price: totalPrice,
             duration: ad.requestedDuration || 7,
             returnUrl: window.location.origin
           })
@@ -329,7 +330,10 @@ export const useSettingsLogic = ({
 
         const data = await response.json();
         if (data.init_point) {
-          window.location.href = data.init_point;
+          const w = window.open(data.init_point, '_blank');
+          if (!w) {
+             window.location.href = data.init_point;
+          }
         } else {
           toast.error(data.error || "Erro ao gerar link de pagamento.");
         }
@@ -364,6 +368,7 @@ export const useSettingsLogic = ({
 
       // Se o preço for maior que 0, redireciona para pagamento
       if (effectiveAdPrice > 0 && !editingAdId) {
+        const totalPrice = effectiveAdPrice * (adForm.duration || 7);
         const response = await fetch('/api/mercadopago/create-ad-preference', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -371,7 +376,7 @@ export const useSettingsLogic = ({
             adId: savedAd.id,
             userId: currentUser.id,
             adTitle: adForm.title,
-            price: effectiveAdPrice,
+            price: totalPrice,
             duration: adForm.duration,
             returnUrl: window.location.origin
           })
@@ -379,7 +384,13 @@ export const useSettingsLogic = ({
 
         const data = await response.json();
         if (data.init_point) {
-          window.location.href = data.init_point;
+          setAdForm({ title: '', description: '', whatsapp: '', duration: 7, mediaUrl: '' });
+          setEditingAdId(null);
+          toast.success("Abrindo Mercado Pago...");
+          const w = window.open(data.init_point, '_blank');
+          if (!w) {
+             window.location.href = data.init_point;
+          }
           return; // Para o fluxo aqui pois vai redirecionar
         } else {
           toast.error(data.error || "Erro ao gerar link de pagamento.");

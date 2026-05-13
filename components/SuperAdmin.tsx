@@ -151,6 +151,8 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
 
   const [adToApprove, setAdToApprove] = useState<Ad | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isRejecting, setIsRejecting] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<GlobalCompany | null>(null);
   const [warningMessage, setWarningMessage] = useState('');
   
@@ -492,43 +494,90 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       expiresAt.setDate(expiresAt.getDate() + days);
       const isoDate = expiresAt.toISOString();
 
-      // 1. Atualiza o Anúncio
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      // Vamos usar a API do servidor para centralizar a segurança e lógica
+      const response = await fetch('/api/admin/ads/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adId: adToApprove.id,
+          token
+        })
+      });
+
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error("Resposta inválida do servidor (não é JSON). Verifique se o servidor foi reiniciado.");
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Falha na aprovação remota.");
+      }
+
+      // Agora atualizamos os campos de expiração que são locais
       const { error: adError } = await supabase.from('app_banners')
-        .update({ active: true, is_approved: true, expires_at: isoDate })
+        .update({ expires_at: isoDate })
         .eq('id', adToApprove.id);
       
       if (adError) throw adError;
 
-      // 2. SINCRONIZA STATUS NO USUÁRIO (CRÍTICO PARA EXIBIÇÃO NA ABA EMPRESAS)
-      // Atualiza o dono da empresa para ter o status de anunciante refletido
-      const { error: userError } = await supabase.from('users')
-        .update({ 
-          is_advertiser: true, 
-          advertiser_expires_at: isoDate 
-        })
+      // 2. SINCRONIZA STATUS NO USUÁRIO
+      await supabase.from('users')
+        .update({ is_advertiser: true, advertiser_expires_at: isoDate })
         .eq('workspace_id', adToApprove.workspaceId)
         .eq('role', 'OWNER');
 
-      if (userError) console.error("Falha ao sincronizar user status:", userError);
-
-      // 3. Atualiza estado local de Anúncios
-      setAllAds(prev => prev.map(a => a.id === adToApprove.id ? { ...a, active: true, expiresAt: isoDate } : a));
-      
-      // 4. Atualiza estado local de Empresas (para acender o botão verde imediatamente)
-      setCompanies(prev => prev.map(c => {
-        if (c.workspaceId === adToApprove.workspaceId) {
-          return {
-            ...c,
-            isAdvertiser: true,
-            advertiserExpiresAt: isoDate
-          };
-        }
-        return c;
-      }));
-
+      setAllAds(prev => prev.map(a => a.id === adToApprove.id ? { ...a, active: true, isApproved: true, paymentStatus: 'PAID', expiresAt: isoDate } : a));
+      toast.success("Anúncio aprovado com sucesso!");
       setAdToApprove(null);
-    } catch (e) { toast.error("Erro ao aprovar anúncio."); }
-    finally { setIsSaving(false); }
+    } catch (e: any) { 
+        toast.error("Erro ao aprovar: " + (e.message || "Tente novamente")); 
+    } finally { setIsSaving(false); }
+  };
+
+  const handleRejectAd = async () => {
+    if (!adToApprove) return;
+    setIsRejecting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      const response = await fetch('/api/admin/ads/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adId: adToApprove.id,
+          reason: rejectionReason,
+          token
+        })
+      });
+
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error("Resposta inválida do servidor (não é JSON). Verifique se o servidor foi reiniciado.");
+      }
+
+      if (!response.ok || data.success === false) {
+         throw new Error(data.error || "Falha no estorno.");
+      }
+
+      setAllAds(prev => prev.map(a => a.id === adToApprove.id ? { ...a, paymentStatus: 'REFUNDED', isApproved: false, active: false } : a));
+      toast.success("Anúncio recusado e estorno solicitado!");
+      setAdToApprove(null);
+      setRejectionReason('');
+    } catch (e: any) {
+      toast.error("Erro ao estornar: " + e.message);
+    } finally {
+      setIsRejecting(false);
+    }
   };
 
   const handleSendPin = (req: GlobalPinRequest) => {
@@ -683,8 +732,18 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
     
     setIsSaving(true);
     try {
-      const { error } = await supabase.rpc('hard_delete_workspace', { p_workspace_id: companyToDelete.workspaceId });
-      if (error) throw error;
+      const response = await fetch('/api/admin/hard-delete-workspace', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+           workspaceId: companyToDelete.workspaceId,
+           token: (await supabase.auth.getSession()).data.session?.access_token
+        })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Falha ao deletar via servidor');
       
       setCompanies(prev => prev.filter(c => c.workspaceId !== companyToDelete.workspaceId));
       if (selectedCompany?.workspaceId === companyToDelete.workspaceId) {
@@ -1004,24 +1063,32 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                 {allAds.filter(ad => {
                   const isPaid = ad.paymentStatus === 'PAID';
                   const isExpired = ad.expiresAt && new Date(ad.expiresAt).getTime() < timeTick;
-                  // Mostra: Pagos pendentes, Ativos atuais, ou Aprovados não expirados
-                  return (isPaid && !ad.isApproved) || (ad.active && !isExpired) || (ad.isApproved && !isExpired);
+                  // Mostra: Pendentes de aprovação (todos), Ativos atuais, ou Aprovados não expirados
+                  return !ad.isApproved || (ad.active && !isExpired) || (ad.isApproved && !isExpired);
                 }).sort((a,b) => {
-                  if (a.paymentStatus === 'PAID' && !a.isApproved) return -1;
-                  if (b.paymentStatus === 'PAID' && !b.isApproved) return 1;
-                  return 0;
+                   // Prioridade para os que aguardam aprovação
+                   if (!a.isApproved && b.isApproved) return -1;
+                   if (a.isApproved && !b.isApproved) return 1;
+                   if (a.paymentStatus === 'PAID' && b.paymentStatus !== 'PAID') return -1;
+                   if (a.paymentStatus !== 'PAID' && b.paymentStatus === 'PAID') return 1;
+                   return 0;
                 }).map(ad => {
                   const isActive = ad.active && ad.expiresAt && new Date(ad.expiresAt).getTime() > timeTick;
-                  const isPendingApproval = ad.paymentStatus === 'PAID' && !ad.isApproved;
+                  const needsApproval = !ad.isApproved;
+                  const isPaid = ad.paymentStatus === 'PAID';
                   
                   return (
-                    <div key={ad.id} className={`bg-white p-6 rounded-[2.5rem] border-2 flex items-center justify-between ${isPendingApproval ? 'border-amber-500 bg-amber-50/20' : 'border-slate-50'}`}>
+                    <div key={ad.id} className={`bg-white p-6 rounded-[2.5rem] border-2 flex items-center justify-between ${needsApproval ? 'border-amber-500 bg-amber-50/20' : 'border-slate-50'}`}>
                        <div className="flex items-center gap-4">
                           <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden flex items-center justify-center">{ad.mediaUrl ? <img src={ad.mediaUrl} className="w-full h-full object-cover" /> : <ImageIcon className="text-slate-300" />}</div>
                           <div className="space-y-1">
                              <div className="flex items-center gap-2">
                                 <h4 className="font-black text-slate-800 text-sm uppercase">{ad.title}</h4>
-                                {isPendingApproval && <span className="bg-amber-500 text-slate-950 text-[7px] font-black px-2 py-0.5 rounded-full animate-pulse">PAGO / AGUARDANDO APROVAÇÃO</span>}
+                                {needsApproval && (
+                                  <span className={`text-[7px] font-black px-2 py-0.5 rounded-full animate-pulse ${isPaid ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-slate-950'}`}>
+                                    {isPaid ? 'PAGO / AGUARDANDO' : 'GRÁTIS / AGUARDANDO'}
+                                  </span>
+                                )}
                                 {!isActive && ad.isApproved && <span className="bg-rose-100 text-rose-600 text-[7px] font-black px-2 py-0.5 rounded-full">EXPIRADO</span>}
                              </div>
                              <p className="text-[9px] font-bold text-slate-400 uppercase">Empresa: {ad.ownerName}</p>
@@ -1030,7 +1097,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                           </div>
                        </div>
                        <div className="flex gap-2">
-                          <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : isPendingApproval ? 'bg-amber-500 text-slate-950 animate-bounce' : 'bg-orange-500 text-white'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
+                          <button onClick={() => { setApprovalDays(ad.requestedDuration || 7); setAdToApprove(ad); }} className={`p-4 rounded-2xl shadow-lg transition-all ${isActive ? 'bg-emerald-600 text-white' : needsApproval ? 'bg-amber-500 text-slate-950 animate-bounce' : 'bg-orange-500 text-white'}`}>{isActive ? <CheckCircle2 size={20} /> : <Zap size={20} />}</button>
                           <button 
                             onClick={() => {
                               setConfirmSuperAdminAction({
@@ -1050,7 +1117,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                     </div>
                   );
                 })}
-                {allAds.filter(ad => ad.paymentStatus === 'PAID' || ad.active || ad.isApproved).length === 0 && (
+                {allAds.length === 0 && (
                    <div className="py-20 text-center bg-white rounded-[3rem] border border-slate-100">
                       <p className="text-[10px] font-black text-slate-300 uppercase">Nenhum anúncio pago ou ativo para gerenciar</p>
                    </div>
@@ -1304,13 +1371,43 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       {(adToApprove || planToApprove) && (
         <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
            <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl overflow-hidden">
-              <header className="flex justify-between items-center mb-8"><div><h3 className="text-xl font-black text-slate-800 uppercase">{adToApprove ? 'Ativar Ad' : 'Ativar Plano'}</h3><p className="text-[9px] font-black text-blue-600 uppercase mt-1">Selecione a Duração</p></div><button onClick={() => { setAdToApprove(null); setPlanToApprove(null); }}><X size={24} className="text-slate-400" /></button></header>
-              <div className="grid grid-cols-2 gap-3 mb-8">
+              <header className="flex justify-between items-center mb-8"><div><h3 className="text-xl font-black text-slate-800 uppercase">{adToApprove ? 'Ativar Ad' : 'Ativar Plano'}</h3><p className="text-[9px] font-black text-blue-600 uppercase mt-1">Selecione a Duração</p></div><button onClick={() => { setAdToApprove(null); setPlanToApprove(null); setRejectionReason(''); }}><X size={24} className="text-slate-400" /></button></header>
+              
+              <div className="grid grid-cols-2 gap-3 mb-6">
                  {[1, 7, 15, 30].map(days => (
                    <button key={days} onClick={() => setApprovalDays(days)} className={`p-5 rounded-2xl border-2 font-black transition-all ${approvalDays === days ? 'bg-amber-500 border-amber-600 text-slate-950 shadow-lg scale-105' : 'bg-slate-50 border-slate-100 text-slate-400'}`}><span className="text-lg">{days}</span><span className="text-[8px] uppercase tracking-widest ml-1">{days === 1 ? 'Dia' : 'Dias'}</span></button>
                  ))}
               </div>
-              <button onClick={adToApprove ? handleApproveAd : handleApprovePlan} disabled={isSaving} className="w-full py-5 bg-emerald-600 text-white rounded-[1.8rem] font-black uppercase text-xs shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">{isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Efetivar Ativação</button>
+
+              <div className="space-y-3">
+                <button 
+                  onClick={adToApprove ? handleApproveAd : handleApprovePlan} 
+                  disabled={isSaving || isRejecting} 
+                  className="w-full py-5 bg-emerald-600 text-white rounded-[1.8rem] font-black uppercase text-xs shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all"
+                >
+                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Efetivar Ativação
+                </button>
+
+                {adToApprove && (
+                  <div className="pt-4 border-t border-slate-100 mt-4 space-y-3">
+                    <p className="text-[9px] font-black text-rose-500 uppercase ml-2">Zona de Recusa e Estorno</p>
+                    <textarea 
+                       placeholder="Motivo da recusa (para o lojista)..."
+                       value={rejectionReason}
+                       onChange={e => setRejectionReason(e.target.value)}
+                       className="w-full p-4 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-medium text-slate-700 outline-none focus:border-rose-300 min-h-[60px]"
+                    />
+                    <button 
+                      onClick={handleRejectAd} 
+                      disabled={isSaving || isRejecting} 
+                      className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
+                    >
+                      {isRejecting ? <Loader2 className="animate-spin" size={14} /> : <XCircle size={14} />} 
+                      Recusar e Estornar no MP
+                    </button>
+                  </div>
+                )}
+              </div>
            </div>
         </div>
       )}

@@ -21,36 +21,92 @@ interface SystemTabProps {
   archiveYear: (wid: string, year: number) => Promise<number>;
   workspaceId: string;
   onUnlockGodMode?: () => void;
+  sections?: import('../../types').AppSection[];
+  saveConfig?: (sections: import('../../types').AppSection[]) => Promise<boolean>;
 }
 
 export const SystemTab: React.FC<SystemTabProps> = ({
   transactions, sysPeriod, setSysPeriod, sysScope, setSysScope,
   customDateStart, setCustomDateStart, customDateEnd, setCustomDateEnd,
-  clearTransactions, archiveYear, workspaceId, onUnlockGodMode
+  clearTransactions, archiveYear, workspaceId, onUnlockGodMode,
+  sections = [], saveConfig
 }) => {
   const [soundModeSales, setSoundModeSales] = useState(() => localStorage.getItem('appInfoSoundModeSales') || 'CAIXA');
   const [soundModeOrders, setSoundModeOrders] = useState(() => localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO');
   const [rootClicks, setRootClicks] = useState(0);
 
+  useEffect(() => {
+    const sysSection = sections.find(s => s.type === 'SYSTEM_SETTINGS');
+    if (sysSection && sysSection.items && sysSection.items.length > 0) {
+      const config = sysSection.items[0] as any;
+      if (config.soundModeSales && config.soundModeSales !== soundModeSales) {
+        setSoundModeSales(config.soundModeSales);
+      }
+      if (config.soundModeOrders && config.soundModeOrders !== soundModeOrders) {
+        setSoundModeOrders(config.soundModeOrders);
+      }
+    }
+  }, [sections]);
+
+  const syncGlobalAudio = async (updates: Record<string, string>) => {
+    if (!saveConfig) return;
+    const existingSection = sections.find(s => s.type === 'SYSTEM_SETTINGS');
+    let items = existingSection ? [...existingSection.items] : [];
+    
+    // We'll just put it all in one ConfigItem at index 0
+    let configObj = items[0] ? { ...items[0] } : { id: 'sys_audio', name: 'audio' } as any;
+    
+    Object.entries(updates).forEach(([key, value]) => {
+      configObj[key] = value;
+    });
+    
+    items[0] = configObj;
+
+    const newSection: import('../../types').AppSection = existingSection ? { ...existingSection, items } : {
+      id: 'sys_settings_' + Date.now().toString(),
+      workspaceId,
+      name: 'System Settings',
+      type: 'SYSTEM_SETTINGS',
+      order: 999,
+      items,
+      expenses: [],
+      globalStockMode: 'GLOBAL'
+    };
+
+    const newSections = sections.filter(s => s.type !== 'SYSTEM_SETTINGS');
+    newSections.push(newSection);
+    
+    await saveConfig(newSections);
+  };
+
   const handleSoundChangeSales = (mode: string) => {
     setSoundModeSales(mode);
     localStorage.setItem('appInfoSoundModeSales', mode);
+    syncGlobalAudio({ soundModeSales: mode });
     playSystemSound(mode);
   };
 
   const handleSoundChangeOrders = (mode: string) => {
     setSoundModeOrders(mode);
     localStorage.setItem('appInfoSoundModeOrders', mode);
+    syncGlobalAudio({ soundModeOrders: mode });
     playSystemSound(mode);
   };
   
   const handleGaleriaUploadSales = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+         setToastMessage('O arquivo de som deve ter no máximo 2MB.');
+         setTimeout(() => setToastMessage(null), 3000);
+         return;
+      }
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
         localStorage.setItem('customSoundSales', base64);
+        syncGlobalAudio({ customSoundSales: base64, soundModeSales: 'GALERIA' });
+        setSoundModeSales('GALERIA');
         setToastMessage('Som da galeria (Vendas) salvo!');
         setTimeout(() => setToastMessage(null), 3000);
         playSystemSound('GALERIA');
@@ -62,10 +118,17 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   const handleGaleriaUploadOrders = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+         setToastMessage('O arquivo de som deve ter no máximo 2MB.');
+         setTimeout(() => setToastMessage(null), 3000);
+         return;
+      }
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
         localStorage.setItem('customSoundOrders', base64);
+        syncGlobalAudio({ customSoundOrders: base64, soundModeOrders: 'GALERIA_PEDIDOS' });
+        setSoundModeOrders('GALERIA_PEDIDOS');
         setToastMessage('Som da galeria (Pedidos) salvo!');
         setTimeout(() => setToastMessage(null), 3000);
         // Using GALERIA_PEDIDOS custom mode

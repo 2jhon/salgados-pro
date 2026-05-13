@@ -199,6 +199,16 @@ export const useAppConfig = () => {
         const finalMapped = mapped.filter(s => s.type !== 'ARCHIVE_SUMMARY');
         const archiveList = mapped.filter(s => s.type === 'ARCHIVE_SUMMARY');
         
+        // Sync global settings to local storage across devices
+        const systemSettings = finalMapped.find(s => s.type === 'SYSTEM_SETTINGS');
+        if (systemSettings && systemSettings.items && systemSettings.items.length > 0) {
+           const sysConfig = systemSettings.items[0] as any;
+           if (sysConfig.soundModeSales) localStorage.setItem('appInfoSoundModeSales', sysConfig.soundModeSales);
+           if (sysConfig.soundModeOrders) localStorage.setItem('appInfoSoundModeOrders', sysConfig.soundModeOrders);
+           if (sysConfig.customSoundSales) localStorage.setItem('customSoundSales', sysConfig.customSoundSales);
+           if (sysConfig.customSoundOrders) localStorage.setItem('customSoundOrders', sysConfig.customSoundOrders);
+        }
+        
         // Log para auditoria de dados
         const totalItems = finalMapped.reduce((acc, s) => acc + s.items.length, 0);
         nexusReport(`Configuração carregada: ${finalMapped.length} abas, ${totalItems} produtos encontrados.`, 'DONE', 'NETWORK', taskId);
@@ -313,6 +323,14 @@ export const useAppConfig = () => {
         async (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const updated = mapSection(payload.new);
+            
+            if (updated.type === 'SYSTEM_SETTINGS' && updated.items && updated.items.length > 0) {
+               const sysConfig = updated.items[0] as any;
+               if (sysConfig.soundModeSales) localStorage.setItem('appInfoSoundModeSales', sysConfig.soundModeSales);
+               if (sysConfig.soundModeOrders) localStorage.setItem('appInfoSoundModeOrders', sysConfig.soundModeOrders);
+               if (sysConfig.customSoundSales) localStorage.setItem('customSoundSales', sysConfig.customSoundSales);
+               if (sysConfig.customSoundOrders) localStorage.setItem('customSoundOrders', sysConfig.customSoundOrders);
+            }
             
             setSections(prev => {
               const others = prev.filter(s => String(s.id) !== String(updated.id));
