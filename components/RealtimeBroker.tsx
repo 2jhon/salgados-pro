@@ -19,7 +19,7 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
   onNewTransaction, 
   onTransactionUpdate,
   onNewNote,
-  enabledSounds = true, // We still use this to disable entirely if needed
+  enabledSounds = true,
   currentUserName
 }) => {
   const onNewTransactionRef = useRef(onNewTransaction);
@@ -43,6 +43,39 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
     playSoundFromCategory(category);
   };
 
+  const showSystemNotification = async (title: string, body: string) => {
+    if (!('Notification' in window)) return;
+    
+    try {
+      if (Notification.permission === 'granted') {
+        const icon = '/icon-192x192.png';
+        if ('serviceWorker' in navigator) {
+          const registration = await navigator.serviceWorker.ready;
+          await registration.showNotification(title, {
+            body,
+            icon,
+            badge: icon,
+            vibrate: [200, 100, 200]
+          });
+        } else {
+          new Notification(title, { body, icon });
+        }
+      } else if (Notification.permission === 'default') {
+        // Tenta solicitar permissão (browsers podem bloquear se não houver interação)
+        Notification.requestPermission();
+      }
+    } catch (e) {
+      console.warn("System Notification error:", e);
+    }
+  };
+
+  useEffect(() => {
+    // Solicita permissão inicial se estiver default
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(console.warn);
+    }
+  }, []);
+
   useEffect(() => {
     if (!workspaceId) return;
 
@@ -50,7 +83,6 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
 
     const channel = supabase
       .channel(`global_realtime_${workspaceId}`)
-      // Monitora Notas (Pedidos/Alertas)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notes', filter: `workspace_id=eq.${workspaceId}` },
@@ -59,11 +91,11 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           
           const note = payload.new;
           
-          // Play different sound based on note type
-          // Apenas tocar som para PEDIDOS (MONEY) para evitar encavalar com o som de vendas!
           if (note.type === 'MONEY') {
             playNotificationSound('ORDERS');
           }
+          
+          showSystemNotification('Nova Notificação', note.content);
           
           toast.info(
             <div className="flex items-center gap-3">
@@ -81,7 +113,6 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           if (onNewNoteRef.current) onNewNoteRef.current(note);
         }
       )
-      // Monitora Transações (Vendas/Gastos)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'transactions', filter: `workspace_id=eq.${workspaceId}` },
@@ -89,14 +120,16 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           console.log('[RealtimeBroker] Nova Transação:', payload.new);
           
           const tx = payload.new;
-
-          // Se a transação foi criada pelo próprio usuário nesta sessão/dispositivo, não toca som nem exibe toast
           const isSelfMade = currentUserName && tx.created_by && (String(tx.created_by).trim() === String(currentUserName).trim());
           
           if (!isSelfMade) {
             playNotificationSound('SALES');
             
             const isVenda = tx.sub_category === 'VENDAS' || tx.sub_category === 'A_RECEBER';
+            const title = isVenda ? 'Novo Pedido / Venda' : 'Novo Lançamento';
+            const body = `${tx.item} - R$ ${Number(tx.value).toFixed(2)}`;
+            
+            showSystemNotification(title, body);
             
             toast.success(
               <div className="flex items-center gap-3">
@@ -105,10 +138,10 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
                 </div>
                 <div>
                   <p className="font-bold text-xs uppercase tracking-tight">
-                    {isVenda ? 'Novo Pedido / Venda' : 'Novo Lançamento'}
+                    {title}
                   </p>
                   <p className="text-[10px] text-slate-500">
-                    {tx.item} - R$ {Number(tx.value).toFixed(2)}
+                    {body}
                   </p>
                 </div>
               </div>,
@@ -128,16 +161,20 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
           const tx = payload.new;
           const oldTx = payload.old;
 
-          // Notify about payment if it was pending and now it's not (paid via MP)
           if (oldTx && oldTx.is_pending === true && tx.is_pending === false) {
+             const title = 'Nota Paga';
+             const body = tx.customer_name ? `Pagamento recebido de ${tx.customer_name}` : 'A sua nota foi quitada via MP';
+             
+             showSystemNotification(title, body);
+             
              toast.success(
                <div className="flex items-center gap-3">
                  <div className="bg-emerald-100 p-2 rounded-lg">
                    <ShoppingBag className="text-emerald-600" size={18} />
                  </div>
                  <div>
-                   <p className="font-bold text-xs uppercase tracking-tight">Nota Paga</p>
-                   <p className="text-[10px] text-slate-500 line-clamp-1">{tx.customer_name ? `Pagamento recebido de ${tx.customer_name}` : 'A sua nota foi quitada via MP'}</p>
+                   <p className="font-bold text-xs uppercase tracking-tight">{title}</p>
+                   <p className="text-[10px] text-slate-500 line-clamp-1">{body}</p>
                  </div>
                </div>,
                { duration: 6000 }
@@ -154,7 +191,7 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
       console.log('[RealtimeBroker] Encerrando canais...');
       supabase.removeChannel(channel);
     };
-  }, [workspaceId, enabledSounds]);
+  }, [workspaceId, enabledSounds, currentUserName]);
 
-  return null; // Componente "invisível"
+  return null;
 };

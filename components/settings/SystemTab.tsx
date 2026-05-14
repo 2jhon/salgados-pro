@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Database, Trash2, Calendar, Clock, AlertTriangle, FileText, ArrowRight, Printer, Bluetooth, Download, Archive, Music, CheckCircle2, Folder, UploadCloud } from 'lucide-react';
+import { Database, Trash2, Calendar, Clock, AlertTriangle, FileText, ArrowRight, Printer, Bluetooth, Download, Archive, Music, CheckCircle2, Folder, UploadCloud, Bell } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Transaction } from '../../types';
@@ -346,6 +346,44 @@ export const SystemTab: React.FC<SystemTabProps> = ({
           }`}
         >
           <Bluetooth size={16} /> {printerConnected ? 'IMPRESSORA CONECTADA' : 'CONECTAR IMPRESSORA'}
+        </button>
+      </div>
+
+      {/* NOTIFICAÇÕES NATIVAS (PUSH) */}
+      <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm flex flex-col">
+        <div className="flex items-center gap-3 mb-6">
+          <Bell className="text-slate-500 w-6 h-6" />
+          <h4 className="font-black text-slate-800 uppercase tracking-tight text-lg">NOTIFICAÇÕES DO DISPOSITIVO</h4>
+        </div>
+        <p className="text-xs text-slate-500 font-medium mb-6 leading-relaxed">
+          Receba notificações na tela do celular ou PC mesmo quando o aplicativo não estiver ativamente em uso.
+        </p>
+
+        <button 
+          onClick={() => {
+            if ('Notification' in window) {
+              Notification.requestPermission().then(permission => {
+                if (permission === 'granted') {
+                  showToast('Notificações ativadas com sucesso!');
+                  if ('serviceWorker' in navigator) {
+                     navigator.serviceWorker.ready.then(reg => {
+                        reg.showNotification('Salgados PRO', { body: 'Notificações ativadas!', icon: '/icon-192x192.png' });
+                     });
+                  } else {
+                     new Notification('Salgados PRO', { body: 'Notificações ativadas!' });
+                  }
+                } else {
+                  showToast('Permissão de notificação negada pelas configurações do dispositivo.');
+                }
+              });
+            } else {
+              showToast('Seu dispositivo não suporta notificações nativas.');
+            }
+          }}
+          className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2"
+        >
+          <Bell size={18} />
+          ATIVAR NOTIFICAÇÕES NA TELA
         </button>
       </div>
 
