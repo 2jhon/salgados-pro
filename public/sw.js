@@ -1,15 +1,9 @@
 
-const CACHE_NAME = 'salgados-pro-v4';
+const CACHE_NAME = 'salgados-pro-v5';
 const ASSETS_TO_CACHE = [
   '/',
-  '/?pwa=true',
   '/index.html',
-  '/index.tsx',
-  '/manifest.json',
-  '/sw.js',
-  'https://cdn.tailwindcss.com',
-  'https://cdn-icons-png.flaticon.com/512/3081/3081967.png',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap'
+  '/manifest.json'
 ];
 
 // Instalação do Service Worker e Caching de Ativos Estáticos
@@ -40,59 +34,78 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Estratégia de Fetch: Stale-While-Revalidate para ativos estáticos e shell
+// Estratégia Definitiva de Fetch
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-
-  // Não interceptar chamadas da API do Supabase para escrita
-  if (url.hostname.includes('supabase.co') && (request.method !== 'GET')) {
-    return;
-  }
 
   // Ignorar extensões de browser e chamadas de hot reload do Vite
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.pathname.includes('@vite') || url.pathname.includes('chrome-extension')) return;
 
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request).then((networkResponse) => {
-        // Cache dinâmico para scripts, estilos e fontes de terceiros e locais
-        const isCacheable = (
-          networkResponse.status === 200 &&
-          (
-            request.destination === 'script' || 
-            request.destination === 'style' || 
-            request.destination === 'font' ||
-            request.destination === 'image' ||
-            url.hostname.includes('esm.sh') ||
-            url.hostname.includes('fonts.gstatic.com') ||
-            url.hostname.includes('cdn.tailwindcss.com') ||
-            url.origin === self.location.origin
-          )
-        );
+  // Supabase e chamadas de API nunca devem ser cacheadas
+  if (url.hostname.includes('supabase.co') || url.pathname.startsWith('/api/')) {
+    return;
+  }
 
-        if (isCacheable) {
+  // HTML / Navegação -> Network First, com Fallback para Cache offline
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((networkResponse) => {
           const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+          return networkResponse;
+        })
+        .catch(() => {
+          console.warn('[SW] Offline. Buscando shell no cache.');
+          return caches.match('/', { ignoreSearch: true }).then((cached) => {
+            return cached || caches.match('/index.html', { ignoreSearch: true });
           });
-        }
-        return networkResponse;
-      }).catch((err) => {
-        // Falha na rede (offline)
-        if (cachedResponse) return cachedResponse;
-        
-        // Fallback para navegação (index.html)
-        if (request.mode === 'navigate') {
-          return caches.match('/');
-        }
-        
-        throw err;
-      });
+        })
+    );
+    return;
+  }
 
-      // Retorna o cache se existir, senão espera a rede
-      return cachedResponse || fetchPromise;
+  // Ativos Estáticos -> Stale-While-Revalidate Forte
+  const isStaticAsset = 
+    request.destination === 'script' || 
+    request.destination === 'style' || 
+    request.destination === 'font' ||
+    request.destination === 'image' ||
+    url.hostname.includes('esm.sh') ||
+    url.hostname.includes('fonts.gstatic.com') ||
+    url.hostname.includes('fonts.googleapis.com') ||
+    url.hostname.includes('cdn.tailwindcss.com') ||
+    url.hostname.includes('cdn-icons-png') ||
+    url.origin === self.location.origin;
+
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
+        const fetchPromise = fetch(request).then((networkResponse) => {
+          // Permite caches opacos para suportar certos recursos cross-origin não-CORS
+          if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+          }
+          return networkResponse;
+        }).catch((err) => {
+          console.warn('[SW] Falha estática offline. Ignorando silenciosamente.', url.href);
+          throw err;
+        });
+
+        // Retorna Imediatamente se houver cache, sem esperar a rede
+        return cachedResponse || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // Fallback genérico Cache-First
+  event.respondWith(
+    caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
+      return cachedResponse || fetch(request);
     })
   );
 });
