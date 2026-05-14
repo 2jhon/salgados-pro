@@ -1371,7 +1371,7 @@ export const Factory: React.FC<FactoryProps> = ({
         </div>
       )}
       {activeTab === 'PRODUTOS' && (
-        <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} />
+        <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} isOwner={user?.role === 'OWNER'} />
       )}
       </div>
     </React.Fragment>

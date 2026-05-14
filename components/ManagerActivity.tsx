@@ -433,7 +433,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       </div>
 
       {mainTab === 'PRODUTOS' ? (
-        <ProductInsights transactions={transactions} title="Produtos & Estoque" />
+        <ProductInsights transactions={transactions} title="Produtos & Estoque" isOwner={true} />
       ) : (
       <>
         {/* Barra de Busca de Gerentes */}
