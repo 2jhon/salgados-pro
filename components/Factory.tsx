@@ -11,7 +11,7 @@ import {
   MoreVertical, Scissors, Edit3, Trash2, Square, CheckSquare,
   AlertTriangle, FileText, Printer, Calculator, Truck, Image as ImageIcon,
   ArrowUpCircle, ArrowDownCircle, ExternalLink, RefreshCw, Link as LinkIcon, Link2Off, Lock,
-  Phone, Bluetooth, MessageCircle, Share2, BarChart3
+  Phone, Bluetooth, MessageCircle, Share2, BarChart3, Gift, Plus
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
@@ -54,6 +54,8 @@ export const Factory: React.FC<FactoryProps> = ({
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [batchQuantities, setBatchQuantities] = useState<Record<string, string>>({});
+  const [batchBonusQuantities, setBatchBonusQuantities] = useState<Record<string, string>>({});
+  const [wasteModal, setWasteModal] = useState<{ show: boolean, item: ConfigItem | null, qty: string }>({ show: false, item: null, qty: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -96,6 +98,10 @@ export const Factory: React.FC<FactoryProps> = ({
 
   const handleQtyChange = (itemId: string, val: string) => {
     setBatchQuantities(prev => ({ ...prev, [itemId]: val }));
+  };
+
+  const handleBonusQtyChange = (itemId: string, val: string) => {
+    setBatchBonusQuantities(prev => ({ ...prev, [itemId]: val }));
   };
 
   const handleExpenseEntryChange = (name: string, field: 'value', val: string) => {
@@ -271,6 +277,45 @@ export const Factory: React.FC<FactoryProps> = ({
     }
   };
 
+  const confirmWaste = async () => {
+    if (!wasteModal.item || !wasteModal.qty) return;
+    const qtyNum = parseFloat(wasteModal.qty.replace(',', '.'));
+    if (!qtyNum || qtyNum <= 0) return;
+
+    setIsSaving(true);
+    try {
+      let success = true;
+      if (wasteModal.item.trackStock && sections.some(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL')) {
+         success = await updateStockAtomic(section.id, [{ id: wasteModal.item.id, quantity: -qtyNum }]);
+      }
+
+      if (success) {
+         const price = getEffectiveConfigPrice(wasteModal.item, 'A_VISTA');
+         const value = price * qtyNum;
+         
+         await addTransactions([{
+           workspaceId: section.workspaceId,
+           category: section.name,
+           subCategory: 'PERDA',
+           item: `${wasteModal.item.name} (-${qtyNum} un)`,
+           value: value, // We show the value of waste based on sale price
+           quantity: qtyNum,
+           createdBy: user.name,
+           customerPhone: ''
+         }]);
+         toast.success("Desperdício registrado com sucesso!");
+         setWasteModal({ show: false, item: null, qty: '' });
+      } else {
+         toast.error("Erro ao abater desperdício do estoque.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Ocorreu um erro ao registrar desperdício.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const productionTotal = useMemo(() => {
     return section.items.reduce((acc, item) => {
       const qtyStr = batchQuantities[item.id] || '0';
@@ -279,6 +324,12 @@ export const Factory: React.FC<FactoryProps> = ({
       return acc + (qty * price);
     }, 0);
   }, [batchQuantities, section.items, globalMethod]);
+
+  const hasItemsToProcess = useMemo(() => {
+    const hasRegular = Object.values(batchQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
+    const hasBonus = Object.values(batchBonusQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
+    return hasRegular || hasBonus;
+  }, [batchQuantities, batchBonusQuantities]);
 
   const expensesTotal = useMemo(() => {
      return Object.values(expenseEntries).reduce((acc: number, val: any) => acc + (parseFloat(String(val).replace(',', '.')) || 0), 0);
@@ -326,8 +377,16 @@ export const Factory: React.FC<FactoryProps> = ({
     // AVISO DE ESTOQUE NEGATIVO
     if (!forceNegativeStock) {
       const negativeItems: string[] = [];
+      
+      const totalQuantities: Record<string, number> = {};
       Object.entries(batchQuantities).forEach(([itemId, qtyStr]) => {
-        const qty = parseFloat(String(qtyStr).replace(',', '.'));
+         totalQuantities[itemId] = (totalQuantities[itemId] || 0) + (parseFloat(String(qtyStr).replace(',', '.')) || 0);
+      });
+      Object.entries(batchBonusQuantities).forEach(([itemId, qtyStr]) => {
+         totalQuantities[itemId] = (totalQuantities[itemId] || 0) + (parseFloat(String(qtyStr).replace(',', '.')) || 0);
+      });
+
+      Object.entries(totalQuantities).forEach(([itemId, qty]) => {
         if (qty > 0) {
           const item = section.items.find(i => i.id === itemId);
           if (item) {
@@ -427,6 +486,31 @@ export const Factory: React.FC<FactoryProps> = ({
         }
       });
 
+      Object.entries(batchBonusQuantities).forEach(([itemId, qtyStr]) => {
+        const qty = parseFloat(String(qtyStr).replace(',', '.'));
+        if (qty > 0) {
+          const item = section.items.find(i => i.id === itemId);
+          if (item) {
+            newTx.push({
+              workspaceId: section.workspaceId,
+              category: section.name,
+              subCategory: 'VENDAS',
+              item: `${item.name} (BRINDE)`,
+              value: 0,
+              quantity: qty,
+              paymentMethod: globalMethod,
+              customerName: finalCustomerName,
+              customerPhone: selectedCustomerPhone,
+              isPending: false,
+              createdBy: user.name,
+              unitPrice: 0
+            });
+            // We use the original item name so stock deduction works perfectly
+            soldItems.push({ name: item.name, qty });
+          }
+        }
+      });
+
       // 1. Vincular e descontar do estoque Central (Kardex) se configurado
       const stockUpdates: Record<string, { id: string, quantity: number }[]> = {};
       const isStrictlyLocal = sections.some(s => s.type === 'STOCK_STYLE' && s.globalStockMode === 'LOCAL');
@@ -515,6 +599,7 @@ export const Factory: React.FC<FactoryProps> = ({
         setSuccessModal({ show: true, total, items, customer: finalCustomerName });
         
         setBatchQuantities({});
+        setBatchBonusQuantities({});
         setCustomerName('');
         setNewCustomerPhone('');
         setIsUnregistered(false);
@@ -1093,6 +1178,8 @@ export const Factory: React.FC<FactoryProps> = ({
           </div>
           <div className="space-y-3">{filteredItems.map(item => {
                const qty = batchQuantities[item.id] || '';
+               const hasBonusInput = Object.prototype.hasOwnProperty.call(batchBonusQuantities, item.id);
+               const bonusQty = batchBonusQuantities[item.id] || '';
                const price = getEffectiveConfigPrice(item, globalMethod);
                const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
                const hasPromo = globalMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
@@ -1113,9 +1200,53 @@ export const Factory: React.FC<FactoryProps> = ({
                  ) : (
                    <p className="text-[10px] font-bold text-slate-400">Unit: {formatCurrency(price)}</p>
                  )}
-                 </div><div className="w-24"><input type="number" inputMode="decimal" value={qty} onChange={e => handleQtyChange(item.id, e.target.value)} placeholder="Qtd" className={`w-full p-3 rounded-xl font-black text-center outline-none transition-all ${qty ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-800 border-2 border-slate-200 focus:border-indigo-300 focus:bg-white'}`} /></div></div>);
+                 </div>
+                 <div className="w-24 space-y-1.5 flex flex-col items-end">
+                   <input type="number" inputMode="decimal" value={qty} onChange={e => handleQtyChange(item.id, e.target.value)} placeholder="Qtd" className={`w-full p-3 rounded-xl font-black text-center outline-none transition-all ${qty ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-800 border-2 border-slate-200 focus:border-indigo-300 focus:bg-white'}`} />
+                   <div className="flex items-center gap-1 w-full">
+                     {hasBonusInput ? (
+                        <div className="flex items-center gap-1 w-full flex-1">
+                          <input 
+                            type="number" 
+                            inputMode="decimal" 
+                            value={bonusQty} 
+                            onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
+                            placeholder="Brindes" 
+                            className="w-full p-1.5 rounded-lg font-black text-center text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 outline-none" 
+                          />
+                          <button 
+                            onClick={() => {
+                              setBatchBonusQuantities(prev => {
+                                const next = {...prev};
+                                delete next[item.id];
+                                return next;
+                              });
+                            }}
+                            className="p-1.5 shrink-0 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                     ) : (
+                        <button 
+                          onClick={() => handleBonusQtyChange(item.id, '1')}
+                          className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg font-black uppercase text-[8px] bg-emerald-100 text-emerald-700 hover:bg-emerald-200 active:scale-95 transition-all outline-none"
+                        >
+                          <Gift size={10} /> + BRINDE
+                        </button>
+                     )}
+                     
+                     <button 
+                        onClick={() => setWasteModal({ show: true, item, qty: '' })}
+                        className="p-1.5 shrink-0 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 active:scale-95 transition-all outline-none"
+                        title="Registrar Perda / Quebra"
+                     >
+                        <AlertTriangle size={12} />
+                     </button>
+                   </div>
+                 </div></div>);
             })}</div>
-          {productionTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
+          {hasItemsToProcess && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
         </>
       )}
 
@@ -1373,6 +1504,57 @@ export const Factory: React.FC<FactoryProps> = ({
       {activeTab === 'PRODUTOS' && (
         <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} isOwner={user?.role === 'OWNER'} />
       )}
+      
+      {wasteModal.show && wasteModal.item && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-sm flex flex-col max-h-[90vh]">
+             <div className="p-6 bg-orange-50 border-b border-orange-100 text-center">
+                <div className="w-16 h-16 bg-white shrink-0 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-sm">
+                   {wasteModal.item.imageUrl ? <img src={wasteModal.item.imageUrl} className="w-full h-full object-cover rounded-2xl" /> : <AlertTriangle className="w-8 h-8 text-orange-400" />}
+                </div>
+                <h3 className="font-black text-slate-800 text-lg uppercase leading-tight">Registrar Perda</h3>
+                <p className="text-orange-600 font-bold text-xs uppercase mt-1">Item: {wasteModal.item.name}</p>
+             </div>
+             <div className="p-6 space-y-4 overflow-y-auto">
+               <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-2">Qtd de Perda / Desperdício</label>
+                  <input 
+                     type="number" 
+                     inputMode="decimal"
+                     value={wasteModal.qty}
+                     onChange={e => setWasteModal(prev => ({ ...prev, qty: e.target.value }))}
+                     autoFocus
+                     className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-center text-lg text-slate-800 outline-none focus:border-orange-400 focus:bg-orange-50/50 transition-all"
+                  />
+               </div>
+               
+               <div className="bg-slate-50 p-4 rounded-xl flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Valor Estimado<br/><span className="text-[8px]">(Baseado no preço de venda)</span></span>
+                  <span className="font-black text-slate-800">
+                     {wasteModal.qty ? formatCurrency((parseFloat(wasteModal.qty.replace(',','.')) || 0) * getEffectiveConfigPrice(wasteModal.item, 'A_VISTA')) : 'R$ 0,00'}
+                  </span>
+               </div>
+             </div>
+             
+             <div className="p-4 bg-slate-50 border-t border-slate-100 grid grid-cols-2 gap-2 mt-auto">
+                <button 
+                   onClick={() => setWasteModal({ show: false, item: null, qty: '' })}
+                   className="py-4 bg-white border-2 border-slate-200 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-colors"
+                >
+                   Cancelar
+                </button>
+                <button 
+                   onClick={confirmWaste}
+                   disabled={isSaving || !wasteModal.qty || parseFloat(wasteModal.qty.replace(',', '.')) <= 0}
+                   className="py-4 bg-orange-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-orange-600 disabled:opacity-50 transition-all flex items-center justify-center"
+                >
+                   {isSaving ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Confirmar Perda'}
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+      
       </div>
     </React.Fragment>
   );
