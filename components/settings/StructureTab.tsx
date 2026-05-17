@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Layout, Edit3, Trash2, Package, Store, Factory, Loader2 } from 'lucide-react';
+import { Plus, Layout, Edit3, Trash2, Package, Store, Factory, Loader2, MoveUp, MoveDown } from 'lucide-react';
 import { AppSection } from '../../types';
 
 interface StructureTabProps {
@@ -8,10 +8,11 @@ interface StructureTabProps {
   setShowSectionModal: (show: boolean) => void;
   setEditingSection: (section: AppSection) => void;
   deleteSection: (id: string) => Promise<void>;
+  moveSection: (id: string, direction: 'up' | 'down') => Promise<boolean>;
 }
 
 export const StructureTab: React.FC<StructureTabProps> = ({ 
-  sections, setShowSectionModal, setEditingSection, deleteSection 
+  sections, setShowSectionModal, setEditingSection, deleteSection, moveSection
 }) => {
   const [confirmDeleteSectionId, setConfirmDeleteSectionId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -63,6 +64,22 @@ export const StructureTab: React.FC<StructureTabProps> = ({
             </div>
             
             <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                <div className="flex flex-col gap-1 mr-2">
+                  <button 
+                    onClick={() => moveSection(section.id, 'up')}
+                    className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all border border-emerald-200 shadow-sm"
+                    title="Mover para Cima"
+                  >
+                    <MoveUp size={16} strokeWidth={3} />
+                  </button>
+                  <button 
+                    onClick={() => moveSection(section.id, 'down')}
+                    className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all border border-rose-200 shadow-sm"
+                    title="Mover para Baixo"
+                  >
+                    <MoveDown size={16} strokeWidth={3} />
+                  </button>
+                </div>
                <button 
                  onClick={() => setEditingSection(section)}
                  className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-transparent hover:border-indigo-100"

@@ -449,27 +449,48 @@ export const useAppConfig = () => {
 
   const saveConfig = useCallback(async (input: AppSection[] | ((prev: AppSection[]) => AppSection[])): Promise<boolean> => {
     let newSections: AppSection[];
+    
     if (typeof input === 'function') {
-      let resolved: AppSection[] = [];
+      let finalSections: AppSection[] = [];
       setSections(prev => {
-        resolved = input(prev);
-        return resolved;
+        finalSections = input(prev);
+        return finalSections;
       });
-      newSections = resolved;
+      // In React, the local variable finalSections might not be updated yet if setSections is async.
+      // However, for immediate persistence, we need the result.
+      // We'll calculate it once here for the state and again for the persistence if needed, 
+      // but better yet, we can use the state update to trigger persistence via useEffect or just do it here.
+      
+      // Let's get the current state and apply the function manually for the persistence part
+      setSections(prev => {
+        const next = input(prev);
+        newSections = next; // Capture for the payload below
+        return next;
+      });
+      
+      // We need to wait for the next tick or just use the functional update result.
+      // To be safe, we'll recreate the logic to get the new sections for the payload.
+      // We can't easily do that without knowing what 'input' does.
+      
+      // REFACTORED: We'll calculate newSections first, then update both state and persistence.
+      const resolvedSections = typeof input === 'function' ? (input as any)(sections) : input;
+      newSections = resolvedSections;
+      setSections(newSections);
     } else {
       newSections = input;
       setSections(newSections);
     }
 
-    if (newSections.length === 0 && sections.length > 0) return true;
+    if (!newSections || (newSections.length === 0 && sections.length > 0)) {
+      console.warn("SaveConfig: Tentativa de salvar array vazio ou inválido ignorada.");
+      return true;
+    }
 
     const taskId = 'SAVE_CONFIG';
     nexusReport("Sincronizando novas abas com o servidor...", 'START', 'NETWORK', taskId);
     
     try {
       const payload = newSections.map(s => {
-        // Construct Metadata Item to store extended config inside JSON
-        // This avoids "Column not found" 400 errors for non-standard columns
         const metadataItem = {
             id: 'SECTION_METADATA',
             openingHours: s.openingHours || null,
@@ -481,10 +502,9 @@ export const useAppConfig = () => {
             fulfillmentMode: s.fulfillmentMode || 'PICKUP'
         };
 
-        // Inject metadata into items array
         const itemsWithMetadata = [...(s.items || []), metadataItem];
 
-        const base = {
+        return {
           id: s.id,
           workspace_id: s.workspaceId,
           name: s.name,
@@ -499,12 +519,10 @@ export const useAppConfig = () => {
           longitude: s.longitude || null,
           last_sync: new Date().toISOString()
         };
-
-        return base;
       });
 
       await withRetry(async () => {
-        const { error } = await supabase.from('app_config').upsert(payload);
+        const { error } = await supabase.from('app_config').upsert(payload, { onConflict: 'id' });
         if (error) throw error;
       });
 
@@ -518,7 +536,23 @@ export const useAppConfig = () => {
       toast.error("Erro ao salvar configuração.");
       return false;
     }
-  }, [sections]);
+  }, [sections, nexusReport]);
+
+  const moveSection = useCallback(async (sectionId: string, direction: 'up' | 'down'): Promise<boolean> => {
+    const sorted = [...sections].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const idx = sorted.findIndex(s => s.id === sectionId);
+    if (idx === -1 || (direction === 'up' && idx === 0) || (direction === 'down' && idx === sorted.length - 1)) return false;
+
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    const updated = [...sorted];
+    [updated[idx], updated[targetIdx]] = [updated[targetIdx], updated[idx]];
+    
+    const newSections = updated.map((s, i) => ({ ...s, order: i }));
+    
+    const res = await saveConfig(newSections);
+    if (res) toast.success(`Aba ${direction === 'up' ? 'subiu' : 'desceu'}!`);
+    return res;
+  }, [saveConfig, sections]);
 
   const deleteSection = useCallback(async (sectionId: string) => {
     const sectionToDelete = sections.find(s => String(s.id) === String(sectionId));
@@ -813,5 +847,5 @@ export const useAppConfig = () => {
     await syncOfflineStockQueue();
   }, [syncOfflineStockQueue]);
 
-  return { sections, archives, publicStalls, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem, loading, hasMorePublic, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls, fetchStallById };
+  return { sections, archives, publicStalls, saveConfig, moveSection, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem, loading, hasMorePublic, isSyncing, reconnect, fetchConfigByWorkspace, fetchPublicStalls, fetchStallById };
 };

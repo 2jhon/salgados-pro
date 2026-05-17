@@ -1,5 +1,5 @@
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import localforage from 'localforage';
 import { Transaction, PeriodTotals, AppSection, Note } from '../types';
 import { supabase, withRetry, withTimeout, safeStringifyError, isNetworkError } from '../lib/supabase';
@@ -110,8 +110,9 @@ export const useTransactions = (
     const cleanWid = String(wid).trim().toLowerCase();
     
     const now = Date.now();
-    // Paginação: Se for a página 0 e não for force, checar TTL
-    if (pageNum === 0 && !force && transactions.length > 0 && lastTxFetchTime[cleanWid] && (now - lastTxFetchTime[cleanWid] < TX_CACHE_TTL)) {
+    // Paginação: Se for a página 0 e não for force, checar TTL. 
+    // Nota: Usamos useRef ou closure para checar o estado atual sem depender dele na array de dependências do useCallback
+    if (pageNum === 0 && !force && lastTxFetchTime[cleanWid] && (now - lastTxFetchTime[cleanWid] < TX_CACHE_TTL)) {
       return;
     }
 
@@ -136,91 +137,56 @@ export const useTransactions = (
            if (pendingQuery) pendingQuery = pendingQuery.eq('workspace_id', cleanWid);
         }
 
-        const historyPromise = historyQuery;
-        const pendingPromise = pendingQuery 
-          ? pendingQuery.then(async res => {
-              if (res.error) {
-                console.warn("Pendings fetch error with boolean true:", res.error);
-                // Fallback to integer 1 if the column is numeric
-                let fallbackQuery = supabase.from('transactions').select('*').eq('is_pending', 1);
-                
-                if (user?.role === 'CUSTOMER' && user?.phone) {
-                   const cleanedPhone = normalizePhone(user.phone);
-                   fallbackQuery = fallbackQuery.eq('customer_phone', cleanedPhone);
-                } else {
-                   fallbackQuery = fallbackQuery.eq('workspace_id', cleanWid);
-                }
-                
-                const fallbackRes = await fallbackQuery;
-                if (fallbackRes.error) {
-                  console.warn("Pendings fetch error with integer 1:", fallbackRes.error);
-                  
-                  // Fallback 2: String 'true'
-                  let stringQuery = supabase.from('transactions').select('*').eq('is_pending', 'true');
-                  if (user?.role === 'CUSTOMER' && user?.phone) {
-                     stringQuery = stringQuery.eq('customer_phone', normalizePhone(user.phone));
-                  } else {
-                     stringQuery = stringQuery.eq('workspace_id', cleanWid);
-                  }
-                  
-                  const strRes = await stringQuery;
-                  if (strRes.error) {
-                     console.warn("Pendings fetch error with string 'true':", strRes.error);
-                     return { data: [], error: null };
-                  }
-                  return strRes;
-                }
-                return fallbackRes;
-              }
-              return res;
-            })
-          : Promise.resolve({ data: [], error: null });
-
-        const [historyRes, pendingRes] = await Promise.all([historyPromise, pendingPromise]);
+        const [historyRes, pendingRes] = await Promise.all([
+           historyQuery,
+           pendingQuery ? pendingQuery : Promise.resolve({ data: [], error: null })
+        ]);
 
         if (historyRes.error) throw historyRes.error;
-        // pendingRes error is already caught above
-
 
         const combined = [...(historyRes.data || []), ...(pendingRes.data || [])];
         
-        // Remove duplicatas 
-        const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
+        // Remove duplicatas usando ID
+        const uniqueMap = new Map();
+        combined.forEach(item => uniqueMap.set(String(item.id), item));
+        const unique = Array.from(uniqueMap.values());
         
         return { data: unique, length: historyRes.data?.length || 0 };
       });
       
       if (result) {
         if (pageNum === 0) lastTxFetchTime[cleanWid] = Date.now();
-        const mapped = result.data.map(mapTransaction);
+        const mapped = result.data.map(mapTransaction) as Transaction[];
         
         setHasMore(result.length === limit);
         setPage(pageNum);
 
         setTransactions(prev => {
+          const uniqueMap = new Map();
+          
           if (pageNum === 0) {
-            // No primeiro load, preservamos as externas (que vem de outro lugar) e as novas
-            const externalOnes = prev.filter(t => t.isExternal);
-            const combined = [...externalOnes, ...mapped];
-            const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
-            const sorted = unique.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            // Preservar externas e novas
+            prev.filter((t: any) => t.isExternal).forEach((t: any) => uniqueMap.set(t.id, t));
+            mapped.forEach((t: any) => uniqueMap.set(t.id, t));
+          } else {
+            // Anexar para paginação
+            prev.forEach((t: any) => uniqueMap.set(t.id, t));
+            mapped.forEach((t: any) => uniqueMap.set(t.id, t));
+          }
+          
+          const sorted = Array.from(uniqueMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          
+          if (pageNum === 0) {
             localforage.setItem(`cached_tx_${cleanWid}`, sorted.slice(0, 500)).catch(e => {
               console.warn('Failed to cache transactions:', e);
             });
-            return sorted;
-          } else {
-            // Paginação: anexa
-            const combined = [...prev, ...mapped];
-            const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
-            return unique.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           }
+          
+          return sorted;
         });
       }
     } catch (e: any) {
       console.error("Erro Fetch Transactions:", e);
-      if (e.message) {
-        console.warn("DB_FETCH_ERROR:", e.message);
-      }
       if (pageNum === 0) {
         try {
           const cached: any = await localforage.getItem(`cached_tx_${cleanWid}`);
@@ -233,7 +199,7 @@ export const useTransactions = (
       if (pageNum === 0) setLoading(false);
       isFetchingRef.current = false;
     }
-  }, [mapTransaction, transactions.length]);
+  }, [mapTransaction, user?.role, user?.phone]);
 
   const fetchNextTransactions = useCallback(async () => {
     if (!workspaceId || loading || !hasMore) return;
@@ -393,8 +359,24 @@ export const useTransactions = (
     
     // OPTIMISTIC UPDATE
     const dbId = Number(id) || id;
-    const txToDelete = transactions.find(t => t.id === id);
-    setTransactions(prev => prev.filter(t => t.id !== id));
+    
+    setTransactions(prev => {
+      const txToDelete = prev.find(t => t.id === id);
+      const filtered = prev.filter(t => t.id !== id);
+      
+      // Audit Log em background para não bloquear o render
+      if (addNote && txToDelete) {
+        addNote({
+          workspaceId: String(workspaceId),
+          createdById: 'system',
+          createdByName: 'Auditoria',
+          content: `Transação excluída por ${userName || 'Usuário'}: ${txToDelete.item} (R$ ${txToDelete.value.toFixed(2)})`,
+          type: 'LOG'
+        }).catch(err => console.warn('Failed to log deletion:', err));
+      }
+      
+      return filtered;
+    });
 
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
@@ -404,17 +386,6 @@ export const useTransactions = (
     try { 
       const { error } = await supabase.from('transactions').delete().eq('id', dbId);
       if (error) throw error;
-
-      // Audit Log
-      if (addNote && txToDelete) {
-        addNote({
-          workspaceId: String(workspaceId),
-          createdById: 'system',
-          createdByName: 'Auditoria',
-          content: `Transação excluída por ${userName || 'Usuário'}: ${txToDelete.item} (R$ ${txToDelete.value.toFixed(2)})`,
-          type: 'LOG'
-        });
-      }
     } catch (e: any) {
       if (!isSyncing && (isNetworkError(e) || !navigator.onLine)) {
         await addToOfflineQueue({ type: 'DELETE', payload: { id, userName } });
@@ -423,18 +394,23 @@ export const useTransactions = (
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       throw e;
     }
-  }, [addToOfflineQueue, workspaceId, transactions, addNote, fetchTransactionsByWorkspace]);
+  }, [addToOfflineQueue, workspaceId, addNote, fetchTransactionsByWorkspace]);
 
   const settleCustomerDebt = useCallback(async (customerName: string, transactionIds: string[], isSyncing = false) => {
     if (transactionIds.length === 0) return;
 
     // OPTIMISTIC UPDATE
-    const txsToSettle = transactions.filter(t => transactionIds.includes(t.id));
-    const totalPaid = txsToSettle.reduce((sum, t) => sum + t.value, 0);
+    setTransactions(prev => {
+      const txsToSettle = prev.filter(t => transactionIds.includes(t.id));
+      const totalPaid = txsToSettle.reduce((sum, t) => sum + t.value, 0);
 
-    setTransactions(prev => prev.map(t => 
-      transactionIds.includes(t.id) ? { ...t, isPending: false } : t
-    ));
+      // 2. Create a new transaction for the payment today (this reflects cash flow)
+      // Executamos a lógica de inserção síncrona aqui apenas para a UI, o DB é tratado abaixo
+      
+      return prev.map(t => 
+        transactionIds.includes(t.id) ? { ...t, isPending: false } : t
+      );
+    });
 
     if (!navigator.onLine && !isSyncing) {
       await addToOfflineQueue({ type: 'SETTLE_DEBT', payload: { customerName, transactionIds } });
@@ -444,6 +420,9 @@ export const useTransactions = (
     try {
       const dbIds = transactionIds.map(id => isNaN(Number(id)) ? id : Number(id));
       
+      // Obter os dados reais para o pagamento
+      const { data: txsToSettleData } = await supabase.from('transactions').select('*').in('id', dbIds);
+      
       // 1. Update old transactions to not pending and mark as consolidated to avoid double counting in BI
       const { error } = await supabase.from('transactions').update({ 
         is_pending: false,
@@ -452,12 +431,13 @@ export const useTransactions = (
       if (error) throw error;
 
       // 2. Create a new transaction for the payment today (this reflects cash flow)
-      if (totalPaid > 0 && txsToSettle.length > 0) {
-        const firstTx = txsToSettle[0];
-        const isExpense = txsToSettle.some(t => t.subCategory === 'GASTOS') || txsToSettle.some((t: any) => t.sub_category === 'GASTOS');
+      if (txsToSettleData && txsToSettleData.length > 0) {
+        const totalPaid = txsToSettleData.reduce((sum, t) => sum + (Number(t.value) || 0), 0);
+        const firstTx = txsToSettleData[0];
+        const isExpense = txsToSettleData.some(t => String(t.sub_category).toUpperCase() === 'GASTOS');
         
         const paymentPayload = {
-          workspace_id: String(firstTx.workspaceId).trim().toLowerCase(),
+          workspace_id: String(firstTx.workspace_id || workspaceId).trim().toLowerCase(),
           category: firstTx.category,
           sub_category: isExpense ? 'GASTOS' : 'VENDAS',
           item: isExpense ? `Pgto de Dívida: ${customerName}` : `Recebimento de Fiado: ${customerName}`,
@@ -466,7 +446,7 @@ export const useTransactions = (
           payment_method: 'A_VISTA',
           customer_name: customerName,
           is_pending: false,
-          created_by: firstTx.createdBy
+          created_by: firstTx.created_by || 'system'
         };
         await supabase.from('transactions').insert([paymentPayload]);
       }
@@ -481,7 +461,7 @@ export const useTransactions = (
       if (workspaceId) fetchTransactionsByWorkspace(workspaceId, true);
       throw e; 
     }
-  }, [addToOfflineQueue, transactions, workspaceId, fetchTransactionsByWorkspace]);
+  }, [addToOfflineQueue, workspaceId, fetchTransactionsByWorkspace]);
 
   const partialSettleTransaction = useCallback(async (originalTx: Transaction, amountPaid: number, targetSubCategory?: string, isSyncing = false) => {
     if (amountPaid <= 0 || amountPaid >= originalTx.value) return false;
@@ -783,5 +763,5 @@ export const useTransactions = (
     await syncOfflineQueue();
   }, [syncOfflineQueue]);
 
-  return { transactions, setTransactions, loading, hasMore, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, fetchNextTransactions, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear };
+  return React.useMemo(() => ({ transactions, setTransactions, loading, hasMore, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, fetchNextTransactions, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear }), [transactions, loading, hasMore, isOffline, isSyncing, reconnect, addTransactions, updateTransaction, deleteTransaction, calculateTotals, fetchTransactionsByWorkspace, fetchNextTransactions, settleCustomerDebt, partialSettleTransaction, clearTransactions, fetchUserGlobalDebts, archiveYear]);
 };

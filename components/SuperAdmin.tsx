@@ -139,7 +139,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
   const [pinRequests, setPinRequests] = useState<GlobalPinRequest[]>([]);
   const [allAds, setAllAds] = useState<Ad[]>([]);
-  const pendingAdsCount = useMemo(() => 
+  const pendingAdsCount = React.useMemo(() => 
     allAds.filter(ad => ad.paymentStatus === 'PAID' && !ad.isApproved && !ad.active).length, 
   [allAds]);
   const [reports, setReports] = useState<any[]>([]);

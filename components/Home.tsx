@@ -101,7 +101,7 @@ export const Home: React.FC<HomeProps> = ({
     return { label: 'Opção', icon: Info, color: 'bg-slate-800', desc: '' };
   }, [sections]);
 
-  const availableOptionsWithIcons = useMemo(() => {
+  const availableOptionsWithIcons = React.useMemo(() => {
     return availableOptions.map(opt => {
       let Icon: any = Info;
       if (opt.icon === 'ShoppingCart') Icon = ShoppingCart;

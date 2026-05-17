@@ -25,7 +25,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   
   const [expandedCard, setExpandedCard] = useState<'sales' | 'expenses' | null>(null);
 
-  const { stats, breakdowns } = useMemo(() => {
+  const { stats, breakdowns } = React.useMemo(() => {
     // Merge historical BI data with current real-time transactions to ensure latest data is always visible
     // Deduplicate by ID to avoid double counting, prioritizing real-time transactions list which is already mapped
     const seenIds = new Set();
@@ -100,7 +100,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
     };
   }, [transactions, financialInsights]);
 
-  const chartData = useMemo(() => {
+  const chartData = React.useMemo(() => {
     // Also merge for chart consistency, prioritizing transactions list
     const seenIds = new Set();
     const dataSource = [...(transactions || []), ...(financialInsights || [])].filter(t => {
@@ -146,7 +146,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   const [selectedArchiveYear, setSelectedArchiveYear] = useState<string | null>(null);
 
   // Unified archive tracker - combines legacy AppSections and new historical_summaries table
-  const unifiedArchives = useMemo(() => {
+  const unifiedArchives = React.useMemo(() => {
     const list: { year: string, data: { name: string, Vendas: number, Gastos: number }[] }[] = [];
     
     // 1. New DB Summaries (Preferred)
@@ -182,7 +182,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
     return list.sort((a, b) => Number(b.year) - Number(a.year));
   }, [historicalSummaries, archives]);
 
-  const archiveChartData = useMemo(() => {
+  const archiveChartData = React.useMemo(() => {
     if (unifiedArchives.length === 0) return null;
     
     const entry = selectedArchiveYear 
@@ -286,7 +286,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Vendas vs Gastos (7 Dias)</h3>
         </div>
         <div className="h-48 w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minHeight={192} minWidth={200}>
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} dy={10} />
@@ -323,7 +323,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
             )}
           </div>
           <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={192} minWidth={200}>
               <BarChart data={archiveChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} dy={10} />

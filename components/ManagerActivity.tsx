@@ -83,7 +83,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
   };
 
   // Agrupar transações por quem criou
-  const managerGroups = useMemo(() => {
+  const managerGroups = React.useMemo(() => {
     const groups: Record<string, Transaction[]> = {};
     transactions.forEach(t => {
       const rawAuthor = t.createdBy || 'Sistema/Admin';

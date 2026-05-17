@@ -176,7 +176,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
            {/* Ads List */}
            <div className="space-y-4">
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest px-2">Meus Anúncios ({filteredAds.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
                  {filteredAds.map(ad => (
                    <div key={ad.id} className="bg-white p-4 rounded-[2rem] border border-slate-100 flex items-center gap-4 group">
                       <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 shrink-0">
@@ -185,16 +185,25 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                       <div className="flex-1 min-w-0">
                          <h4 className="font-black text-slate-800 text-sm truncate uppercase tracking-tight">{ad.title}</h4>
                          <div className="flex items-center gap-2">
-                            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
-                               ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
-                               ad.paymentStatus === 'PAID' ? 'bg-amber-100 text-amber-600' :
-                               ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'
-                            }`}>
-                               {ad.isApproved ? 'Ativo' : 
-                                ad.paymentStatus === 'PAID' ? 'Em Análise (Pago)' :
-                                ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 
-                                ad.paymentStatus === 'REFUNDED' ? 'Recusado (Estornado)' : 'Recusado/Inativo'}
-                            </span>
+                             {(() => {
+                               const isExpired = ad.expiresAt && new Date(ad.expiresAt).getTime() <= Date.now();
+                               const statusLabel = isExpired ? 'Expirado' : 
+                                                 ad.isApproved ? 'Ativo' : 
+                                                 ad.paymentStatus === 'PAID' ? 'Em Análise (Pago)' :
+                                                 ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 
+                                                 ad.paymentStatus === 'REFUNDED' ? 'Recusado (Estornado)' : 'Recusado/Inativo';
+                               
+                               const statusClass = isExpired ? 'bg-slate-100 text-slate-400' :
+                                                 ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
+                                                 ad.paymentStatus === 'PAID' ? 'bg-amber-100 text-amber-600' :
+                                                 ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600';
+                               
+                               return (
+                                 <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${statusClass}`}>
+                                   {statusLabel}
+                                 </span>
+                               );
+                             })()}
                              {ad.expiresAt && <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expira em {new Date(ad.expiresAt).toLocaleDateString()}</span>}
                          </div>
                       </div>

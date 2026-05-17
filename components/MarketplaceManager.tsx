@@ -55,9 +55,14 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     }
   }, [profile]);
 
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  useEffect(() => {
+    onDirtyChangeRef.current = onDirtyChange;
+  }, [onDirtyChange]);
+
   // Detect dirty state
   useEffect(() => {
-    if (!onDirtyChange) return;
+    if (!onDirtyChangeRef.current) return;
     
     // Normalization helper to compare only relevant fields and handle nulls consistently
     const normalize = (data: any) => ({
@@ -95,8 +100,15 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
 
     const isDirty = JSON.stringify(currentNormalized) !== JSON.stringify(profileNormalized);
     
-    onDirtyChange(isDirty);
-  }, [formData, profile, workspaceId, onDirtyChange]);
+    // Only update parent if status actually changed
+    if (onDirtyChangeRef.current && isDirty !== lastDirtyRef.current) {
+      lastDirtyRef.current = isDirty;
+      // Using setTimeout to ensure it happens after the current render cycle
+      setTimeout(() => onDirtyChangeRef.current?.(isDirty), 0);
+    }
+  }, [formData, profile, workspaceId]);
+
+  const lastDirtyRef = useRef<boolean>(false);
 
   const [showItemModal, setShowItemModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -107,7 +119,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Categorization Logic
-  const categorizedPortfolio = useMemo(() => {
+  const categorizedPortfolio = React.useMemo(() => {
     const groups: Record<string, { items: (PortfolioItem & { originalIndex: number })[] }> = {};
     
     formData.portfolio.forEach((item, idx) => {
@@ -119,7 +131,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     return groups;
   }, [formData.portfolio]);
 
-  const existingCategories = useMemo(() => {
+  const existingCategories = React.useMemo(() => {
     const cats = new Set<string>();
     formData.portfolio.forEach(item => {
       if (item.category) cats.add(item.category.toUpperCase().trim());

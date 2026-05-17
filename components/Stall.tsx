@@ -12,6 +12,7 @@ import {
 import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
 
+import { ScrollContainer } from './ScrollContainer';
 import { registerStockMovement } from '../lib/supabase';
 import { ProductInsights } from './ProductInsights';
 
@@ -44,6 +45,7 @@ export const Stall: React.FC<StallProps> = ({
   const [newDefaultQty, setNewDefaultQty] = useState('');
 
   const [showConfig, setShowConfig] = useState(false);
+
   const [localConfig, setLocalConfig] = useState({
     isPublic: section.isPublic,
     whatsappMode: section.whatsappMode || 'SYSTEM',
@@ -76,15 +78,35 @@ export const Stall: React.FC<StallProps> = ({
 
   const hideMoney = user.hideSalesValues;
 
-  const filteredItems = useMemo(() => {
-    return (section.items || []).filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredItems = React.useMemo(() => {
+    return (section.items || [])
+      .filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
   }, [section.items, searchTerm]);
 
-  const filteredExpenses = useMemo(() => {
+  const groupedItems = React.useMemo(() => {
+    const groupsMap = new Map<string, ConfigItem[]>();
+    filteredItems.forEach(item => {
+      const cat = item.category || 'Geral';
+      if (!groupsMap.has(cat)) groupsMap.set(cat, []);
+      groupsMap.get(cat)!.push(item);
+    });
+
+    return Array.from(groupsMap.entries()).map(([category, items]) => {
+      const sortedItems = items.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const order = sortedItems.length > 0 ? Math.min(...sortedItems.map(i => isNaN(Number(i.order)) ? 0 : Number(i.order))) : 0;
+      return { category, items: sortedItems, order };
+    }).sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.category.localeCompare(b.category);
+    });
+  }, [filteredItems]);
+
+  const filteredExpenses = React.useMemo(() => {
     return (section.expenses || []).filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [section.expenses, searchTerm]);
 
-  const supplierSuggestions = useMemo(() => {
+  const supplierSuggestions = React.useMemo(() => {
     if (!supplierName || supplierName.length < 1) return [];
     const lowerTerm = supplierName.toLowerCase();
     return customers
@@ -92,7 +114,7 @@ export const Stall: React.FC<StallProps> = ({
       .slice(0, 5);
   }, [customers, supplierName]);
 
-  const customerSuggestions = useMemo(() => {
+  const customerSuggestions = React.useMemo(() => {
     if (!customerName || customerName.length < 1) return [];
     const lowerTerm = customerName.toLowerCase();
     return customers
@@ -232,7 +254,7 @@ export const Stall: React.FC<StallProps> = ({
     }
   };
 
-  const currentTotal = useMemo(() => {
+  const currentTotal = React.useMemo(() => {
     if (activeTab === 'VENDAS') {
        return section.items.reduce((acc, item) => {
           const data = stallData[item.id] || {};
@@ -498,8 +520,8 @@ export const Stall: React.FC<StallProps> = ({
   return (
     <div className="space-y-6 pb-24 animate-in fade-in">
       {/* Header Tabs */}
-      <div className="flex gap-2 items-center">
-        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1">
+      <ScrollContainer className="flex gap-2 items-center no-scrollbar">
+        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1 w-full min-w-[320px]">
           <button 
             onClick={() => setActiveTab('VENDAS')} 
             className={`flex-1 py-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
@@ -522,12 +544,12 @@ export const Stall: React.FC<StallProps> = ({
         {user.role === 'OWNER' && (
           <button 
             onClick={() => setShowConfig(true)}
-            className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors"
+            className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
           >
             <Settings className="w-6 h-6" />
           </button>
         )}
-      </div>
+      </ScrollContainer>
 
       {/* Search */}
       <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50">
@@ -543,85 +565,100 @@ export const Stall: React.FC<StallProps> = ({
       </div>
 
       {activeTab === 'VENDAS' && (
-        <div className="space-y-3">
-           {filteredItems.map(item => {
-              const defaultTook = item.defaultQty ? String(item.defaultQty) : '';
-              const data = stallData[item.id] || { took: defaultTook, returned: '' };
-              
-              const took = parseFloat((data as any).took || '0');
-              const returnedStr = (data as any).returned;
-              
-              let sold = 0;
-              if (returnedStr !== '' && returnedStr !== undefined) {
-                 const returned = parseFloat(returnedStr);
-                 sold = Math.max(0, took - returned);
-              }
-              
-              const price = getEffectiveConfigPrice(item, saleMethod);
-              const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
-              const hasPromo = saleMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
-              const originalPrice = saleMethod === 'A_VISTA' ? (item.defaultPriceAVista || item.defaultPrice || 0) : (item.defaultPriceAPrazo || item.defaultPrice || 0);
+        <div className="space-y-8">
+           {groupedItems.map(group => (
+             <div key={group.category} className="space-y-3">
+                <div className="flex items-center justify-between px-2">
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-1.5 h-3 rounded-full bg-indigo-500"></span>
+                    {group.category}
+                  </h3>
+                </div>
+                
+                 <ScrollContainer className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory no-scrollbar px-1 -mx-1">
+                   {group.items.map(item => {
+                     const defaultTook = item.defaultQty ? String(item.defaultQty) : '';
+                     const data = stallData[item.id] || { took: defaultTook, returned: '' };
+                     
+                     const took = parseFloat((data as any).took || '0');
+                     const returnedStr = (data as any).returned;
+                     
+                     let sold = 0;
+                     if (returnedStr !== '' && returnedStr !== undefined) {
+                         const returned = parseFloat(returnedStr);
+                         sold = Math.max(0, took - returned);
+                     }
+                     
+                     const price = getEffectiveConfigPrice(item, saleMethod);
+                     const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
+                     const hasPromo = saleMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
+                     const originalPrice = saleMethod === 'A_VISTA' ? (item.defaultPriceAVista || item.defaultPrice || 0) : (item.defaultPriceAPrazo || item.defaultPrice || 0);
 
-              return (
-                 <div key={item.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-50 relative overflow-hidden">
-                    {hasPromo && isPromoActive && (
-                      <div className="absolute top-0 left-0 bg-rose-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-br-xl z-10">
-                        Oferta
-                      </div>
-                    )}
-                    <div className="flex items-center gap-4 mb-6">
-                       <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0">
-                          {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover rounded-2xl" /> : <Store className="text-slate-300" />}
-                       </div>
-                       <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                             <h4 className="font-black text-slate-700 text-xs uppercase truncate">{item.name}</h4>
-                             <button onClick={() => handleOpenDefaultQty(item)} className="text-slate-300 hover:text-indigo-600 p-1 rounded-full hover:bg-indigo-50 transition-all" title="Definir quantidade padrão">
-                                <Edit3 size={12} />
-                             </button>
-                          </div>
-                          {hasPromo && isPromoActive ? (
-                            <div className="flex items-center gap-1">
-                              <p className="text-[10px] font-bold text-emerald-600">Unit: {formatCurrency(price)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 line-through">{formatCurrency(originalPrice)}</p>
-                            </div>
-                          ) : (
-                            <p className="text-[10px] font-bold text-slate-400">Unit: {formatCurrency(price)}</p>
-                          )}
-                       </div>
-                       <div className="text-right">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Vendidos</p>
-                          <p className={`text-2xl font-black ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{sold}</p>
-                       </div>
-                    </div>
-                    
-                    <div className="flex gap-3">
-                       <div className="flex-1 bg-slate-100 rounded-2xl p-2 px-4 flex items-center justify-between border-2 border-slate-200 focus-within:border-indigo-300 focus-within:bg-indigo-50/30 transition-all">
-                          <span className="text-[8px] font-black text-slate-400 uppercase mr-2 tracking-widest">Levou</span>
-                          <input 
-                             type="number" 
-                             inputMode="decimal" 
-                             value={(data as any).took || ''} 
-                             onChange={e => handleStallInput(item.id, 'took', e.target.value)} 
-                             className="w-full bg-transparent font-black text-right text-lg outline-none text-slate-700 placeholder:text-slate-300" 
-                             placeholder={item.defaultQty ? String(item.defaultQty) : "0"}
-                          />
-                       </div>
-                       <div className="flex-1 bg-slate-100 rounded-2xl p-2 px-4 flex items-center justify-between border-2 border-slate-200 focus-within:border-orange-300 focus-within:bg-orange-50/30 transition-all">
-                          <span className="text-[8px] font-black text-slate-400 uppercase mr-2 tracking-widest">Voltou</span>
-                          <input 
-                             type="number" 
-                             inputMode="decimal" 
-                             value={(data as any).returned || ''} 
-                             onChange={e => handleStallInput(item.id, 'returned', e.target.value)} 
-                             className="w-full bg-transparent font-black text-right text-lg outline-none text-slate-700 placeholder:text-slate-300" 
-                             placeholder="0" 
-                          />
-                       </div>
-                    </div>
-                 </div>
-              );
-           })}
+                     return (
+                         <div key={item.id} className="snap-start shrink-0 w-[280px] sm:w-[320px] bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-50 relative overflow-hidden transition-all border-l-4" style={{ borderLeftColor: sold > 0 ? '#4f46e5' : '#f1f5f9' }}>
+                           {hasPromo && isPromoActive && (
+                             <div className="absolute top-0 left-0 bg-rose-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-br-xl z-10">
+                               Oferta
+                             </div>
+                           )}
+                           <div className="flex items-center gap-4 mb-6">
+                               <div className="flex flex-col gap-1 items-center shrink-0">
+                                   <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
+                                       {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Store className="text-slate-300" />}
+                                   </div>
+                               </div>
+                               <div className="flex-1 min-w-0 text-left">
+                                 <div className="flex items-center gap-2">
+                                     <h4 className="font-black text-slate-700 text-xs uppercase truncate">{item.name}</h4>
+                                     <button onClick={() => handleOpenDefaultQty(item)} className="text-slate-300 hover:text-indigo-600 p-1 rounded-full hover:bg-indigo-50 transition-all" title="Definir quantidade padrão">
+                                         <Edit3 size={12} />
+                                     </button>
+                                 </div>
+                                 {hasPromo && isPromoActive ? (
+                                   <div className="flex items-center gap-1">
+                                     <p className="text-[10px] font-bold text-emerald-600">{formatCurrency(price)}</p>
+                                     <p className="text-[8px] font-bold text-slate-400 line-through">{formatCurrency(originalPrice)}</p>
+                                   </div>
+                                 ) : (
+                                   <p className="text-[10px] font-bold text-slate-400">{formatCurrency(price)}</p>
+                                 )}
+                               </div>
+                               <div className="text-right">
+                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Saldo</p>
+                                 <p className={`text-xl font-black ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{sold}</p>
+                               </div>
+                           </div>
+                           
+                           <div className="flex gap-3">
+                               <div className="flex-1 bg-slate-100 rounded-2xl p-2 px-3 flex items-center justify-between border-2 border-slate-200 focus-within:border-indigo-300 focus-within:bg-indigo-50/30 transition-all">
+                                 <span className="text-[8px] font-black text-slate-400 uppercase mr-1 tracking-tighter">Entrou</span>
+                                 <input 
+                                     type="number" 
+                                     inputMode="decimal" 
+                                     value={(data as any).took || ''} 
+                                     onChange={e => handleStallInput(item.id, 'took', e.target.value)} 
+                                     className="w-full bg-transparent font-black text-right text-base outline-none text-slate-700 placeholder:text-slate-300" 
+                                     placeholder={item.defaultQty ? String(item.defaultQty) : "0"}
+                                 />
+                               </div>
+                               <div className="flex-1 bg-slate-100 rounded-2xl p-2 px-3 flex items-center justify-between border-2 border-slate-200 focus-within:border-orange-300 focus-within:bg-orange-50/30 transition-all">
+                                 <span className="text-[8px] font-black text-slate-400 uppercase mr-1 tracking-tighter">Restou</span>
+                                 <input 
+                                     type="number" 
+                                     inputMode="decimal" 
+                                     value={(data as any).returned || ''} 
+                                     onChange={e => handleStallInput(item.id, 'returned', e.target.value)} 
+                                     className="w-full bg-transparent font-black text-right text-base outline-none text-slate-700 placeholder:text-slate-300" 
+                                     placeholder="0" 
+                                 />
+                               </div>
+                           </div>
+                         </div>
+                     );
+                   })}
+                 </ScrollContainer>
+             </div>
+           ))}
 
            {canShowConfirmButton && (
              <div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5">

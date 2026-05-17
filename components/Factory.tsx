@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
 import { safeStringifyError } from '../lib/supabase';
 import { normalizeString, formatCurrency } from '../lib/utils';
+import { ScrollContainer } from './ScrollContainer';
 import { ProductInsights } from './ProductInsights';
 
 import { registerStockMovement } from '../lib/supabase';
@@ -137,15 +138,33 @@ export const Factory: React.FC<FactoryProps> = ({
     }
   };
 
-  const filteredItems = useMemo(() => {
+  const filteredItems = React.useMemo(() => {
     return (section.items || []).filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [section.items, searchTerm]);
 
-  const filteredExpenses = useMemo(() => {
+  const groupedItems = React.useMemo(() => {
+    const groupsMap = new Map<string, ConfigItem[]>();
+    filteredItems.forEach(item => {
+      const cat = item.category || 'Geral';
+      if (!groupsMap.has(cat)) groupsMap.set(cat, []);
+      groupsMap.get(cat)!.push(item);
+    });
+
+    return Array.from(groupsMap.entries()).map(([category, items]) => {
+      const sortedItems = items.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const order = sortedItems.length > 0 ? Math.min(...sortedItems.map(i => isNaN(Number(i.order)) ? 0 : Number(i.order))) : 0;
+      return { category, items: sortedItems, order };
+    }).sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.category.localeCompare(b.category);
+    });
+  }, [filteredItems]);
+
+  const filteredExpenses = React.useMemo(() => {
     return (section.expenses || []).filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [section.expenses, searchTerm]);
 
-  const customerSuggestions = useMemo(() => {
+  const customerSuggestions = React.useMemo(() => {
     if (!customerName || customerName.length < 1) return [];
     const term = normalizeString(customerName);
     return customers
@@ -153,12 +172,12 @@ export const Factory: React.FC<FactoryProps> = ({
       .slice(0, 5);
   }, [customers, customerName]);
 
-  const matchedCustomer = useMemo(() => {
+  const matchedCustomer = React.useMemo(() => {
     if (!customerName) return null;
     return customers.find(c => normalizeString(c.name) === normalizeString(customerName));
   }, [customers, customerName]);
 
-  const supplierSuggestions = useMemo(() => {
+  const supplierSuggestions = React.useMemo(() => {
     if (!supplierName || supplierName.length < 1) return [];
     const term = normalizeString(supplierName);
     return customers
@@ -166,7 +185,7 @@ export const Factory: React.FC<FactoryProps> = ({
       .slice(0, 5);
   }, [customers, supplierName]);
 
-  const pendingTransactions = useMemo(() => {
+  const pendingTransactions = React.useMemo(() => {
     const targetWorkspaceId = String(section.workspaceId || '').trim().toLowerCase();
     return transactions.filter(t => {
       const tWid = String(t.workspaceId || '').trim().toLowerCase();
@@ -177,7 +196,7 @@ export const Factory: React.FC<FactoryProps> = ({
     });
   }, [transactions, section.workspaceId]);
 
-  const pendingByCustomer = useMemo(() => {
+  const pendingByCustomer = React.useMemo(() => {
     const groups: Record<string, { total: number, ids: string[], count: number, items: Transaction[], type: 'RECEIVABLE' | 'PAYABLE', isExternal?: boolean, displayName: string }> = {};
     
     pendingTransactions.forEach(t => {
@@ -232,10 +251,10 @@ export const Factory: React.FC<FactoryProps> = ({
     return groups;
   }, [pendingTransactions]);
 
-  const receivablesCount = useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'RECEIVABLE').length, [pendingByCustomer]);
-  const payablesCount = useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'PAYABLE').length, [pendingByCustomer]);
+  const receivablesCount = React.useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'RECEIVABLE').length, [pendingByCustomer]);
+  const payablesCount = React.useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'PAYABLE').length, [pendingByCustomer]);
 
-  const filteredPendingList = useMemo(() => {
+  const filteredPendingList = React.useMemo(() => {
     return Object.entries(pendingByCustomer).filter(([_, data]) => {
       const d = data as any;
       if (billsTab === 'RECEIVABLES') {
@@ -316,7 +335,7 @@ export const Factory: React.FC<FactoryProps> = ({
     }
   };
 
-  const productionTotal = useMemo(() => {
+  const productionTotal = React.useMemo(() => {
     return section.items.reduce((acc, item) => {
       const qtyStr = batchQuantities[item.id] || '0';
       const qty = parseFloat(qtyStr.replace(',', '.')) || 0;
@@ -325,13 +344,13 @@ export const Factory: React.FC<FactoryProps> = ({
     }, 0);
   }, [batchQuantities, section.items, globalMethod]);
 
-  const hasItemsToProcess = useMemo(() => {
+  const hasItemsToProcess = React.useMemo(() => {
     const hasRegular = Object.values(batchQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
     const hasBonus = Object.values(batchBonusQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
     return hasRegular || hasBonus;
   }, [batchQuantities, batchBonusQuantities]);
 
-  const expensesTotal = useMemo(() => {
+  const expensesTotal = React.useMemo(() => {
      return Object.values(expenseEntries).reduce((acc: number, val: any) => acc + (parseFloat(String(val).replace(',', '.')) || 0), 0);
   }, [expenseEntries]);
 
@@ -1021,15 +1040,17 @@ export const Factory: React.FC<FactoryProps> = ({
       )}
 
     <div className="space-y-6 pb-24 animate-in fade-in">
-      <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex overflow-x-auto no-scrollbar">
-        <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
-        <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
-        <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
-          <Wallet className="w-4 h-4" /> Contas
-          {(receivablesCount + payablesCount) > 0 && <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{receivablesCount + payablesCount}</span>}
-        </button>
-        <button onClick={() => setActiveTab('GASTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingDown className="w-4 h-4" /> Despesas</button>
-      </div>
+      <ScrollContainer className="flex overflow-x-auto no-scrollbar">
+        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex w-full">
+          <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
+          <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
+          <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
+            <Wallet className="w-4 h-4" /> Contas
+            {(receivablesCount + payablesCount) > 0 && <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{receivablesCount + payablesCount}</span>}
+          </button>
+          <button onClick={() => setActiveTab('GASTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingDown className="w-4 h-4" /> Despesas</button>
+        </div>
+      </ScrollContainer>
 
       {activeTab === 'A_RECEBER' && (
         <div className="space-y-4 animate-in slide-in-from-right-4">
@@ -1176,76 +1197,172 @@ export const Factory: React.FC<FactoryProps> = ({
               )}
             </div>
           </div>
-          <div className="space-y-3">{filteredItems.map(item => {
-               const qty = batchQuantities[item.id] || '';
-               const hasBonusInput = Object.prototype.hasOwnProperty.call(batchBonusQuantities, item.id);
-               const bonusQty = batchBonusQuantities[item.id] || '';
-               const price = getEffectiveConfigPrice(item, globalMethod);
-               const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
-               const hasPromo = globalMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
-               const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
-               
-               return (<div key={item.id} className="bg-white p-4 rounded-[2rem] shadow-sm border border-slate-50 flex items-center gap-4 relative overflow-hidden">
-                 {hasPromo && isPromoActive && (
-                   <div className="absolute top-0 left-0 bg-rose-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-br-xl z-10">
-                     Oferta
-                   </div>
-                 )}
-                 <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0">{item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover rounded-2xl" /> : <Package className="text-slate-300" />}</div><div className="flex-1 min-w-0"><h4 className="font-black text-slate-700 text-xs uppercase truncate">{item.name}</h4>
-                 {hasPromo && isPromoActive ? (
-                   <div className="flex items-center gap-1">
-                     <p className="text-[10px] font-bold text-emerald-600">Unit: {formatCurrency(price)}</p>
-                     <p className="text-[8px] font-bold text-slate-400 line-through">{formatCurrency(originalPrice)}</p>
-                   </div>
-                 ) : (
-                   <p className="text-[10px] font-bold text-slate-400">Unit: {formatCurrency(price)}</p>
-                 )}
-                 </div>
-                 <div className="w-24 space-y-1.5 flex flex-col items-end">
-                   <input type="number" inputMode="decimal" value={qty} onChange={e => handleQtyChange(item.id, e.target.value)} placeholder="Qtd" className={`w-full p-3 rounded-xl font-black text-center outline-none transition-all ${qty ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-800 border-2 border-slate-200 focus:border-indigo-300 focus:bg-white'}`} />
-                   <div className="flex items-center gap-1 w-full">
-                     {hasBonusInput ? (
-                        <div className="flex items-center gap-1 w-full flex-1">
-                          <input 
-                            type="number" 
-                            inputMode="decimal" 
-                            value={bonusQty} 
-                            onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
-                            placeholder="Brindes" 
-                            className="w-full p-1.5 rounded-lg font-black text-center text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 outline-none" 
-                          />
-                          <button 
-                            onClick={() => {
-                              setBatchBonusQuantities(prev => {
-                                const next = {...prev};
-                                delete next[item.id];
-                                return next;
-                              });
-                            }}
-                            className="p-1.5 shrink-0 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors"
-                          >
-                            <Trash2 size={12} />
-                          </button>
+          <ScrollContainer className="flex overflow-x-auto gap-2 py-2 px-1 no-scrollbar scroll-smooth">
+            <button 
+              onClick={() => {
+                const scrollContainer = document.querySelector('.overflow-y-auto');
+                if (scrollContainer) {
+                  scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+              className="shrink-0 px-6 py-3 bg-slate-900 text-white rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95 transition-all text-center"
+            >
+              CATEGORIAS
+            </button>
+            {groupedItems.map(g => (
+              <button 
+                key={g.category}
+                onClick={(e) => {
+                  const safeCategory = normalizeString(g.category).replace(/[^a-z0-9]/g, '-');
+                  const id = `category-${safeCategory}`;
+                  const el = document.getElementById(id);
+                  const scrollContainer = document.querySelector('.overflow-y-auto');
+                  
+                  if (el && scrollContainer) {
+                    const topPos = el.offsetTop;
+                    scrollContainer.scrollTo({
+                      top: topPos - 100,
+                      behavior: 'smooth'
+                    });
+                  } else if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }}
+                className="shrink-0 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-full font-black text-[10px] uppercase tracking-widest border border-emerald-100 active:scale-95 transition-all text-center"
+              >
+                {g.category}
+              </button>
+            ))}
+          </ScrollContainer>
+
+          <div className="space-y-8">
+            {groupedItems.map((group, gIdx) => (
+              <div 
+                id={`category-${normalizeString(group.category).replace(/[^a-z0-9]/g, '-')}`} 
+                key={gIdx} 
+                className="relative space-y-3 animate-in fade-in slide-in-from-left-2 scroll-mt-32" 
+                style={{ animationDelay: `${gIdx * 50}ms` }}
+              >
+                <div className="flex items-center justify-between px-2">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <span className="w-2 h-4 rounded-full bg-indigo-500"></span>
+                    {group.category}
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{group.items.length} itens</span>
+                  </div>
+                </div>
+                <ScrollContainer className="flex overflow-x-auto gap-5 pb-6 snap-x snap-mandatory no-scrollbar px-1 -mx-1">
+                  {group.items.map(item => {
+                    const qty = batchQuantities[item.id] || '';
+                    const hasBonusInput = Object.prototype.hasOwnProperty.call(batchBonusQuantities, item.id);
+                    const bonusQty = batchBonusQuantities[item.id] || '';
+                    const price = getEffectiveConfigPrice(item, globalMethod);
+                    const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
+                    const hasPromo = globalMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
+                    const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
+
+                    return (
+                      <div key={item.id} className="shrink-0 snap-start w-[350px] bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all">
+                        {hasPromo && isPromoActive && (
+                          <div className="absolute top-0 left-0 bg-rose-500 text-white text-[12px] font-black uppercase px-4 py-1.5 rounded-br-3xl z-10 shadow-sm">
+                            Oferta
+                          </div>
+                        )}
+                        
+                        {/* Identificação do Item */}
+                        <div className="flex items-start gap-5">
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <div className="w-24 h-24 bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
+                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className="text-slate-300 w-12 h-12" />}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0 pt-1">
+                            <h4 className="font-black text-slate-800 text-lg uppercase leading-tight line-clamp-2 mb-2">{item.name}</h4>
+                            {hasPromo && isPromoActive ? (
+                              <div className="flex flex-col">
+                                <p className="text-emerald-600 font-black text-xl">{formatCurrency(price)}</p>
+                                <p className="text-xs font-bold text-slate-400 line-through tracking-wide">{formatCurrency(originalPrice)}</p>
+                              </div>
+                            ) : (
+                              <p className="text-slate-500 font-black text-lg tracking-tight">{formatCurrency(price)}</p>
+                            )}
+                          </div>
                         </div>
-                     ) : (
-                        <button 
-                          onClick={() => handleBonusQtyChange(item.id, '1')}
-                          className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg font-black uppercase text-[8px] bg-emerald-100 text-emerald-700 hover:bg-emerald-200 active:scale-95 transition-all outline-none"
-                        >
-                          <Gift size={10} /> + BRINDE
-                        </button>
-                     )}
-                     
-                     <button 
-                        onClick={() => setWasteModal({ show: true, item, qty: '' })}
-                        className="p-1.5 shrink-0 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 active:scale-95 transition-all outline-none"
-                        title="Registrar Perda / Quebra"
-                     >
-                        <AlertTriangle size={12} />
-                     </button>
-                   </div>
-                 </div></div>);
-            })}</div>
+
+                        {/* Bloco de Comando (Inputs e Ações) */}
+                        <div className="flex items-stretch gap-3 h-20">
+                          {/* Input de Quantidade */}
+                          <div className="flex-1 relative group">
+                            <input 
+                              type="number" 
+                              inputMode="decimal" 
+                              value={qty} 
+                              onChange={e => handleQtyChange(item.id, e.target.value)} 
+                              placeholder="0" 
+                              className={`w-full h-full rounded-[1.8rem] font-black text-center text-4xl outline-none transition-all shadow-sm ${qty ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-400 border-2 border-slate-100 focus:border-indigo-300 focus:bg-white'}`} 
+                            />
+                            {!qty && <span className="absolute left-1/2 -translate-x-1/2 -top-1 px-2 bg-white text-[9px] font-black text-slate-300 uppercase tracking-tighter">Qtd</span>}
+                          </div>
+
+                          {/* Controles Laterais */}
+                          <div className="shrink-0 flex items-stretch gap-2">
+                            <div className="w-14 shrink-0">
+                              {hasBonusInput ? (
+                                <div className="flex flex-col gap-1.5 h-full">
+                                  <input 
+                                    type="number" 
+                                    inputMode="decimal" 
+                                    value={bonusQty} 
+                                    onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
+                                    placeholder="B" 
+                                    className="w-full h-10 rounded-xl font-black text-center text-sm bg-emerald-50 text-emerald-700 border-2 border-emerald-100 outline-none shadow-inner" 
+                                  />
+                                  <button 
+                                    onClick={() => {
+                                      setBatchBonusQuantities(prev => {
+                                        const next = {...prev};
+                                        delete next[item.id];
+                                        return next;
+                                      });
+                                    }}
+                                    className="h-8 w-full flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 active:scale-95 transition-all shadow-sm"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => handleBonusQtyChange(item.id, '1')}
+                                  className="h-full w-full flex flex-col items-center justify-center gap-1 rounded-[1.8rem] font-black uppercase text-[8px] bg-emerald-50 text-emerald-600 border-2 border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all outline-none shadow-sm"
+                                >
+                                  <Gift size={20} strokeWidth={2.5} />
+                                  <span>Brinde</span>
+                                </button>
+                              )}
+                            </div>
+
+                            <button 
+                               onClick={() => setWasteModal({ show: true, item, qty: '' })}
+                               className="h-full w-14 shrink-0 flex flex-col items-center justify-center gap-1 rounded-[1.8rem] bg-orange-50 text-orange-600 border-2 border-orange-100 hover:bg-orange-100 active:scale-95 transition-all outline-none shadow-sm"
+                               title="Registrar Perda / Quebra"
+                            >
+                               <div className="relative">
+                                 <AlertTriangle size={20} strokeWidth={2.5} />
+                               </div>
+                               <span className="text-[8px] font-black uppercase">Perda</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </ScrollContainer>
+              </div>
+            ))}
+          </div>
           {hasItemsToProcess && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
         </>
       )}

@@ -51,8 +51,8 @@ export const CartModal: React.FC<CartModalProps> = ({
   if (!isCartOpen || !activeView) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in slide-in-from-bottom-10">
-      <div className="bg-white w-full max-w-sm h-[80vh] sm:h-auto rounded-t-[3rem] sm:rounded-[3rem] p-8 shadow-3xl flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in slide-in-from-bottom-10">
+      <div className="bg-white w-full max-w-sm h-[80vh] sm:h-auto rounded-t-[3rem] sm:rounded-[3rem] pt-8 px-8 pb-32 sm:pb-8 shadow-3xl flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
                 <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl"><ShoppingCart size={24} /></div>

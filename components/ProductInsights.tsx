@@ -14,7 +14,7 @@ interface ProductInsightsProps {
 export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, title = 'Desempenho de Produtos', sectionName, isOwner }) => {
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'all'>('day');
 
-  const { productStats, expenseStats, totalSales, totalExpenses } = useMemo(() => {
+  const { productStats, expenseStats, totalSales, totalExpenses } = React.useMemo(() => {
     const now = new Date();
     
     // Robust local timezone bounds

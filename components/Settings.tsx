@@ -16,12 +16,13 @@ import {
   Layout, Users, Megaphone, Settings as SettingsIcon,
   Trash2, Package, UserCircle, ShoppingBag, Truck, Calendar,
   Rocket, Database, Zap, BarChart3, History, X, Check, EyeOff, Loader2, Camera, Store,
-  Fingerprint, Bell, LogOut, Edit3
+  Fingerprint, Bell, LogOut, Edit3, ChevronUp, ChevronDown, MoveUp, MoveDown
 } from 'lucide-react';
 
 interface SettingsProps {
   sections: AppSection[];
   saveConfig: (sections: AppSection[]) => Promise<boolean>;
+  moveSection: (id: string, direction: 'up' | 'down') => Promise<boolean>;
   deleteSection: (id: string) => Promise<void>;
   users: User[];
   addUser: (user: Omit<User, 'id'>) => Promise<User | null>;
@@ -60,15 +61,25 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     showCustomerModal, setShowCustomerModal, showCustomerHistory, setShowCustomerHistory, editingCustomer, setEditingCustomer, customerForm, setCustomerForm, handleSaveCustomer,
     showUserModal, setShowUserModal, editingUser, setEditingUser, userForm, setUserForm, handleSaveUser,
     showSectionModal, setShowSectionModal, editingSection, setEditingSection, sectionForm, setSectionForm, handleCreateSection,
-    manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem, startEditManageItem,
+    manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem, startEditManageItem, moveCategory, moveItem, isSaving,
     adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd, handleRetryAdPayment,
     handleGenerateAdText, handleGenerateAdImage, deleteAd,
     uploadToStorage
   } = useSettingsLogic(props);
 
+  const onDirtyChangeRef = useRef(props.onDirtyChange);
   useEffect(() => {
-    props.onDirtyChange?.(isMarketplaceDirty);
-  }, [isMarketplaceDirty, props]);
+    onDirtyChangeRef.current = props.onDirtyChange;
+  }, [props.onDirtyChange]);
+
+  useEffect(() => {
+    if (isMarketplaceDirty !== lastReportedDirtyRef.current) {
+      lastReportedDirtyRef.current = isMarketplaceDirty;
+      onDirtyChangeRef.current?.(isMarketplaceDirty);
+    }
+  }, [isMarketplaceDirty]);
+
+  const lastReportedDirtyRef = useRef<boolean>(false);
 
   const [clientSubTab, setClientSubTab] = useState<'CLIENT' | 'SUPPLIER'>('CLIENT');
   const [sysPeriod, setSysPeriod] = useState<'day' | 'week' | 'month' | 'all' | 'custom'>('day');
@@ -125,6 +136,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             setShowSectionModal={setShowSectionModal}
             setEditingSection={setEditingSection}
             deleteSection={props.deleteSection}
+            moveSection={props.moveSection}
           />
         )}
         {activeTab === 'CLIENTES' && (
@@ -541,44 +553,114 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     )}
                  </div>
 
-                 {/* LISTA DE ITENS */}
-                 <div className="space-y-3 pb-8">
+                 {/* LISTA DE ITENS AGRUPADA POR CATEGORIA */}
+                 <div className="space-y-6 pb-8">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">
                       {manageTab === 'PRODUCTS' ? 'Produtos Cadastrados' : 'Despesas Cadastradas'}
                     </h4>
-                    <div className="space-y-2">
-                       {(manageTab === 'PRODUCTS' ? (editingSection.items || []) : (editingSection.expenses || [])).map(item => (
-                         <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-all">
-                            <div className="flex items-center gap-4">
-                               <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden flex items-center justify-center border border-slate-100">
-                                  {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className="text-slate-200" size={20} />}
-                               </div>
-                               <div>
-                                  <p className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1">{item.name}</p>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase">R$ {item.defaultPriceAVista?.toFixed(2)} / R$ {item.defaultPriceAPrazo?.toFixed(2)}</p>
-                               </div>
-                            </div>
-                            <div className="flex gap-1">
-                               <button onClick={() => startEditManageItem(item)} className="p-2.5 text-indigo-400 hover:bg-indigo-50 rounded-xl transition-all"><Edit3 size={16} /></button>
-                               <button 
-                                 onClick={() => {
-                                   setConfirmModal({
-                                     title: 'Excluir Item',
-                                     message: `Tem certeza que deseja excluir '${item.name}'?`,
-                                     onConfirm: async () => {
-                                       await handleDeleteManageItem(item.id);
-                                       setConfirmModal(null);
-                                     }
-                                   });
-                                 }} 
-                                 className="p-2.5 text-rose-300 hover:bg-rose-50 rounded-xl transition-all"
-                               >
-                                 <Trash2 size={16} />
-                               </button>
-                            </div>
-                         </div>
-                       ))}
-                    </div>
+                    
+                    {(() => {
+                        const rawList = (manageTab === 'PRODUCTS' ? (editingSection.items || []) : (editingSection.expenses || []));
+                        const list = [...rawList].sort((a, b) => {
+                            const numA = isNaN(Number(a.order)) ? 0 : Number(a.order);
+                            const numB = isNaN(Number(b.order)) ? 0 : Number(b.order);
+                            return numA - numB;
+                        });
+                        
+                        const groupsMap = new Map<string, any[]>();
+                        list.forEach(item => {
+                           const cat = item.category || 'Geral';
+                           if (!groupsMap.has(cat)) groupsMap.set(cat, []);
+                           groupsMap.get(cat)!.push(item);
+                        });
+
+                        const sortedGroups = Array.from(groupsMap.entries()).map(([category, items]) => {
+                          const order = items.length > 0 ? Math.min(...items.map(i => isNaN(Number(i.order)) ? 0 : Number(i.order))) : 0;
+                          return { category, items, order };
+                        }).sort((a, b) => a.order - b.order);
+
+                        return sortedGroups.map((group) => (
+                          <div key={group.category} className="space-y-2">
+                             <div className="flex items-center justify-between px-4 mb-1">
+                                <h5 className="text-[9px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                                  <span className="w-1.5 h-3 rounded-full bg-indigo-500"></span>
+                                  {group.category}
+                                </h5>
+                                <div className="flex items-center gap-1">
+                                   <button 
+                                     onClick={() => moveCategory(editingSection.id, group.category, 'up', manageTab)} 
+                                     disabled={isSaving}
+                                     className="p-1 px-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all border border-emerald-200 shadow-sm disabled:opacity-30 disabled:cursor-wait"
+                                     title="Mover Categoria para Cima"
+                                   >
+                                      <MoveUp size={14} strokeWidth={3} />
+                                   </button>
+                                   <button 
+                                     onClick={() => moveCategory(editingSection.id, group.category, 'down', manageTab)} 
+                                     disabled={isSaving}
+                                     className="p-1 px-2 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all border border-rose-200 shadow-sm disabled:opacity-30 disabled:cursor-wait"
+                                     title="Mover Categoria para Baixo"
+                                   >
+                                      <MoveDown size={14} strokeWidth={3} />
+                                   </button>
+                                </div>
+                             </div>
+                             <div className="space-y-2">
+                                {group.items.map((item: any) => (
+                                  <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-all">
+                                     <div className="flex items-center gap-4">
+                                        <div className="flex flex-col gap-1 items-center">
+                                           <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden flex items-center justify-center border border-slate-100">
+                                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className="text-slate-200" size={20} />}
+                                           </div>
+                                           <div className="flex items-center gap-0.5">
+                                              <button 
+                                                onClick={() => moveItem(editingSection.id, item.id, 'up', manageTab)} 
+                                                disabled={isSaving}
+                                                className="p-1 text-emerald-600 bg-emerald-50 rounded-lg border border-emerald-200 transition-all hover:bg-emerald-100 disabled:opacity-30 shadow-sm"
+                                                title="Subir Item"
+                                              >
+                                                <ChevronUp size={12} strokeWidth={3} />
+                                              </button>
+                                              <button 
+                                                onClick={() => moveItem(editingSection.id, item.id, 'down', manageTab)} 
+                                                disabled={isSaving}
+                                                className="p-1 text-rose-600 bg-rose-50 rounded-lg border border-rose-200 transition-all hover:bg-rose-100 disabled:opacity-30 shadow-sm"
+                                                title="Descer Item"
+                                              >
+                                                <ChevronDown size={12} strokeWidth={3} />
+                                              </button>
+                                           </div>
+                                        </div>
+                                        <div className="min-w-0">
+                                           <p className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1 truncate">{item.name}</p>
+                                           <p className="text-[10px] font-bold text-slate-400 uppercase">R$ {item.defaultPriceAVista?.toFixed(2)} / R$ {item.defaultPriceAPrazo?.toFixed(2)}</p>
+                                        </div>
+                                     </div>
+                                     <div className="flex gap-1">
+                                        <button onClick={() => startEditManageItem(item)} className="p-2.5 text-indigo-400 hover:bg-indigo-50 rounded-xl transition-all"><Edit3 size={16} /></button>
+                                        <button 
+                                          onClick={() => {
+                                            setConfirmModal({
+                                              title: 'Excluir Item',
+                                              message: `Tem certeza que deseja excluir '${item.name}'?`,
+                                              onConfirm: async () => {
+                                                await handleDeleteManageItem(item.id);
+                                                setConfirmModal(null);
+                                              }
+                                            });
+                                          }} 
+                                          className="p-2.5 text-rose-300 hover:bg-rose-50 rounded-xl transition-all"
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                     </div>
+                                  </div>
+                                ))}
+                             </div>
+                          </div>
+                        ));
+                    })()}
                  </div>
               </div>
            </div>

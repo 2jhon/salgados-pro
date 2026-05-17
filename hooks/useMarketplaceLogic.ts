@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { User, AppSection, StoreProfile, SubscriptionPlan } from '../types';
@@ -160,7 +160,16 @@ export const useMarketplaceLogic = ({
          .select('*')
          .eq('is_approved', true)
          .eq('active', true);
-       if (data) setSponsoredAds(data);
+       
+       if (data) {
+         const now = Date.now();
+         const activeAds = data.filter((ad: any) => {
+           if (!ad.expires_at) return true;
+           const expirationTime = new Date(ad.expires_at).getTime();
+           return expirationTime > now;
+         });
+         setSponsoredAds(activeAds);
+       }
     };
     fetchActiveAds();
   }, [onRefresh, getUserInteractions, fetchHotKeywords, fetchTrendingItems, fetchUserAffinity, user.id, sessionId]);
@@ -219,7 +228,7 @@ export const useMarketplaceLogic = ({
     } catch (e) { toast.error("Erro ao enviar denúncia."); } finally { setIsReporting(false); }
   };
 
-  const activeView = useMemo(() => {
+  const activeView = React.useMemo(() => {
     if (selectedStall) {
       const linkedProfile = freshProfile || stores.find(p => p.workspaceId === selectedStall.workspaceId);
       let finalWhatsapp = selectedStall.whatsappMode === 'MANUAL' && selectedStall.manualWhatsapp ? selectedStall.manualWhatsapp : (linkedProfile?.whatsapp || '');
@@ -315,7 +324,7 @@ export const useMarketplaceLogic = ({
     if (node) observerRef.current.observe(node);
   }, [hasMoreStores, hasMoreStalls, isLoadingMore, storesPage, stallsPage, activeFilter, fetchPublicProfiles, fetchPublicStalls]);
 
-  const items = useMemo(() => {
+  const items = React.useMemo(() => {
     let list: any[] = [];
     if (activeFilter === 'ALL' || activeFilter === 'STALLS') list = [...list, ...stalls.map(s => ({ type: 'STALL', data: s }))];
     if (activeFilter === 'ALL' || activeFilter === 'STORES') list = [...list, ...stores.filter(p => p.active).map(p => ({ type: 'STORE', data: p }))];
@@ -366,7 +375,7 @@ export const useMarketplaceLogic = ({
     return list;
   }, [stalls, stores, activeFilter, searchTerm, userCoords, calculateDistance, trendingItems, userAffinity]);
 
-  const displayItems = useMemo(() => {
+  const displayItems = React.useMemo(() => {
     if (!activeView) return [];
     if (activeView.type === 'STALL' && activeView.data?.items) {
        return activeView.data.items.map((item: any) => ({
@@ -383,7 +392,7 @@ export const useMarketplaceLogic = ({
     return activeView.profile?.portfolio || [];
   }, [activeView]);
 
-  const groupedItems = useMemo(() => {
+  const groupedItems = React.useMemo(() => {
      const groups: Record<string, { display: string; items: any[] }> = {};
      displayItems.forEach(item => {
         const rawCat = (item.category || 'Destaques').trim(); 
@@ -395,7 +404,7 @@ export const useMarketplaceLogic = ({
             .map(group => ({ category: group.display, items: group.items }));
   }, [displayItems]);
 
-  const globalStories = useMemo(() => {
+  const globalStories = React.useMemo(() => {
     const grouped: { profile: StoreProfile; items: any[] }[] = [];
     stores.forEach(profile => {
       if (profile.active && profile.portfolio) {
@@ -438,7 +447,7 @@ export const useMarketplaceLogic = ({
     setActiveStory(null);
   };
 
-  const isCartEnabled = useMemo(() => activeView?.fulfillmentMode === 'DELIVERY' || activeView?.fulfillmentMode === 'BOTH', [activeView]);
+  const isCartEnabled = React.useMemo(() => activeView?.fulfillmentMode === 'DELIVERY' || activeView?.fulfillmentMode === 'BOTH', [activeView]);
 
   const addToCart = () => { 
     if (selectedProduct) { 
@@ -448,13 +457,13 @@ export const useMarketplaceLogic = ({
     } 
   };
   const removeFromCart = (index: number) => { const newCart = cart.filter((_, i) => i !== index); setCart(newCart); if (newCart.length === 0) setIsCartOpen(false); };
-  const cartTotal = useMemo(() => cart.reduce((acc, item) => acc + (getEffectivePrice(item.product) * item.qty), 0), [cart, getEffectivePrice]);
-  const discountAmount = useMemo(() => {
+  const cartTotal = React.useMemo(() => cart.reduce((acc, item) => acc + (getEffectivePrice(item.product) * item.qty), 0), [cart, getEffectivePrice]);
+  const discountAmount = React.useMemo(() => {
     if (!appliedCoupon) return 0;
     return appliedCoupon.discount_type === 'PERCENTAGE' ? cartTotal * (appliedCoupon.discount_value / 100) : appliedCoupon.discount_value;
   }, [cartTotal, appliedCoupon]);
 
-  const deliveryFee = useMemo(() => {
+  const deliveryFee = React.useMemo(() => {
     if (!activeView || activeView.fulfillmentMode === 'PICKUP') return 0;
     const config = activeView.profile?.deliveryConfig;
     if (!config || !config.distanceTiers || config.distanceTiers.length === 0) return 0;

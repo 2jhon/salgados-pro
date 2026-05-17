@@ -1,5 +1,5 @@
 
-import { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { StoreAnalyticsSummary, ProductClickDetail, Transaction } from '../types';
 
@@ -161,5 +161,5 @@ export const useAnalytics = (userWorkspaceId?: string) => {
     }
   }, []);
 
-  return { trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights, getArchivedSummaries };
+  return React.useMemo(() => ({ trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights, getArchivedSummaries }), [trackView, trackProductClick, getStoreSummary, getTopProducts, getFinancialInsights, getArchivedSummaries]);
 };

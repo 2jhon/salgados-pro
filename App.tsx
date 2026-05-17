@@ -50,7 +50,7 @@ export const App: React.FC = () => {
   };
   
   const { 
-    sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem,
+    sections, archives, saveConfig, moveSection, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem,
     fetchConfigByWorkspace, publicStalls, fetchPublicStalls, hasMorePublic: hasMoreStalls, 
     fetchStallById, isSyncing: isStockSyncing, reconnect: reconnectStock, loading: loadingStalls 
   } = useAppConfig();
@@ -266,28 +266,28 @@ export const App: React.FC = () => {
     fetchPlans();
   }, []);
 
-  const activePlan = useMemo(() => {
+  const activePlan = React.useMemo(() => {
     if (!currentUser?.activePlanId) return null;
     return plans.find(p => p.id === currentUser.activePlanId);
   }, [currentUser?.activePlanId, plans]);
 
   const now = Date.now();
 
-  const isProActive = useMemo(() => {
+  const isProActive = React.useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.hasProPlan && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_pro && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
     return !!(manual || fromPlan);
   }, [currentUser, activePlan, now]);
 
-  const isAdFreeActive = useMemo(() => {
+  const isAdFreeActive = React.useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.isAdFree && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_ad_free && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
     return !!(manual || fromPlan);
   }, [currentUser, activePlan, now]);
 
-  const isAdvertiserActive = useMemo(() => {
+  const isAdvertiserActive = React.useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.isAdvertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_advertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
@@ -313,9 +313,13 @@ export const App: React.FC = () => {
     }
     setIsOffline(false);
     
+    // Proactive Health Check (Executado apenas se não houver verificação recente)
+    const lastCheck = (window as any)._lastHealthCheck || 0;
+    if (Date.now() - lastCheck < 300000) return; // 5 minutos de cache
+    (window as any)._lastHealthCheck = Date.now();
+
     console.log('[App] Initializing system and database health check...');
     
-    // Proactive Health Check (Non-blocking warning)
     checkDatabaseHealth(60000, 2).then(health => {
       if (!health.ok) {
         console.error("[App] Banco de dados inacessível ou hibernando muito profundamente.");
@@ -426,22 +430,20 @@ export const App: React.FC = () => {
       await Promise.allSettled([adsPromise, stallsPromise, profilesPromise]);
       
       // 3. Verificações de Fundo: Dívidas externas
-      // IMPORTANTE: Passa o telefone do usuário explicitamente
       if (user.phone) {
          console.log('[App] Checando dívidas globais para:', user.phone);
          const globalDebts = await fetchUserGlobalDebts(user.phone, user.workspaceId);
-         // Atualiza SOMENTE se não for null (null indica erro de rede). Se for array vazio, atualiza para limpar.
          if (globalDebts !== null) {
             setTransactions(prev => {
-               const localOnly = prev.filter(t => !t.isExternal);
-               const combined = [...localOnly, ...globalDebts];
-               // Deduplicação por ID
-               const unique = Array.from(new Map(combined.map(item => [String(item.id), item])).values());
-               return unique.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+               const uniqueMap = new Map();
+               // Prioridade para transações locais
+               prev.filter(t => !t.isExternal).forEach(t => uniqueMap.set(t.id, t));
+               // Adiciona externas
+               globalDebts.forEach(t => uniqueMap.set(t.id, t));
+               
+               return Array.from(uniqueMap.values()).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             });
          }
-      } else {
-         console.warn('[App] Usuário sem telefone cadastrado, ignorando busca de dívidas externas.');
       }
     } catch (e) {
       console.error('[loadWorkspaceData] Erro crítico ao carregar dados:', e);
@@ -581,9 +583,12 @@ export const App: React.FC = () => {
 
     if (hasChanges) {
       console.log('[Omnichannel] Sincronizando preços da Vitrine com a Fábrica...');
-      saveProfile({ workspaceId: currentUser.workspaceId, portfolio: updatedPortfolio }).then(updated => {
-        if (updated) setCompanyProfile(updated);
-      });
+      // Usar setTimeout para evitar o erro de atualizar estado durante o render
+      setTimeout(() => {
+        saveProfile({ workspaceId: currentUser.workspaceId, portfolio: updatedPortfolio }).then(updated => {
+          if (updated) setCompanyProfile(updated);
+        }).catch(err => console.error('Erro na sincronização Omnichannel:', err));
+      }, 0);
     }
   }, [sections, companyProfile, currentUser?.workspaceId, saveProfile]);
 
@@ -634,7 +639,7 @@ export const App: React.FC = () => {
     fetchPublicProfiles(true);
   }, [fetchPublicStalls, fetchPublicProfiles]);
 
-  const allowedSections = useMemo(() => {
+  const allowedSections = React.useMemo(() => {
     if (!currentUser || !sections.length) return [];
     if (targetType === 'CUSTOMER') return [];
     if (currentUser.role === 'OWNER') return sections.filter(s => s.type !== 'STOCK_STYLE');
@@ -1140,7 +1145,7 @@ export const App: React.FC = () => {
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <div className="p-4 pt-6 max-w-7xl mx-auto">
           {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} historicalSummaries={historicalSummaries} />}
-        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} customers={customers} addCustomer={addCustomer} removeCustomer={removeCustomer} updateCustomer={updateCustomer} />}
+        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} moveSection={moveSection} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={(d) => setTimeout(() => setIsSettingsDirty(d), 0)} customers={customers} addCustomer={addCustomer} removeCustomer={removeCustomer} updateCustomer={updateCustomer} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} adjustStockItem={adjustStockItem} />}
         {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}

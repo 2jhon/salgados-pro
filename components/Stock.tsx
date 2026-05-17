@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppSection, ConfigItem, StockMode, StockMovement, User } from '../types';
+import { ScrollContainer } from './ScrollContainer';
 import { 
   Package, Search, AlertCircle, TrendingDown, 
   ArrowRightLeft, Settings2, Check, X, Plus, Minus,
@@ -37,9 +38,9 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
   const [newItem, setNewItem] = useState({ name: '', currentStock: '', minStock: '' });
 
   // Seções de venda disponíveis para vincular
-  const salesSections = useMemo(() => sections.filter(s => s.type !== 'STOCK_STYLE'), [sections]);
+  const salesSections = React.useMemo(() => sections.filter(s => s.type !== 'STOCK_STYLE'), [sections]);
   
-  const allStockSections = useMemo(() => sections.filter(s => s.type === 'STOCK_STYLE'), [sections]);
+  const allStockSections = React.useMemo(() => sections.filter(s => s.type === 'STOCK_STYLE'), [sections]);
   const firstStockSection = allStockSections[0];
   const globalMode = firstStockSection?.globalStockMode || 'GLOBAL';
   
@@ -76,14 +77,14 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
     }
   };
 
-  const stockItems = useMemo(() => {
+  const stockItems = React.useMemo(() => {
     const items: { sectionName: string; sectionId: string; item: ConfigItem; linkedTo?: string }[] = [];
     
     sections.forEach(s => {
       if (s.type === 'STOCK_STYLE') {
         // No modo global, mostra tudo. No modo local, mostra apenas da seção ativa.
         if (globalMode === 'GLOBAL' || s.id === activeStockSectionId) {
-          const sectionItems = s.items || [];
+          const sectionItems = [...(s.items || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
           sectionItems.forEach(i => {
             if (i.name.toLowerCase().includes(searchTerm.toLowerCase())) {
               const linkedSection = salesSections.find(ss => ss.id === s.linkedSectionId);
@@ -376,8 +377,8 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
       </div>
 
       {/* Tabs */}
-      <div className="flex px-2 mb-6">
-        <div className="flex bg-slate-200/50 p-1 rounded-2xl w-full sm:w-auto">
+      <ScrollContainer className="flex px-2 mb-6 no-scrollbar">
+        <div className="flex bg-slate-200/50 p-1 rounded-2xl w-full sm:w-auto min-w-[300px]">
           <button
             onClick={() => setActiveTab('CURRENT')}
             className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
@@ -395,7 +396,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
             <History className="w-4 h-4" /> Histórico
           </button>
         </div>
-      </div>
+      </ScrollContainer>
 
       {activeTab === 'CURRENT' ? (
         <>
@@ -483,10 +484,9 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
             </button>
           </div>
 
-          {/* Grid de Itens */}
-          <div className="grid gap-4 px-2">
+          <ScrollContainer className="flex overflow-x-auto gap-4 pb-12 snap-x snap-mandatory px-4 -mx-4 no-scrollbar">
             {stockItems.length === 0 ? (
-              <div className="p-16 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+              <div className="p-16 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 w-full min-w-[300px]">
                 <Box className="w-16 h-16 text-slate-100 mx-auto mb-6" />
                 <h3 className="text-slate-800 font-black text-lg mb-2">Estoque Vazio</h3>
                 <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest max-w-[200px] mx-auto leading-relaxed">
@@ -494,39 +494,35 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                 </p>
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 gap-4">
-                {stockItems.map(({ sectionName, sectionId, item, linkedTo }) => {
+                stockItems.map(({ sectionName, sectionId, item, linkedTo }) => {
                   const current = item.currentStock ?? 0;
                   const min = item.minStock ?? 0;
                   const isLow = current <= min && min > 0;
 
                   return (
-                    <div key={`${sectionId}-${item.id}`} className={`bg-white p-6 rounded-[2.5rem] shadow-xl border transition-all duration-300 ${isLow ? 'border-red-200 ring-8 ring-red-50/50' : 'border-slate-50'}`}>
-                      <div className="flex justify-between items-start mb-6">
-                        <div className="flex items-center gap-4">
-                          {item.imageUrl ? (
-                            <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-sm border border-slate-100">
-                              <img src={item.imageUrl} className="w-full h-full object-cover" />
-                            </div>
-                          ) : (
-                            <div className={`p-4 rounded-2xl ${isLow ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
-                              <Package className="w-6 h-6" />
-                            </div>
-                          )}
-                          
-                          <div>
-                            <h4 className="font-black text-slate-800 text-lg leading-tight">{item.name}</h4>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-full">{sectionName}</span>
-                              {globalMode === 'LOCAL' && linkedTo && (
-                                <span className="text-[8px] font-black text-indigo-500 uppercase px-2 py-0.5 bg-indigo-50 rounded-full flex items-center gap-1">
-                                  <LinkIcon className="w-2 h-2" /> {linkedTo}
-                                </span>
+                    <div key={`${sectionId}-${item.id}`} className={`snap-start shrink-0 w-[300px] bg-white p-6 rounded-[2.5rem] shadow-xl border transition-all duration-300 ${isLow ? 'border-red-200 ring-8 ring-red-50/50' : 'border-slate-50'}`}>
+                        <div className="flex justify-between items-start mb-6">
+                          <div className="flex items-center gap-4">
+                            <div className="flex flex-col gap-1 items-center">
+                              {item.imageUrl ? (
+                                <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                                  <img src={item.imageUrl} className="w-full h-full object-cover" />
+                                </div>
+                              ) : (
+                                <div className={`p-4 rounded-2xl ${isLow ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
+                                  <Package className="w-6 h-6" />
+                                </div>
                               )}
+                            </div>
+                            
+                            <div className="text-left">
+                              <h4 className="font-black text-slate-800 text-lg leading-tight truncate w-32">{item.name}</h4>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-full">{sectionName}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
 
                       <div className="flex items-center justify-between gap-6">
                         <div className="flex-1 relative">
@@ -540,10 +536,6 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                                 onChange={(e) => setEditValue(e.target.value)}
                                 className="w-full p-4 bg-slate-100 rounded-2xl font-black text-2xl text-center outline-none border-2 border-indigo-500"
                               />
-                              <div className="flex flex-col gap-1">
-                                <button onClick={() => updateItemStock(sectionId, item.id, { currentStock: parseFloat(editValue.replace(',', '.')) || 0 })} className="p-3 bg-green-600 text-white rounded-xl shadow-lg"><Check className="w-4 h-4" /></button>
-                                <button onClick={() => setIsEditing(null)} className="p-3 bg-slate-200 text-slate-500 rounded-xl"><X className="w-4 h-4" /></button>
-                              </div>
                             </div>
                           ) : (
                             <div className="relative">
@@ -563,14 +555,14 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
 
                               {/* Barra de Confirmação de Ajuste */}
                               {stagedAdjustments[item.id] !== undefined && stagedAdjustments[item.id].amount !== 0 && (
-                                <div className="absolute -bottom-12 left-0 right-0 flex items-center gap-2 animate-in slide-in-from-top-2">
+                                <div className="absolute -bottom-10 left-0 right-0 flex items-center gap-2 animate-in slide-in-from-top-2">
                                   <button 
                                     onClick={() => handleCommitAdjustment(sectionId, item.id)}
                                     disabled={isSavingAdjustment === item.id || isSavingAdjustment === 'ALL'}
                                     className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 active:scale-95 transition-all disabled:opacity-50"
                                   >
                                     {isSavingAdjustment === item.id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                                    Confirmar
+                                    Ok
                                   </button>
                                   <button 
                                     onClick={() => setStagedAdjustments(prev => { const n = {...prev}; delete n[item.id]; return n; })}
@@ -585,7 +577,6 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                         </div>
 
                         <div className={`flex flex-col gap-2 transition-all ${stagedAdjustments[item.id] ? 'opacity-40 hover:opacity-100' : ''}`}>
-                           <button onClick={() => handleStageAdjustment(item.id, 100, sectionId)} className="p-3 bg-indigo-100/50 text-indigo-700 rounded-2xl font-black text-[9px] active:scale-90 transition-all hover:bg-indigo-600 hover:text-white">+100</button>
                            <button onClick={() => handleStageAdjustment(item.id, 10, sectionId)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-[9px] active:scale-90 transition-all hover:bg-indigo-600 hover:text-white">+10</button>
                            <button onClick={() => handleStageAdjustment(item.id, -10, sectionId)} className="p-3 bg-red-50 text-red-600 rounded-2xl font-black text-[9px] active:scale-90 transition-all hover:bg-red-600 hover:text-white">-10</button>
                            <button onClick={() => {
@@ -602,10 +593,9 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                         </div>
                       </div>
 
-                      <div className={`flex items-center justify-between mt-6 pt-4 border-t border-slate-50 transition-all ${stagedAdjustments[item.id] && stagedAdjustments[item.id].amount !== 0 ? 'mt-14' : ''}`}>
+                      <div className={`flex items-center justify-between mt-6 pt-4 border-t border-slate-50 transition-all ${stagedAdjustments[item.id] && stagedAdjustments[item.id].amount !== 0 ? 'mt-12' : ''}`}>
                         <div className="flex items-center gap-2">
                           <AlertCircle className={`w-3 h-3 ${isLow ? 'text-red-600' : 'text-slate-300'}`} />
-                          <span className="text-[9px] font-black text-slate-400 uppercase">Aviso Mínimo:</span>
                           <input 
                             type="number"
                             defaultValue={min}
@@ -619,10 +609,9 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
                       </div>
                     </div>
                   );
-                })}
-              </div>
+                })
             )}
-          </div>
+          </ScrollContainer>
         </>
       ) : (
         <div className="px-2 animate-in fade-in duration-500">

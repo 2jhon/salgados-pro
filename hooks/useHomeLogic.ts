@@ -131,7 +131,7 @@ export const useHomeLogic = ({
     }
   };
 
-  const userAliases = useMemo(() => {
+  const userAliases = React.useMemo(() => {
     const aliases = new Set<string>();
     const userName = normalizeString(user.name);
     if (userName) aliases.add(userName); 
@@ -170,9 +170,9 @@ export const useHomeLogic = ({
     });
   }, [isOwner, user.phone, userAliases]);
 
-  const myDebts = useMemo(() => filterMyTransactions(transactions, true), [transactions, filterMyTransactions]);
-  const myHistory = useMemo(() => filterMyTransactions(transactions, false).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [transactions, filterMyTransactions]);
-  const totalDebt = useMemo(() => myDebts.reduce((acc, t) => acc + t.value, 0), [myDebts]);
+  const myDebts = React.useMemo(() => filterMyTransactions(transactions, true), [transactions, filterMyTransactions]);
+  const myHistory = React.useMemo(() => filterMyTransactions(transactions, false).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [transactions, filterMyTransactions]);
+  const totalDebt = React.useMemo(() => myDebts.reduce((acc, t) => acc + t.value, 0), [myDebts]);
 
   const groupTransactionsByDate = useCallback((list: Transaction[]) => {
     return list.reduce((groups, t) => {
@@ -183,8 +183,8 @@ export const useHomeLogic = ({
     }, {} as Record<string, Transaction[]>);
   }, []);
 
-  const debtsByDate = useMemo(() => groupTransactionsByDate(myDebts), [myDebts, groupTransactionsByDate]);
-  const historyByDate = useMemo(() => groupTransactionsByDate(myHistory.slice(0, visibleHistoryCount)), [myHistory, visibleHistoryCount, groupTransactionsByDate]);
+  const debtsByDate = React.useMemo(() => groupTransactionsByDate(myDebts), [myDebts, groupTransactionsByDate]);
+  const historyByDate = React.useMemo(() => groupTransactionsByDate(myHistory.slice(0, visibleHistoryCount)), [myHistory, visibleHistoryCount, groupTransactionsByDate]);
 
   const groupItemsByTime = useCallback((list: Transaction[]) => {
     const groups: Record<string, Transaction[]> = {};
@@ -275,7 +275,7 @@ export const useHomeLogic = ({
     }
   };
 
-  const availableOptions = useMemo(() => {
+  const availableOptions = React.useMemo(() => {
     const options = [{ id: 'MARKETPLACE', label: 'Vitrine Online', icon: 'ShoppingCart' }]; // Icons handled in component
     if (isOwner) {
       options.push(

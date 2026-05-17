@@ -4,6 +4,7 @@ import {
   Instagram, Flag, MapPin, Clock, Star, Plus, ChevronRight, ShoppingCart
 } from 'lucide-react';
 import { StoreProfile } from '../../types';
+import { ScrollContainer } from '../ScrollContainer';
 
 interface UnifiedStoreModalProps {
   activeView: any;
@@ -57,7 +58,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
   const workspaceId = activeView.data?.workspaceId || activeView.profile?.workspaceId;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
+    <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
       <div className="bg-white w-full max-w-5xl h-[85vh] sm:h-[90vh] rounded-t-[3rem] sm:rounded-[3rem] overflow-hidden flex flex-col shadow-3xl animate-in slide-in-from-bottom-10 relative">
         
         {/* BOTÃO X DE FECHAR GLOBAL (Sempre Visível) */}
@@ -342,14 +343,14 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                                </div>
                            </div>
                            {groupedItems.length > 0 && (
-                             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
+                             <ScrollContainer className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
                                <button onClick={(e) => { e.preventDefault(); document.getElementById('cat-geral')?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-slate-800 text-white font-bold text-[10px] shadow-sm active:scale-95 transition-all">CATEGORIAS</button>
                                {groupedItems.map(g => (
                                   <button key={g.category} onClick={(e) => { e.preventDefault(); document.getElementById(`cat-${g.category.replace(/\s+/g, '-').toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all uppercase">
                                     {g.category}
                                   </button>
                                ))}
-                             </div>
+                             </ScrollContainer>
                            )}
                         </div>
 
@@ -364,7 +365,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                                      </h3>
                                      <span className="text-[10px] font-bold text-slate-400">{group.items.length} ITENS</span>
                                  </div>
-                                 <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory px-8 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                                 <ScrollContainer className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory px-8 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }} containerClassName="-mx-8 px-0">
                                     {group.items.map((item: any, i: number) => (
                                       <button 
                                          key={i} 
@@ -401,7 +402,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                                          </div>
                                       </button>
                                     ))}
-                                 </div>
+                                 </ScrollContainer>
                               </div>
                            ))}
                         </div>
