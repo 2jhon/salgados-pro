@@ -96,6 +96,16 @@ export const Factory: React.FC<FactoryProps> = ({
   } | null>(null);
 
   const hideMoney = user.hideSalesValues;
+  const [scale, setScale] = useState(() => localStorage.getItem('appInfoItemScale') || 'MD');
+
+  const toggleScale = () => {
+    const next = scale === 'SM' ? 'MD' : scale === 'MD' ? 'LG' : 'SM';
+    setScale(next);
+    localStorage.setItem('appInfoItemScale', next);
+    toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
+  };
+
+  const itemWidth = scale === 'SM' ? 'w-[280px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
 
   const handleQtyChange = (itemId: string, val: string) => {
     setBatchQuantities(prev => ({ ...prev, [itemId]: val }));
@@ -1040,7 +1050,7 @@ export const Factory: React.FC<FactoryProps> = ({
       )}
 
     <div className="space-y-6 pb-24">
-      <ScrollContainer className="flex overflow-x-auto no-scrollbar">
+      <ScrollContainer className="flex overflow-x-auto no-scrollbar gap-2">
         <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex w-full">
           <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
           <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
@@ -1050,6 +1060,18 @@ export const Factory: React.FC<FactoryProps> = ({
           </button>
           <button onClick={() => setActiveTab('GASTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingDown className="w-4 h-4" /> Despesas</button>
         </div>
+        <button 
+          onClick={toggleScale}
+          className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors shrink-0 flex items-center justify-center gap-2"
+          title="Ajustar Tamanho"
+        >
+          <div className="flex items-end gap-0.5 h-4 mb-0.5">
+            <div className={`w-1 rounded-full bg-current ${scale === 'SM' ? 'h-2' : scale === 'MD' ? 'h-3' : 'h-4'}`} />
+            <div className={`w-1 rounded-full bg-current ${scale === 'MD' ? 'h-3' : scale === 'LG' ? 'h-4' : 'h-1'}`} />
+            <div className={`w-1 rounded-full bg-current ${scale === 'LG' ? 'h-4' : 'h-1'}`} />
+          </div>
+          <span className="text-[10px] font-black uppercase hidden sm:inline">{scale}</span>
+        </button>
       </ScrollContainer>
 
       {activeTab === 'A_RECEBER' && (
@@ -1265,7 +1287,7 @@ export const Factory: React.FC<FactoryProps> = ({
                     const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
 
                     return (
-                      <div key={item.id} className="shrink-0 snap-start w-[350px] bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all">
+                      <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all`}>
                         {hasPromo && isPromoActive && (
                           <div className="absolute top-0 left-0 bg-rose-500 text-white text-[12px] font-black uppercase px-4 py-1.5 rounded-br-3xl z-10 shadow-sm">
                             Oferta

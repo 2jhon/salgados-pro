@@ -23,7 +23,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
   if (!selectedProduct) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+    <div className="fixed inset-0 z-[90] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
         <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-3xl relative overflow-y-auto max-h-[90vh]">
           <button 
             onClick={() => setSelectedProduct(null)} 

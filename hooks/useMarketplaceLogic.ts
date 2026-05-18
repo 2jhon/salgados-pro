@@ -453,6 +453,7 @@ export const useMarketplaceLogic = ({
     if (selectedProduct) { 
       setCart(prev => [...prev, { product: selectedProduct, qty: quantity }]); 
       trackEvent('add_to_cart', selectedProduct.id, activeView?.workspaceId || undefined, { qty: quantity, price: getEffectivePrice(selectedProduct) });
+      toast.success(`${quantity}x ${selectedProduct.name} adicionado ao carrinho!`);
       setSelectedProduct(null); 
     } 
   };

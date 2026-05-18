@@ -58,7 +58,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
   const workspaceId = activeView.data?.workspaceId || activeView.profile?.workspaceId;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
+    <div className="fixed inset-0 z-[70] bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
       <div className="bg-white w-full max-w-5xl h-[85vh] sm:h-[90vh] rounded-t-[3rem] sm:rounded-[3rem] overflow-hidden flex flex-col shadow-3xl animate-in slide-in-from-bottom-10 relative">
         
         {/* BOTÃO X DE FECHAR GLOBAL (Sempre Visível) */}

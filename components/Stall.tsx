@@ -45,6 +45,16 @@ export const Stall: React.FC<StallProps> = ({
   const [newDefaultQty, setNewDefaultQty] = useState('');
 
   const [showConfig, setShowConfig] = useState(false);
+  const [scale, setScale] = useState(() => localStorage.getItem('appInfoItemScale') || 'MD');
+
+  const toggleScale = () => {
+    const next = scale === 'SM' ? 'MD' : scale === 'MD' ? 'LG' : 'SM';
+    setScale(next);
+    localStorage.setItem('appInfoItemScale', next);
+    toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
+  };
+
+  const itemWidth = scale === 'SM' ? 'w-[280px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
 
   const [localConfig, setLocalConfig] = useState({
     isPublic: section.isPublic,
@@ -541,6 +551,18 @@ export const Stall: React.FC<StallProps> = ({
             <TrendingDown className="w-4 h-4" /> Despesas
           </button>
         </div>
+        <button 
+          onClick={toggleScale}
+          className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors shrink-0 flex items-center justify-center gap-2"
+          title="Ajustar Tamanho"
+        >
+          <div className="flex items-end gap-0.5 h-4 mb-0.5">
+            <div className={`w-1 rounded-full bg-current ${scale === 'SM' ? 'h-2' : scale === 'MD' ? 'h-3' : 'h-4'}`} />
+            <div className={`w-1 rounded-full bg-current ${scale === 'MD' ? 'h-3' : scale === 'LG' ? 'h-4' : 'h-1'}`} />
+            <div className={`w-1 rounded-full bg-current ${scale === 'LG' ? 'h-4' : 'h-1'}`} />
+          </div>
+          <span className="text-[10px] font-black uppercase hidden sm:inline">{scale}</span>
+        </button>
         {user.role === 'OWNER' && (
           <button 
             onClick={() => setShowConfig(true)}
@@ -595,7 +617,7 @@ export const Stall: React.FC<StallProps> = ({
                      const originalPrice = saleMethod === 'A_VISTA' ? (item.defaultPriceAVista || item.defaultPrice || 0) : (item.defaultPriceAPrazo || item.defaultPrice || 0);
 
                      return (
-                         <div key={item.id} className="shrink-0 snap-start w-[350px] bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all border-l-4" style={{ borderLeftColor: sold > 0 ? '#4f46e5' : 'transparent' }}>
+                         <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all border-l-4`} style={{ borderLeftColor: sold > 0 ? '#4f46e5' : 'transparent' }}>
                            {hasPromo && isPromoActive && (
                              <div className="absolute top-0 left-0 bg-rose-500 text-white text-[12px] font-black uppercase px-4 py-1.5 rounded-br-3xl z-10 shadow-sm">
                                Oferta

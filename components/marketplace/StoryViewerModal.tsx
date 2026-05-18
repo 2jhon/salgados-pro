@@ -25,7 +25,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
   if (!currentStoryItem) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black flex flex-col animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[110] bg-black flex flex-col animate-in fade-in duration-200">
         {/* Progress Bars */}
         <div className="absolute top-0 left-0 right-0 p-2 flex gap-1 z-20">
             {activeStory.items.map((_, idx) => (

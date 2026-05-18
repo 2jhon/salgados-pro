@@ -21,7 +21,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   if (!reportTarget) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
+    <div className="fixed inset-0 z-[110] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in-95">
         <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 shadow-3xl text-center border-4 border-rose-100">
           <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-black text-slate-800 uppercase flex items-center gap-2"><Flag className="text-rose-500" /> Denunciar</h3>
