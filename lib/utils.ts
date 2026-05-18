@@ -83,9 +83,9 @@ let audioCtx: AudioContext | null = null;
 export const playSoundFromCategory = (category: 'SALES' | 'ORDERS' | 'SYSTEM') => {
   let mode = 'PADRÃO';
   if (category === 'SALES') {
-     mode = localStorage.getItem('appInfoSoundModeSales') || 'CAIXA'; // default for sales
+     mode = localStorage.getItem('appInfoSoundModeSales') || 'CASH'; // default for sales changed to CASH
   } else if (category === 'ORDERS') {
-     mode = localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO';
+     mode = localStorage.getItem('appInfoSoundModeOrders') || 'CHECK'; // default for orders changed to CHECK
   } else {
      mode = localStorage.getItem('appInfoSoundMode') || 'PADRÃO';
   }

@@ -39,7 +39,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
   const filteredAds = ads.filter(ad => ad.ownerId === currentUser.id);
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-700">
+    <div className="space-y-10">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form Column */}
         <div className="lg:col-span-2 space-y-8">
@@ -229,7 +229,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
 
         {confirmDeleteAdId && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Trash2 size={32} />
               </div>

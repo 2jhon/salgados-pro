@@ -49,7 +49,7 @@ export const PlansTab: React.FC<PlansTabProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-6 pb-20">
       
       {/* Plano Atual */}
       <div className="bg-[#131B2B] p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden">

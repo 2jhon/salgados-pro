@@ -868,7 +868,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
   };
 
   return (
-    <div className="space-y-6 pb-20 animate-in fade-in duration-700">
+    <div className="space-y-6 pb-20">
       <header className="bg-slate-950 p-8 rounded-[3rem] text-white shadow-2xl relative border-2 border-amber-500/30">
         <div className="relative z-10 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -938,7 +938,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
                       </button>
 
                       {expandedPlansForCompany[c.workspaceId] && (
-                        <div className="mt-2 space-y-6 animate-in slide-in-from-top-2 duration-300">
+                        <div className="mt-2 space-y-6">
                           {/* SEÇÃO 1: PLANOS DE ASSINATURA (DB) */}
                           {plans.length > 0 && (
                             <div className="space-y-2">
@@ -1916,7 +1916,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       {/* CONFIRMAR EXCLUSÃO DE PLANO */}
       {confirmDeletePlanId && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
             </div>
@@ -1949,7 +1949,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
       {/* CONFIRMAR BLOQUEIO DE EMPRESA */}
       {confirmBlockCompanyModal && selectedCompany && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${selectedCompany.isBlocked ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
               <Ban size={32} />
             </div>
@@ -1983,7 +1983,7 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({ onExit }) => {
 
       {confirmSuperAdminAction && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
             </div>

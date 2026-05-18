@@ -244,7 +244,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.sales)}</p>
           
           {expandedCard === 'sales' && breakdowns.sales.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-emerald-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
+            <div className="mt-4 pt-4 border-t border-emerald-500/30 space-y-2 relative z-10">
                {breakdowns.sales.map((item, idx) => (
                  <div key={idx} className="flex items-center justify-between text-xs">
                    <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
@@ -268,7 +268,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.expenses)}</p>
 
           {expandedCard === 'expenses' && breakdowns.expenses.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-rose-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
+            <div className="mt-4 pt-4 border-t border-rose-500/30 space-y-2 relative z-10">
                {breakdowns.expenses.map((item, idx) => (
                  <div key={idx} className="flex items-center justify-between text-xs">
                    <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
@@ -296,8 +296,8 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
                 content={<CustomTooltip />}
               />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: 800, paddingTop: '10px' }} />
-              <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-              <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} />
+              <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+              <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -333,8 +333,8 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
                   content={<CustomTooltip />}
                 />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: 800, paddingTop: '10px' }} />
-                <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+                <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>

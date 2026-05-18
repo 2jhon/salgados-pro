@@ -1,44 +1,53 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ScrollContainerProps {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   containerClassName?: string;
+  style?: React.CSSProperties;
 }
 
-export const ScrollContainer: React.FC<ScrollContainerProps> = ({ 
+export const ScrollContainer = ({ 
   children, 
   className = "", 
-  containerClassName = "" 
-}) => {
+  containerClassName = "",
+  style
+}: ScrollContainerProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeft, setShowLeft] = useState(false);
   const [showRight, setShowRight] = useState(false);
 
-  const checkScroll = () => {
-    if (scrollRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-      setShowLeft(scrollLeft > 20); // 20px threshold
-      setShowRight(scrollLeft < scrollWidth - clientWidth - 20);
-    }
-  };
-
   useEffect(() => {
     const el = scrollRef.current;
+    let rafId: number;
+
+    const handleScroll = () => {
+      if (typeof window === 'undefined') return;
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (el) {
+          const { scrollLeft, scrollWidth, clientWidth } = el;
+          setShowLeft(scrollLeft > 20); // 20px threshold
+          setShowRight(scrollLeft < scrollWidth - clientWidth - 20);
+        }
+      });
+    };
+
     if (el) {
-      checkScroll();
-      el.addEventListener('scroll', checkScroll);
-      window.addEventListener('resize', checkScroll);
+      handleScroll();
+      el.addEventListener('scroll', handleScroll, { passive: true });
+      window.addEventListener('resize', handleScroll);
       
-      // Observer for content changes
-      const observer = new MutationObserver(checkScroll);
-      observer.observe(el, { childList: true, subtree: true });
+      // Observer for content changes (only direct children to avoid excessive firing)
+      const observer = new MutationObserver(handleScroll);
+      observer.observe(el, { childList: true });
 
       return () => {
-        el.removeEventListener('scroll', checkScroll);
-        window.removeEventListener('resize', checkScroll);
+        el.removeEventListener('scroll', handleScroll);
+        window.removeEventListener('resize', handleScroll);
         observer.disconnect();
+        cancelAnimationFrame(rafId);
       };
     }
   }, []);
@@ -65,8 +74,8 @@ export const ScrollContainer: React.FC<ScrollContainerProps> = ({
       {/* Main Container */}
       <div
         ref={scrollRef}
-        className={`no-scrollbar ${className}`}
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        className={`transform-gpu no-scrollbar ${className}`}
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch', ...style }}
       >
         {children}
       </div>

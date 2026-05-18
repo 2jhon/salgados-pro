@@ -33,7 +33,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="space-y-8">
       <div className="flex items-center justify-between px-4">
         <h3 className="text-2xl font-black text-slate-800 tracking-tighter">Minhas Abas</h3>
         <button 
@@ -45,7 +45,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
       </div>
 
       <div className="space-y-4 px-2">
-        {sections.map((section) => (
+        {sections.filter(s => s.type !== 'SYSTEM_SETTINGS').map((section) => (
           <div 
             key={section.id} 
             className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-50 flex items-center justify-between group hover:border-indigo-100 hover:shadow-md transition-all active:scale-[0.98]"
@@ -96,7 +96,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
           </div>
         ))}
 
-        {sections.length === 0 && (
+        {sections.filter(s => s.type !== 'SYSTEM_SETTINGS').length === 0 && (
           <div className="py-20 text-center space-y-4">
              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto">
                 <Store className="text-slate-200" size={40} />
@@ -108,7 +108,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
 
       {confirmDeleteSectionId && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
             </div>

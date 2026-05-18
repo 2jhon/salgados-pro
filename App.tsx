@@ -642,9 +642,9 @@ export const App: React.FC = () => {
   const allowedSections = React.useMemo(() => {
     if (!currentUser || !sections.length) return [];
     if (targetType === 'CUSTOMER') return [];
-    if (currentUser.role === 'OWNER') return sections.filter(s => s.type !== 'STOCK_STYLE');
+    if (currentUser.role === 'OWNER') return sections.filter(s => s.type !== 'STOCK_STYLE' && s.type !== 'SYSTEM_SETTINGS');
     const assignedIds = currentUser.assignedSectionIds || [];
-    return sections.filter(s => assignedIds.includes(s.id));
+    return sections.filter(s => assignedIds.includes(s.id) && s.type !== 'SYSTEM_SETTINGS');
   }, [sections, currentUser, targetType]);
 
   if (!currentUser) {

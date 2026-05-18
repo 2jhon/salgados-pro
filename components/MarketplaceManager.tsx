@@ -471,7 +471,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   };
 
   return (
-    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
+    <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50 space-y-8">
         <div className="flex justify-between items-center">
            <div className="flex items-center gap-4">

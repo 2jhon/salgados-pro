@@ -1039,7 +1039,7 @@ export const Factory: React.FC<FactoryProps> = ({
         </div>
       )}
 
-    <div className="space-y-6 pb-24 animate-in fade-in">
+    <div className="space-y-6 pb-24">
       <ScrollContainer className="flex overflow-x-auto no-scrollbar">
         <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex w-full">
           <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>

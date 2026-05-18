@@ -544,7 +544,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
               </div>
 
               {isExpanded && (
-                <div className="px-6 pb-8 animate-in slide-in-from-top-4 duration-500">
+                <div className="px-6 pb-8">
                   <div className="h-px bg-slate-100 mb-6" />
                   
                   {/* ZONA DE PERIGO PARA CONTAS EXCLUÍDAS/FANTASMAS */}
@@ -742,7 +742,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden">
             <div className="p-8 text-center">
               <div className="bg-red-100 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <AlertTriangle className="w-8 h-8 text-red-600" />
@@ -772,7 +772,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
 
       {ghostToDelete && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden">
             <div className="p-8 text-center">
               <div className="bg-rose-100 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 rotate-12">
                 <Trash2 className="w-10 h-10 text-rose-600" />
@@ -809,7 +809,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       {/* Modal de Relatórios por Data */}
       {reportManager && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-3xl overflow-hidden flex flex-col max-h-[80vh]">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div>
                 <h3 className="text-xl font-black text-slate-800">Relatórios</h3>
@@ -892,7 +892,7 @@ export const ManagerActivity: React.FC<ManagerActivityProps> = ({
       {/* Modal de Confirmação de Exclusão em Massa */}
       {showBulkDeleteModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden">
             <div className="p-8 text-center">
               <div className="bg-rose-100 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <Trash2 className="w-8 h-8 text-rose-600" />

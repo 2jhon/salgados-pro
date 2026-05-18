@@ -31,8 +31,8 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   clearTransactions, archiveYear, workspaceId, onUnlockGodMode,
   sections = [], saveConfig
 }) => {
-  const [soundModeSales, setSoundModeSales] = useState(() => localStorage.getItem('appInfoSoundModeSales') || 'CAIXA');
-  const [soundModeOrders, setSoundModeOrders] = useState(() => localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO');
+  const [soundModeSales, setSoundModeSales] = useState(() => localStorage.getItem('appInfoSoundModeSales') || 'CASH');
+  const [soundModeOrders, setSoundModeOrders] = useState(() => localStorage.getItem('appInfoSoundModeOrders') || 'CHECK');
   const [rootClicks, setRootClicks] = useState(0);
 
   useEffect(() => {
@@ -326,7 +326,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-6 pb-20">
       
       {/* IMPRESSORA TÉRMICA */}
       <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm flex flex-col">
@@ -564,7 +564,7 @@ export const SystemTab: React.FC<SystemTabProps> = ({
 
       {confirmClearInfo && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
             </div>

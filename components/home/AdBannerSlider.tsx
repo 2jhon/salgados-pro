@@ -70,7 +70,7 @@ export const AdBannerSlider: React.FC<AdBannerSliderProps> = ({
   if (filteredAds.length === 0) return null;
 
   return (
-    <div className="relative group animate-in slide-in-from-top-6 duration-700">
+    <div className="relative group">
       <div className="overflow-hidden rounded-[3rem] shadow-2xl border-[8px] border-white relative h-64 bg-slate-100">
         <div className="flex h-full transition-transform duration-1000" style={{ transform: `translateX(-${currentAdIndex * 100}%)` }}>
           {filteredAds.map((ad) => {

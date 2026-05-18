@@ -342,7 +342,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
   const currentActiveSection = sections.find(s => s.id === activeStockSectionId);
 
   return (
-    <div className="space-y-6 pb-24 animate-in fade-in duration-500">
+    <div className="space-y-6 pb-24">
       {/* Cabeçalho */}
       <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
         <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start gap-6">
@@ -402,7 +402,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
         <>
           {/* Painel de Vínculo - Visível apenas no modo Separado */}
           {globalMode === 'LOCAL' && (
-            <div className="px-2 animate-in slide-in-from-top-4 duration-500">
+            <div className="px-2">
                <div className="bg-white p-6 rounded-[2.5rem] border-2 border-indigo-100 shadow-xl shadow-indigo-900/5">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200">
@@ -614,7 +614,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
           </ScrollContainer>
         </>
       ) : (
-        <div className="px-2 animate-in fade-in duration-500">
+        <div className="px-2">
           <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h3 className="font-black text-slate-800 flex items-center gap-2">
@@ -716,7 +716,7 @@ export const Stock: React.FC<StockProps> = ({ sections, saveConfig, workspaceId,
       {/* Modal Adicionar Item */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8 animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden p-8">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl"><PlusCircle className="w-5 h-5" /></div>

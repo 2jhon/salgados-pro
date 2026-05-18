@@ -79,7 +79,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
   };
 
   return (
-    <div className="mt-6 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in duration-500">
+    <div className="mt-6 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
       <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
         <h3 className="font-semibold text-slate-700">{title}</h3>
         <div className="flex items-center gap-2">
@@ -194,7 +194,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = memo(({ transactions, o
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-3xl overflow-hidden">
             <div className="p-8 text-center">
               <div className="bg-red-100 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <AlertTriangle className="w-8 h-8 text-red-600" />

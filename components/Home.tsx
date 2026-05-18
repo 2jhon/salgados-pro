@@ -115,7 +115,7 @@ export const Home: React.FC<HomeProps> = ({
   }, [availableOptions]);
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-700 pb-32">
+    <div className="space-y-10 pb-32">
       <div className="flex items-center justify-between px-2">
          <div className="space-y-1">
            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Dashboard</p>
@@ -139,7 +139,7 @@ export const Home: React.FC<HomeProps> = ({
       )}
 
       {!isOwner && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
+          <div className="space-y-8">
               <FavoriteStoresSlider 
                 favorites={userInteractions.favorites}
                 stores={stores}

@@ -320,7 +320,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                  <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Abas Autorizadas</label>
                     <div className="grid grid-cols-2 gap-2">
-                       {props.sections.map(section => (
+                       {props.sections.filter(s => s.type !== 'SYSTEM_SETTINGS').map(section => (
                          <button 
                            key={section.id}
                            onClick={() => {

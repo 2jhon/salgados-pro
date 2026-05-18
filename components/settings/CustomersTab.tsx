@@ -73,7 +73,7 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({
   }, [showCustomerHistory]);
 
   return (
-    <div className="animate-in fade-in duration-500">
+    <div className="">
       
       {/* Pills Container */}
       <div className="flex bg-slate-50 p-1.5 rounded-[1.5rem] w-full mb-6 relative">
@@ -169,7 +169,7 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({
       {/* Customer Modal overlay */}
       {showCustomerModal && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-           <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300">
+           <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">
                   {editingCustomer ? 'Editar' : 'Novo'} {clientSubTab === 'CLIENT' ? 'Cliente' : 'Fornecedor'}
@@ -218,7 +218,7 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({
       {/* Customer History Modal */}
       {showCustomerHistory && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-           <div className="bg-white rounded-[2.5rem] p-8 max-w-lg w-full shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
+           <div className="bg-white rounded-[2.5rem] p-8 max-w-lg w-full shadow-2xl flex flex-col max-h-[85vh]">
               <div className="flex justify-between items-center mb-6 shrink-0">
                  <div>
                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Histórico</h3>
@@ -275,7 +275,7 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({
 
        {showConfirmDelete && (
          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
                  <Trash2 size={32} />
                </div>

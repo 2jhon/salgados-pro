@@ -27,7 +27,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6">
       <div className="flex items-center justify-between px-2">
         <div>
           <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Sua Equipe</h3>
@@ -97,7 +97,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
 
       {confirmDeleteUserId && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 size={32} />
             </div>
