@@ -54,7 +54,40 @@ export const Stall: React.FC<StallProps> = ({
     toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
   };
 
-  const itemWidth = scale === 'SM' ? 'w-[280px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+  const itemWidth = scale === 'SM' ? 'w-[260px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+
+  const cardStyle = useMemo(() => {
+    if (scale === 'SM') return { 
+      padding: 'p-4', 
+      gap: 'gap-2', 
+      imgSize: 'w-16 h-16', 
+      iconSize: 32, 
+      titleSize: 'text-sm', 
+      priceSize: 'text-lg',
+      inputHeight: 'h-10',
+      inputFont: 'text-sm'
+    };
+    if (scale === 'LG') return { 
+      padding: 'p-8', 
+      gap: 'gap-8', 
+      imgSize: 'w-32 h-32', 
+      iconSize: 64, 
+      titleSize: 'text-xl', 
+      priceSize: 'text-3xl',
+      inputHeight: 'h-16',
+      inputFont: 'text-2xl'
+    };
+    return { 
+      padding: 'p-6', 
+      gap: 'gap-6', 
+      imgSize: 'w-24 h-24', 
+      iconSize: 48, 
+      titleSize: 'text-lg', 
+      priceSize: 'text-xl',
+      inputHeight: 'h-14',
+      inputFont: 'text-xl'
+    };
+  }, [scale]);
 
   const [localConfig, setLocalConfig] = useState({
     isPublic: section.isPublic,
@@ -617,68 +650,68 @@ export const Stall: React.FC<StallProps> = ({
                      const originalPrice = saleMethod === 'A_VISTA' ? (item.defaultPriceAVista || item.defaultPrice || 0) : (item.defaultPriceAPrazo || item.defaultPrice || 0);
 
                      return (
-                         <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all border-l-4`} style={{ borderLeftColor: sold > 0 ? '#4f46e5' : 'transparent' }}>
-                           {hasPromo && isPromoActive && (
-                             <div className="absolute top-0 left-0 bg-rose-500 text-white text-[12px] font-black uppercase px-4 py-1.5 rounded-br-3xl z-10 shadow-sm">
-                               Oferta
-                             </div>
-                           )}
-                           
-                           <div className="flex items-start gap-5">
-                               <div className="flex flex-col gap-1 shrink-0">
-                                   <div className="w-24 h-24 bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
-                                       {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Store className="text-slate-300 w-12 h-12" />}
-                                   </div>
-                               </div>
-                               <div className="flex-1 min-w-0 pt-1 text-left">
-                                 <div className="flex items-start justify-between gap-2 mb-2">
-                                     <h4 className="font-black text-slate-800 text-lg uppercase leading-tight line-clamp-2">{item.name}</h4>
-                                     <button onClick={() => handleOpenDefaultQty(item)} className="text-slate-300 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-all shrink-0 mt-0.5 mt-[-4px] mr-[-4px]" title="Definir quantidade padrão">
-                                         <Edit3 size={16} />
-                                     </button>
-                                 </div>
-                                 {hasPromo && isPromoActive ? (
-                                   <div className="flex items-end gap-2">
-                                     <p className="text-xl font-black text-emerald-600 leading-none">{formatCurrency(price)}</p>
-                                     <p className="text-xs font-bold text-slate-400 line-through mb-0.5">{formatCurrency(originalPrice)}</p>
-                                   </div>
-                                 ) : (
-                                   <p className="text-xl font-black text-slate-600 leading-none">{formatCurrency(price)}</p>
-                                 )}
-                               </div>
-                           </div>
-                           
-                           <div className="flex items-end justify-between bg-slate-50 p-4 rounded-3xl border border-slate-100/50">
-                               <div>
-                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Saldo Vendido</p>
-                                 <p className={`text-5xl font-black tracking-tighter ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{sold}</p>
-                               </div>
-                           </div>
+                         <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white ${cardStyle.padding} rounded-[3rem] shadow-md border border-slate-50 flex flex-col ${cardStyle.gap} relative overflow-hidden active:scale-[0.98] transition-all border-l-4`} style={{ borderLeftColor: sold > 0 ? '#4f46e5' : 'transparent' }}>
+                            {hasPromo && isPromoActive && (
+                              <div className="absolute top-0 left-0 bg-rose-500 text-white text-[10px] font-black uppercase px-3 py-1 rounded-br-2xl z-10 shadow-sm">
+                                Oferta
+                              </div>
+                            )}
+                            
+                            <div className={`flex items-start ${scale === 'SM' ? 'gap-3' : 'gap-5'}`}>
+                                <div className="flex flex-col gap-1 shrink-0">
+                                    <div className={`${cardStyle.imgSize} bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden`}>
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Store className={`text-slate-300 w-2/3 h-2/3`} />}
+                                    </div>
+                                </div>
+                                <div className="flex-1 min-w-0 pt-1 text-left">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                      <h4 className={`font-black text-slate-800 ${cardStyle.titleSize} uppercase leading-tight line-clamp-2`}>{item.name}</h4>
+                                      <button onClick={() => handleOpenDefaultQty(item)} className="text-slate-300 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-all shrink-0 -mt-1 -mr-1" title="Definir quantidade padrão">
+                                          <Edit3 size={16} />
+                                      </button>
+                                  </div>
+                                  {hasPromo && isPromoActive ? (
+                                    <div className="flex items-end gap-2">
+                                      <p className={`font-black text-emerald-600 leading-none ${cardStyle.priceSize}`}>{formatCurrency(price)}</p>
+                                      <p className="text-[10px] font-bold text-slate-400 line-through mb-0.5">{formatCurrency(originalPrice)}</p>
+                                    </div>
+                                  ) : (
+                                    <p className={`font-black text-slate-600 leading-none ${cardStyle.priceSize}`}>{formatCurrency(price)}</p>
+                                  )}
+                                </div>
+                            </div>
+                            
+                            <div className={`flex items-end justify-between bg-slate-50 ${scale === 'SM' ? 'p-2' : 'p-4'} rounded-2xl border border-slate-100/50`}>
+                                <div>
+                                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Saldo Vendido</p>
+                                  <p className={`font-black tracking-tighter ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'} ${scale === 'SM' ? 'text-2xl' : 'text-5xl'}`}>{sold}</p>
+                                </div>
+                            </div>
 
-                           <div className="flex gap-2 relative z-20">
-                               <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col justify-center border-2 border-transparent focus-within:border-indigo-400 focus-within:bg-indigo-50 transition-all relative">
-                                 <span className="absolute top-2 left-3 text-[8px] font-black text-slate-400 uppercase tracking-widest">Entrou</span>
-                                 <input 
-                                     type="number" 
-                                     inputMode="decimal" 
-                                     value={(data as any).took || ''} 
-                                     onChange={e => handleStallInput(item.id, 'took', e.target.value)} 
-                                     className="w-full h-14 pt-4 px-3 bg-transparent font-black text-center text-xl outline-none text-slate-700 placeholder:text-slate-300" 
-                                     placeholder={item.defaultQty ? String(item.defaultQty) : "0"}
-                                 />
-                               </div>
-                               <div className="flex-1 bg-slate-100 rounded-2xl flex flex-col justify-center border-2 border-transparent focus-within:border-orange-400 focus-within:bg-orange-50 transition-all relative">
-                                 <span className="absolute top-2 left-3 text-[8px] font-black text-slate-400 uppercase tracking-widest">Restou</span>
-                                 <input 
-                                     type="number" 
-                                     inputMode="decimal" 
-                                     value={(data as any).returned || ''} 
-                                     onChange={e => handleStallInput(item.id, 'returned', e.target.value)} 
-                                     className="w-full h-14 pt-4 px-3 bg-transparent font-black text-center text-xl outline-none text-slate-700 placeholder:text-slate-300" 
-                                     placeholder="0" 
-                                 />
-                               </div>
-                           </div>
+                            <div className="flex gap-2 relative z-20">
+                                <div className={`flex-1 bg-slate-100 rounded-2xl flex flex-col justify-center border-2 border-transparent focus-within:border-indigo-400 focus-within:bg-indigo-50 transition-all relative`}>
+                                  <span className="absolute top-1 left-3 text-[7px] font-black text-slate-400 uppercase tracking-widest">Entrou</span>
+                                  <input 
+                                      type="number" 
+                                      inputMode="decimal" 
+                                      value={(data as any).took || ''} 
+                                      onChange={e => handleStallInput(item.id, 'took', e.target.value)} 
+                                      className={`w-full ${cardStyle.inputHeight} pt-3 px-3 bg-transparent font-black text-center ${cardStyle.inputFont} outline-none text-slate-700 placeholder:text-slate-300`} 
+                                      placeholder={item.defaultQty ? String(item.defaultQty) : "0"}
+                                  />
+                                </div>
+                                <div className={`flex-1 bg-slate-100 rounded-2xl flex flex-col justify-center border-2 border-transparent focus-within:border-orange-400 focus-within:bg-orange-50 transition-all relative`}>
+                                  <span className="absolute top-1 left-3 text-[7px] font-black text-slate-400 uppercase tracking-widest">Restou</span>
+                                  <input 
+                                      type="number" 
+                                      inputMode="decimal" 
+                                      value={(data as any).returned || ''} 
+                                      onChange={e => handleStallInput(item.id, 'returned', e.target.value)} 
+                                      className={`w-full ${cardStyle.inputHeight} pt-3 px-3 bg-transparent font-black text-center ${cardStyle.inputFont} outline-none text-slate-700 placeholder:text-slate-300`} 
+                                      placeholder="0" 
+                                  />
+                                </div>
+                            </div>
                          </div>
                      );
                    })}

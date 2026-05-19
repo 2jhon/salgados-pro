@@ -105,7 +105,40 @@ export const Factory: React.FC<FactoryProps> = ({
     toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
   };
 
-  const itemWidth = scale === 'SM' ? 'w-[280px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+  const itemWidth = scale === 'SM' ? 'w-[260px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+
+  const cardStyle = useMemo(() => {
+    if (scale === 'SM') return { 
+      padding: 'p-4', 
+      gap: 'gap-2', 
+      imgSize: 'w-16 h-16', 
+      iconSize: 32, 
+      titleSize: 'text-sm', 
+      priceSize: 'text-lg',
+      inputHeight: 'h-10',
+      inputFont: 'text-sm'
+    };
+    if (scale === 'LG') return { 
+      padding: 'p-8', 
+      gap: 'gap-8', 
+      imgSize: 'w-32 h-32', 
+      iconSize: 64, 
+      titleSize: 'text-xl', 
+      priceSize: 'text-3xl',
+      inputHeight: 'h-16',
+      inputFont: 'text-2xl'
+    };
+    return { 
+      padding: 'p-6', 
+      gap: 'gap-6', 
+      imgSize: 'w-24 h-24', 
+      iconSize: 48, 
+      titleSize: 'text-lg', 
+      priceSize: 'text-xl',
+      inputHeight: 'h-14',
+      inputFont: 'text-xl'
+    };
+  }, [scale]);
 
   const handleQtyChange = (itemId: string, val: string) => {
     setBatchQuantities(prev => ({ ...prev, [itemId]: val }));
@@ -1287,35 +1320,34 @@ export const Factory: React.FC<FactoryProps> = ({
                     const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
 
                     return (
-                      <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white p-6 rounded-[3rem] shadow-md border border-slate-50 flex flex-col gap-6 relative overflow-hidden active:scale-[0.98] transition-all`}>
+                      <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white ${cardStyle.padding} rounded-[3rem] shadow-md border border-slate-50 flex flex-col ${cardStyle.gap} relative overflow-hidden active:scale-[0.98] transition-all`}>
                         {hasPromo && isPromoActive && (
-                          <div className="absolute top-0 left-0 bg-rose-500 text-white text-[12px] font-black uppercase px-4 py-1.5 rounded-br-3xl z-10 shadow-sm">
+                          <div className="absolute top-0 left-0 bg-rose-500 text-white text-[10px] font-black uppercase px-3 py-1 rounded-br-2xl z-10 shadow-sm">
                             Oferta
                           </div>
                         )}
                         
-                        {/* Identificação do Item */}
-                        <div className="flex items-start gap-5">
+                        <div className={`flex items-start ${scale === 'SM' ? 'gap-3' : 'gap-5'}`}>
                           <div className="flex flex-col gap-1 shrink-0">
-                            <div className="w-24 h-24 bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
-                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className="text-slate-300 w-12 h-12" />}
+                            <div className={`${cardStyle.imgSize} bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden`}>
+                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className={`text-slate-300 w-2/3 h-2/3`} />}
                             </div>
                           </div>
                           <div className="flex-1 min-w-0 pt-1">
-                            <h4 className="font-black text-slate-800 text-lg uppercase leading-tight line-clamp-2 mb-2">{item.name}</h4>
+                            <h4 className={`font-black text-slate-800 ${cardStyle.titleSize} uppercase leading-tight line-clamp-2`}>{item.name}</h4>
                             {hasPromo && isPromoActive ? (
-                              <div className="flex flex-col">
-                                <p className="text-emerald-600 font-black text-xl">{formatCurrency(price)}</p>
-                                <p className="text-xs font-bold text-slate-400 line-through tracking-wide">{formatCurrency(originalPrice)}</p>
+                              <div className="flex flex-col mt-1">
+                                <p className={`text-emerald-600 font-black ${cardStyle.priceSize}`}>{formatCurrency(price)}</p>
+                                <p className="text-[10px] font-bold text-slate-400 line-through tracking-wide">{formatCurrency(originalPrice)}</p>
                               </div>
                             ) : (
-                              <p className="text-slate-500 font-black text-lg tracking-tight">{formatCurrency(price)}</p>
+                              <p className={`text-slate-500 font-black mt-1 ${cardStyle.priceSize} tracking-tight`}>{formatCurrency(price)}</p>
                             )}
                           </div>
                         </div>
 
                         {/* Bloco de Comando (Inputs e Ações) */}
-                        <div className="flex items-stretch gap-3 h-20">
+                        <div className={`flex items-stretch ${cardStyle.gap} ${cardStyle.inputHeight}`}>
                           {/* Input de Quantidade */}
                           <div className="flex-1 relative group">
                             <input 
@@ -1324,23 +1356,23 @@ export const Factory: React.FC<FactoryProps> = ({
                               value={qty} 
                               onChange={e => handleQtyChange(item.id, e.target.value)} 
                               placeholder="0" 
-                              className={`w-full h-full rounded-[1.8rem] font-black text-center text-4xl outline-none transition-all shadow-sm ${qty ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-400 border-2 border-slate-100 focus:border-indigo-300 focus:bg-white'}`} 
+                              className={`w-full h-full rounded-[1.8rem] font-black text-center ${cardStyle.inputFont} outline-none transition-all shadow-sm ${qty ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-400 border-2 border-slate-100 focus:border-indigo-300 focus:bg-white'}`} 
                             />
-                            {!qty && <span className="absolute left-1/2 -translate-x-1/2 -top-1 px-2 bg-white text-[9px] font-black text-slate-300 uppercase tracking-tighter">Qtd</span>}
+                            {!qty && <span className="absolute left-1/2 -translate-x-1/2 -top-1 px-2 bg-white text-[8px] font-black text-slate-300 uppercase tracking-tighter">Qtd</span>}
                           </div>
 
                           {/* Controles Laterais */}
                           <div className="shrink-0 flex items-stretch gap-2">
-                            <div className="w-14 shrink-0">
+                            <div className={`${scale === 'SM' ? 'w-10' : 'w-14'} shrink-0`}>
                               {hasBonusInput ? (
-                                <div className="flex flex-col gap-1.5 h-full">
+                                <div className="flex flex-col gap-1 h-full">
                                   <input 
                                     type="number" 
                                     inputMode="decimal" 
                                     value={bonusQty} 
                                     onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
                                     placeholder="B" 
-                                    className="w-full h-10 rounded-xl font-black text-center text-sm bg-emerald-50 text-emerald-700 border-2 border-emerald-100 outline-none shadow-inner" 
+                                    className={`w-full h-1/2 rounded-xl font-black text-center text-[10px] bg-emerald-50 text-emerald-700 border-2 border-emerald-100 outline-none shadow-inner`} 
                                   />
                                   <button 
                                     onClick={() => {
@@ -1350,18 +1382,18 @@ export const Factory: React.FC<FactoryProps> = ({
                                         return next;
                                       });
                                     }}
-                                    className="h-8 w-full flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 active:scale-95 transition-all shadow-sm"
+                                    className="h-1/2 w-full flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 active:scale-95 transition-all shadow-sm"
                                   >
-                                    <Trash2 size={16} />
+                                    <Trash2 size={scale === 'SM' ? 12 : 16} />
                                   </button>
                                 </div>
                               ) : (
                                 <button 
                                   onClick={() => handleBonusQtyChange(item.id, '1')}
-                                  className="h-full w-full flex flex-col items-center justify-center gap-1 rounded-[1.8rem] font-black uppercase text-[8px] bg-emerald-50 text-emerald-600 border-2 border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all outline-none shadow-sm"
+                                  className={`h-full w-full flex flex-col items-center justify-center rounded-[1.8rem] font-black uppercase text-[8px] bg-emerald-50 text-emerald-600 border-2 border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all outline-none shadow-sm`}
                                 >
-                                  <Gift size={20} strokeWidth={2.5} />
-                                  <span>Brinde</span>
+                                  <Gift size={scale === 'SM' ? 14 : 20} strokeWidth={2.5} />
+                                  <span className={scale === 'SM' ? 'hidden' : ''}>Brinde</span>
                                 </button>
                               )}
                             </div>
