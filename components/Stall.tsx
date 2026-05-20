@@ -54,18 +54,18 @@ export const Stall: React.FC<StallProps> = ({
     toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
   };
 
-  const itemWidth = scale === 'SM' ? 'w-[260px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+  const itemWidth = scale === 'SM' ? 'w-[200px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
 
   const cardStyle = useMemo(() => {
     if (scale === 'SM') return { 
-      padding: 'p-4', 
-      gap: 'gap-2', 
-      imgSize: 'w-16 h-16', 
-      iconSize: 32, 
-      titleSize: 'text-sm', 
-      priceSize: 'text-lg',
-      inputHeight: 'h-10',
-      inputFont: 'text-sm'
+      padding: 'p-2', 
+      gap: 'gap-1.5', 
+      imgSize: 'w-10 h-10', 
+      iconSize: 20, 
+      titleSize: 'text-[11px]', 
+      priceSize: 'text-sm',
+      inputHeight: 'h-8',
+      inputFont: 'text-xs'
     };
     if (scale === 'LG') return { 
       padding: 'p-8', 
@@ -564,7 +564,7 @@ export const Stall: React.FC<StallProps> = ({
     <div className="space-y-6 pb-24">
       {/* Header Tabs */}
       <ScrollContainer className="flex gap-2 items-center no-scrollbar">
-        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1 w-full min-w-[320px]">
+        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1 w-full min-w-max">
           <button 
             onClick={() => setActiveTab('VENDAS')} 
             className={`flex-1 py-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
@@ -801,7 +801,7 @@ export const Stall: React.FC<StallProps> = ({
           {canShowConfirmButton && (
             <div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5">
               <button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">
-                {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} REGISTRAR GASTOS
+                {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(currentTotal)}`}
               </button>
             </div>
           )}

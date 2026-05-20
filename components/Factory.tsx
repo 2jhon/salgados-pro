@@ -105,18 +105,18 @@ export const Factory: React.FC<FactoryProps> = ({
     toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
   };
 
-  const itemWidth = scale === 'SM' ? 'w-[260px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
+  const itemWidth = scale === 'SM' ? 'w-[200px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
 
   const cardStyle = useMemo(() => {
     if (scale === 'SM') return { 
-      padding: 'p-4', 
-      gap: 'gap-2', 
-      imgSize: 'w-16 h-16', 
-      iconSize: 32, 
-      titleSize: 'text-sm', 
-      priceSize: 'text-lg',
-      inputHeight: 'h-10',
-      inputFont: 'text-sm'
+      padding: 'p-2', 
+      gap: 'gap-1.5', 
+      imgSize: 'w-10 h-10', 
+      iconSize: 20, 
+      titleSize: 'text-[11px]', 
+      priceSize: 'text-sm',
+      inputHeight: 'h-8',
+      inputFont: 'text-xs'
     };
     if (scale === 'LG') return { 
       padding: 'p-8', 
@@ -1084,7 +1084,7 @@ export const Factory: React.FC<FactoryProps> = ({
 
     <div className="space-y-6 pb-24">
       <ScrollContainer className="flex overflow-x-auto no-scrollbar gap-2">
-        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex w-full">
+        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1 w-full min-w-max">
           <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
           <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
           <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
@@ -1429,7 +1429,7 @@ export const Factory: React.FC<FactoryProps> = ({
                const entry = expenseEntries[item.name] || ''; const calc = expenseCalcs[item.name] || { qty: '', unit: '' }; const isCalcOpen = expandedCalc === item.name;
                return (<div key={item.id} className="p-6 border-b border-slate-50 last:border-0"><div className="flex justify-between items-center mb-4"><div className="flex items-center gap-3">{item.imageUrl ? <img src={item.imageUrl} className="w-10 h-10 rounded-lg object-cover bg-slate-100" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><DollarSign /></div>}<span className="font-black text-slate-800 text-lg">{item.name}</span></div><button onClick={() => handleToggleCalc(item)} className={`p-2 rounded-xl transition-all ${isCalcOpen ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}><Calculator className="w-4 h-4" /></button></div>{isCalcOpen && (<div className="grid grid-cols-2 gap-3 mb-4 p-4 bg-indigo-50/50 rounded-2xl animate-in slide-in-from-top-1"><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Qtd</label><input type="text" inputMode="decimal" value={calc.qty} onChange={e => handleExpenseCalcChange(item.name, 'qty', e.target.value)} placeholder="0" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Unit.</label><input type="text" inputMode="decimal" value={calc.unit} onChange={e => handleExpenseCalcChange(item.name, 'unit', e.target.value)} placeholder="0,00" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div></div>)}<div className="flex gap-4"><div className="flex-1"><label className="block text-[8px] font-black uppercase text-slate-400 mb-1 ml-4">Valor Total (R$)</label><input type="text" inputMode="decimal" value={entry} onChange={e => handleExpenseEntryChange(item.name, 'value', e.target.value)} placeholder="0,00" className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-black text-lg outline-none focus:bg-white focus:border-red-400 transition-all text-slate-800" /></div></div></div>);
              })}</div>
-           {expensesTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} REGISTRAR GASTOS</button></div>)}
+           {expensesTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(expensesTotal)}`}</button></div>)}
         </div>
       )}
 
