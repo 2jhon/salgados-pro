@@ -104,7 +104,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
                      style={{ backgroundColor: ad.background_color || '#f97316' }}
                    >
                      {ad.media_url ? (
-                       <img src={ad.media_url} alt={ad.title} className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-overlay" />
+                       <img src={ad.media_url} alt={ad.title} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
                      ) : (
                        <div className="absolute inset-0 bg-white/10"></div>
                      )}

@@ -75,7 +75,7 @@ export const useHomeLogic = ({
 
   useEffect(() => {
     if (!isOwner) {
-      getUserInteractions().then(data => setUserInteractions(data));
+      getUserInteractions().then(data => setUserInteractions(data)).catch(e => console.error(e));
     }
   }, [isOwner, getUserInteractions]);
 

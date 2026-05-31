@@ -71,7 +71,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
           <div className="h-40 w-full relative bg-slate-200">
               {activeView.profile?.bannerUrl ? (
                   <>
-                    <img src={activeView.profile.bannerUrl} className="w-full h-full object-cover" />
+                    <img src={activeView.profile.bannerUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/20" />
                   </>
               ) : (
@@ -85,7 +85,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                   <div className="w-32 h-32 bg-white rounded-[2.5rem] p-1 shadow-2xl relative z-10">
                       <div className="w-full h-full bg-slate-100 rounded-[2.2rem] overflow-hidden relative">
                           {activeView.imageUrl ? (
-                             <img src={activeView.imageUrl} className="w-full h-full object-cover" />
+                             <img src={activeView.imageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                           ) : (
                              <div className="w-full h-full flex items-center justify-center text-slate-300">
                                 {activeView.type === 'STALL' ? <Smartphone /> : <Store />}

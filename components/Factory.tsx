@@ -19,6 +19,7 @@ import { safeStringifyError } from '../lib/supabase';
 import { normalizeString, formatCurrency } from '../lib/utils';
 import { ScrollContainer } from './ScrollContainer';
 import { ProductInsights } from './ProductInsights';
+import { useKeyboardFocus } from '../hooks/useKeyboardFocus';
 
 import { registerStockMovement } from '../lib/supabase';
 
@@ -94,6 +95,8 @@ export const Factory: React.FC<FactoryProps> = ({
     id?: string,
     ids?: string[]
   } | null>(null);
+
+  const isKeyboardOpen = useKeyboardFocus();
 
   const hideMoney = user.hideSalesValues;
   const [scale, setScale] = useState(() => localStorage.getItem('appInfoItemScale') || 'MD');
@@ -397,7 +400,7 @@ export const Factory: React.FC<FactoryProps> = ({
      return Object.values(expenseEntries).reduce((acc: number, val: any) => acc + (parseFloat(String(val).replace(',', '.')) || 0), 0);
   }, [expenseEntries]);
 
-  const confirmProduction = async (forceNegativeStock: boolean = false, forceUnregistered: boolean = false) => {
+  const confirmProduction = async (forceNegativeStock: boolean = false, forceUnregistered: boolean = false, forceCreateCustomer: boolean = false) => {
     if (productionTotal <= 0) return;
     const cleanCustomerName = customerName.trim();
     const effectiveIsUnregistered = isUnregistered || forceUnregistered;
@@ -423,17 +426,8 @@ export const Factory: React.FC<FactoryProps> = ({
         });
         return;
       }
-
-      // Se houver nome mas não existir no banco, exige telefone para cadastro ou modo avulso
-      const found = customers.find(c => normalizeString(c.name) === normalizeString(cleanCustomerName));
-      if (!found && !newCustomerPhone) {
-        setValidationError({
-          title: "Cliente não Cadastrado",
-          message: `O cliente "${cleanCustomerName}" não foi encontrado. Deseja informar o telefone para cadastro rápido ou registrar como venda avulsa?`,
-          type: 'NEW_CUSTOMER_NO_PHONE'
-        });
-        return;
-      }
+      
+      // Automatic customer creation will proceed silently below
     }
 
     // AVISO DE ESTOQUE NEGATIVO
@@ -504,10 +498,10 @@ export const Factory: React.FC<FactoryProps> = ({
       if (!effectiveIsUnregistered && cleanCustomerName) {
         let foundCustomer = customers.find(c => normalizeString(c.name) === normalizeString(cleanCustomerName));
         
-        // Se não encontrou e tem telefone preenchido para cadastro rápido
-        if (!foundCustomer && newCustomerPhone && addCustomer) {
+        // Se não encontrou, salva automaticamente na lista de clientes, mesmo sem telefone
+        if (!foundCustomer && addCustomer) {
           setIsRegistering(true);
-          const newC = await addCustomer(cleanCustomerName, newCustomerPhone, 'CLIENT');
+          const newC = await addCustomer(cleanCustomerName, newCustomerPhone || '', 'CLIENT');
           if (newC) {
             foundCustomer = newC;
           }
@@ -1417,7 +1411,7 @@ export const Factory: React.FC<FactoryProps> = ({
               </div>
             ))}
           </div>
-          {hasItemsToProcess && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
+          {hasItemsToProcess && (<div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
         </>
       )}
 
@@ -1428,8 +1422,8 @@ export const Factory: React.FC<FactoryProps> = ({
            <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden">{!section.expenses || section.expenses.length === 0 ? (<div className="p-20 text-center flex flex-col items-center gap-4"><AlertCircle size={40} className="text-slate-200" /><div><p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">Nenhuma Despesa Configurada</p><p className="text-slate-300 text-[8px] uppercase mt-1">Vá em Painel para adicionar despesas.</p></div></div>) : filteredExpenses.map(item => {
                const entry = expenseEntries[item.name] || ''; const calc = expenseCalcs[item.name] || { qty: '', unit: '' }; const isCalcOpen = expandedCalc === item.name;
                return (<div key={item.id} className="p-6 border-b border-slate-50 last:border-0"><div className="flex justify-between items-center mb-4"><div className="flex items-center gap-3">{item.imageUrl ? <img src={item.imageUrl} className="w-10 h-10 rounded-lg object-cover bg-slate-100" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><DollarSign /></div>}<span className="font-black text-slate-800 text-lg">{item.name}</span></div><button onClick={() => handleToggleCalc(item)} className={`p-2 rounded-xl transition-all ${isCalcOpen ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}><Calculator className="w-4 h-4" /></button></div>{isCalcOpen && (<div className="grid grid-cols-2 gap-3 mb-4 p-4 bg-indigo-50/50 rounded-2xl animate-in slide-in-from-top-1"><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Qtd</label><input type="text" inputMode="decimal" value={calc.qty} onChange={e => handleExpenseCalcChange(item.name, 'qty', e.target.value)} placeholder="0" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Unit.</label><input type="text" inputMode="decimal" value={calc.unit} onChange={e => handleExpenseCalcChange(item.name, 'unit', e.target.value)} placeholder="0,00" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div></div>)}<div className="flex gap-4"><div className="flex-1"><label className="block text-[8px] font-black uppercase text-slate-400 mb-1 ml-4">Valor Total (R$)</label><input type="text" inputMode="decimal" value={entry} onChange={e => handleExpenseEntryChange(item.name, 'value', e.target.value)} placeholder="0,00" className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-black text-lg outline-none focus:bg-white focus:border-red-400 transition-all text-slate-800" /></div></div></div>);
-             })}</div>
-           {expensesTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(expensesTotal)}`}</button></div>)}
+              })}</div>
+           {expensesTotal > 0 && (<div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(expensesTotal)}`}</button></div>)}
         </div>
       )}
 
@@ -1627,23 +1621,6 @@ export const Factory: React.FC<FactoryProps> = ({
                           className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-100 transition-colors"
                        >
                           Identificar Cliente
-                       </button>
-                    </>
-                 )}
-
-                 {validationError.type === 'NEW_CUSTOMER_NO_PHONE' && (
-                    <>
-                       <button 
-                          onClick={() => setValidationError(null)} 
-                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all"
-                       >
-                          Informar Telefone
-                       </button>
-                       <button 
-                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false, true), 100); }} 
-                          className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-colors"
-                       >
-                          Usar apenas como Venda Avulsa
                        </button>
                     </>
                  )}

@@ -1,1 +1,0 @@
-// Arquivo deletado - Migrado para Supabase

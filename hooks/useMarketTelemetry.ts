@@ -60,7 +60,7 @@ export const useMarketTelemetry = () => {
       // Dispara em background via Supabase
       supabase.from('market_telemetry').insert(payload).then(({ error }) => {
         if (error) console.error('[Telemetry] Sync falhou:', error.message);
-      });
+      }).catch(e => console.error('[Telemetry] Fetch falhou:', e));
 
     } catch (e) {
       console.error('[Telemetry] Erro ao disparar métrica:', e);

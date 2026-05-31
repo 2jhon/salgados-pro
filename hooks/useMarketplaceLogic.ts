@@ -148,7 +148,7 @@ export const useMarketplaceLogic = ({
 
   useEffect(() => {
     onRefresh();
-    getUserInteractions().then(data => setUserInteractions(data));
+    getUserInteractions().then(data => setUserInteractions(data)).catch(e => console.error(e));
     fetchHotKeywords(10);
     fetchTrendingItems(10);
     if (user.id || sessionId) {
@@ -202,8 +202,8 @@ export const useMarketplaceLogic = ({
     const target = selectedStall || selectedProfile;
     if (target) {
         setFreshProfile(null);
-        if (selectedStall) fetchStallById(selectedStall.id).then(s => { if (s) setSelectedStall(s); });
-        getMyProfile(target.workspaceId).then(p => { if (p) setFreshProfile(p); });
+        if (selectedStall) fetchStallById(selectedStall.id).then(s => { if (s) setSelectedStall(s); }).catch(e => console.error(e));
+        getMyProfile(target.workspaceId).then(p => { if (p) setFreshProfile(p); }).catch(e => console.error(e));
     } else { setFreshProfile(null); }
   }, [selectedStall?.id, selectedProfile?.id, getMyProfile, fetchStallById]);
 

@@ -15,6 +15,7 @@ import { shareReceipt } from '../lib/share';
 import { ScrollContainer } from './ScrollContainer';
 import { registerStockMovement } from '../lib/supabase';
 import { ProductInsights } from './ProductInsights';
+import { useKeyboardFocus } from '../hooks/useKeyboardFocus';
 
 interface StallProps {
   section: AppSection;
@@ -46,6 +47,7 @@ export const Stall: React.FC<StallProps> = ({
 
   const [showConfig, setShowConfig] = useState(false);
   const [scale, setScale] = useState(() => localStorage.getItem('appInfoItemScale') || 'MD');
+  const isKeyboardOpen = useKeyboardFocus();
 
   const toggleScale = () => {
     const next = scale === 'SM' ? 'MD' : scale === 'MD' ? 'LG' : 'SM';
@@ -720,7 +722,7 @@ export const Stall: React.FC<StallProps> = ({
            ))}
 
            {canShowConfirmButton && (
-             <div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5">
+             <div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}>
                <button onClick={saveAllStock} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">
                  {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />} 
                  {hideMoney ? 'REGISTRAR VENDAS' : `REGISTRAR ${formatCurrency(currentTotal)}`}
@@ -799,7 +801,7 @@ export const Stall: React.FC<StallProps> = ({
           </div>
 
           {canShowConfirmButton && (
-            <div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5">
+            <div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}>
               <button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">
                 {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(currentTotal)}`}
               </button>

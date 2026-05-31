@@ -743,7 +743,7 @@ export const useAppConfig = () => {
             supabase.from('inventory').upsert(inventoryUpdates, { onConflict: 'workspace_id, section_id, item_id' })
               .then(({ error }) => {
                 if (error) console.error('Error updating inventory in fallback:', error);
-              });
+              }).catch(e => console.error('Error updating inventory exception:', e));
           }
 
           nexusReport("Estoque atualizado com sucesso (atômico).", 'DONE', 'NETWORK', taskId);

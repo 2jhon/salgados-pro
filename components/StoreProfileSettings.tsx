@@ -468,7 +468,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
             <div className="space-y-8 max-w-xl mx-auto">
               <div className="flex flex-col items-center mb-8 relative">
                  <div className="w-28 h-28 bg-slate-100 rounded-[2rem] overflow-hidden relative group cursor-pointer border-4 border-white shadow-xl" onClick={() => userAvatarInputRef.current?.click()}>
-                    {editUserData.avatarUrl ? <img src={editUserData.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><UserIcon size={32} /></div>}
+                    {editUserData.avatarUrl ? <img src={editUserData.avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><UserIcon size={32} /></div>}
                     <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white" /></div>
                  </div>
                  <input type="file" ref={userAvatarInputRef} hidden accept="image/*" onChange={(e) => handleImageUpload(e, 'userAvatar')} />
@@ -530,7 +530,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   {/* Banner */}
                   <div className="w-full h-full bg-slate-100 rounded-[2rem] overflow-hidden border-2 border-dashed border-slate-200 flex items-center justify-center relative">
                      {formData.bannerUrl ? (
-                        <img src={formData.bannerUrl} className="w-full h-full object-cover" />
+                        <img src={formData.bannerUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                      ) : (
                         <div className="text-center">
                            <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -550,7 +550,7 @@ export const StoreProfileSettings: React.FC<StoreProfileSettingsProps> = ({ prof
                   <div className="absolute -bottom-6 left-8 group/logo">
                      <div className="w-24 h-24 bg-white rounded-[2rem] p-1 shadow-2xl border-4 border-white overflow-hidden relative">
                         {formData.logoUrl ? (
-                           <img src={formData.logoUrl} className="w-full h-full object-cover rounded-[1.6rem]" />
+                           <img src={formData.logoUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover rounded-[1.6rem]" />
                         ) : (
                            <div className="w-full h-full bg-indigo-50 flex items-center justify-center rounded-[1.6rem]">
                               <StoreIcon className="w-8 h-8 text-indigo-200" />

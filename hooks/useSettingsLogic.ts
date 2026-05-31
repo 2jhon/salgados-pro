@@ -444,9 +444,10 @@ export const useSettingsLogic = ({
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: `Crie um prompt em INGLÊS, curto e focado em visual para um banner de comida. O título do anúncio é: ${adForm.title}. Foque em iluminação profissional, 4k, food photography. Retorne APENAS o prompt em inglês.`
+        contents: `Você é um fotógrafo culinário profissional. Crie um prompt descritivo em INGLÊS para gerar uma imagem fotográfica perfeita do seguinte prato/produto: "${adForm.title}".\n\nRegras:\n1. Descreva o alimento (traduzindo se necessário) de forma realista (ex: se for Pastel, explique como "deep fried crusty pastry with filling").\n2. Inclua: "food photography, professional studio lighting, 4k resolution, highly detailed, appetizing, mouth-watering, clean background".\n3. NÃO USE aspas, não use ponto final, e retorne APENAS os termos em inglês separados por vírgula. Absolutamente nenhum texto extra, e não crie coisas que não tenham a ver com o título pedido.`
       });
-      const visualPrompt = response.text?.trim() || "delicious food professional photography 4k";
+      let visualPrompt = response.text?.trim() || "delicious food, professional photography, 4k";
+      visualPrompt = visualPrompt.replace(/['"]/g, ''); // Remove quotes that might break URL
       
       const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(visualPrompt)}?width=512&height=512&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
       

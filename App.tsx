@@ -21,6 +21,7 @@ import { useNotes } from './hooks/useNotes';
 import { useStoreProfiles } from './hooks/useStoreProfiles';
 import { useAnalytics } from './hooks/useAnalytics';
 import { useCustomers } from './hooks/useCustomers'; 
+import { useKeyboardFocus } from './hooks/useKeyboardFocus';
 import { supabase, checkDatabaseHealth, safeStringifyError } from './lib/supabase';
 import { ADMIN_EMAILS } from './constants';
 import { 
@@ -138,6 +139,7 @@ export const App: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [recoverySuccess, setRecoverySuccess] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState('');
+  const isKeyboardOpen = useKeyboardFocus();
   
   const [editUserData, setEditUserData] = useState<{name: string, phone: string, cpf: string, accessCode: string, avatarUrl: string, bannerUrl: string}>({ name: '', phone: '', cpf: '', accessCode: '', avatarUrl: '', bannerUrl: '' });
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -204,7 +206,7 @@ export const App: React.FC = () => {
                 toast.success("Pagamento aprovado! O vendedor já foi notificado do seu pedido.", { duration: 5000 });
                 localStorage.removeItem('marketplacePendingNote');
               }
-            });
+            }).catch(e => console.error("Erro interno ao inserir nota", e));
           } catch (e) {
             console.error("Erro ao enviar notificação de pedido: ", e);
           }
@@ -336,7 +338,7 @@ export const App: React.FC = () => {
       } else {
         console.log('[App] Database health verified.');
       }
-    });
+    }).catch(e => console.error("Falha health check:", e));
 
     reconnectTx();
     reconnectStock();
@@ -958,6 +960,7 @@ export const App: React.FC = () => {
                   src={currentUser.bannerUrl || companyProfile?.bannerUrl} 
                   className="w-full h-full object-cover" 
                   alt="Capa" 
+                  referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
                 <div className="absolute inset-0 backdrop-blur-[2px]" />
@@ -968,7 +971,7 @@ export const App: React.FC = () => {
              <div onClick={handleOpenProfileEditor} className="flex items-center gap-4 cursor-pointer group">
                 <div className={`w-14 h-14 rounded-2xl overflow-hidden border-2 flex items-center justify-center transition-all shadow-lg ${currentUser.bannerUrl || companyProfile?.bannerUrl ? 'border-white/30 bg-white/10 backdrop-blur-md scale-110' : 'border-slate-100 bg-slate-100'}`}>
                    {currentUser.avatarUrl || companyProfile?.logoUrl ? (
-                     <img src={currentUser.avatarUrl || companyProfile?.logoUrl} className="w-full h-full object-cover" />
+                     <img src={currentUser.avatarUrl || companyProfile?.logoUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                    ) : (
                      <div className={`${currentUser.bannerUrl || companyProfile?.bannerUrl ? 'text-white' : 'text-slate-300'} font-black text-xl`}>
                        {currentUser.name.charAt(0)}
@@ -1080,7 +1083,7 @@ export const App: React.FC = () => {
         />
       )}
       {activeTab !== 'GOD_MODE' && (
-        <div className="fixed bottom-6 left-0 right-0 z-[90] flex justify-center pointer-events-none">
+        <div className={`fixed bottom-6 left-0 right-0 z-[90] flex justify-center pointer-events-none transition-transform duration-300 ${isKeyboardOpen ? 'translate-y-48 opacity-0' : 'translate-y-0 opacity-100'}`}>
           <div className="bg-slate-900 p-2 rounded-[2.5rem] shadow-2xl flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[92vw] pointer-events-auto border border-slate-800">
               <button 
                 onClick={() => handleTabChangeWithGuard('HOME')} 

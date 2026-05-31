@@ -60,7 +60,7 @@ self.addEventListener('fetch', (event) => {
         .catch(() => {
           console.warn('[SW] Offline. Buscando shell no cache.');
           return caches.match('/', { ignoreSearch: true }).then((cached) => {
-            return cached || caches.match('/index.html', { ignoreSearch: true });
+            return cached || caches.match('/index.html', { ignoreSearch: true }).then(html => html || new Response('Offline', { status: 503 }));
           });
         })
     );
@@ -92,7 +92,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         }).catch((err) => {
           console.warn('[SW] Falha estática offline. Ignorando silenciosamente.', url.href);
-          throw err;
+          return new Response('', { status: 404, statusText: 'Not Found' });
         });
 
         // Retorna Imediatamente se houver cache, sem esperar a rede
