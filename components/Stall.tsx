@@ -683,11 +683,15 @@ export const Stall: React.FC<StallProps> = ({
                                 </div>
                             </div>
                             
-                            <div className={`flex items-end justify-between bg-slate-50 ${scale === 'SM' ? 'p-2' : 'p-4'} rounded-2xl border border-slate-100/50`}>
-                                <div>
-                                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Saldo Vendido</p>
-                                  <p className={`font-black tracking-tighter ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'} ${scale === 'SM' ? 'text-2xl' : 'text-5xl'}`}>{sold}</p>
-                                </div>
+                            <div className="flex gap-2">
+                              <div className={`flex-1 flex flex-col justify-center bg-slate-50 ${scale === 'SM' ? 'p-2' : 'p-3'} rounded-2xl border border-slate-100/50 border-l-4`} style={{ borderLeftColor: sold > 0 ? '#4f46e5' : 'transparent' }}>
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1" title="Quantidade Vendida">Vendido</p>
+                                <p className={`font-black tracking-tighter ${sold > 0 ? 'text-indigo-600' : 'text-slate-300'} ${scale === 'SM' ? 'text-2xl' : 'text-3xl'}`}>{sold}</p>
+                              </div>
+                              <div className={`flex-1 flex flex-col justify-center bg-slate-50 ${scale === 'SM' ? 'p-2' : 'p-3'} rounded-2xl border border-slate-100/50 border-l-4`} style={{ borderLeftColor: sold > 0 ? '#10b981' : 'transparent' }}>
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1" title="Receita (Valor Total)">Saldo R$</p>
+                                <p className={`font-black tracking-tighter ${sold > 0 ? 'text-emerald-500' : 'text-slate-300'} ${scale === 'SM' ? 'text-xl' : 'text-2xl'}`}>{formatCurrency(sold * price)}</p>
+                              </div>
                             </div>
 
                             <div className="flex gap-2 relative z-20">

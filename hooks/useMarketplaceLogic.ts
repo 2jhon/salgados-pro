@@ -329,6 +329,15 @@ export const useMarketplaceLogic = ({
     if (activeFilter === 'ALL' || activeFilter === 'STALLS') list = [...list, ...stalls.map(s => ({ type: 'STALL', data: s }))];
     if (activeFilter === 'ALL' || activeFilter === 'STORES') list = [...list, ...stores.filter(p => p.active).map(p => ({ type: 'STORE', data: p }))];
 
+    // Deduplicar garantindo que não há lojas/barracas repetidas (evita erro de Unique Key do React)
+    const seenKeys = new Set();
+    list = list.filter(item => {
+        const uniqueKey = `${item.type}_${item.data.id}`;
+        if (seenKeys.has(uniqueKey)) return false;
+        seenKeys.add(uniqueKey);
+        return true;
+    });
+
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       list = list.filter(item => {
