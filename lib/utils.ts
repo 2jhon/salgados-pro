@@ -76,25 +76,6 @@ export const Z_INDEX = {
 };
 
 let audioCtx: AudioContext | null = null;
-const audioBufferCache: Record<string, AudioBuffer> = {};
-
-const playAudioBuffer = async (ctx: AudioContext, url: string, cacheKey: string) => {
-  try {
-    if (!audioBufferCache[cacheKey]) {
-      const response = await fetch(url);
-      const arrayBuffer = await response.arrayBuffer();
-      audioBufferCache[cacheKey] = await ctx.decodeAudioData(arrayBuffer);
-    }
-    const source = ctx.createBufferSource();
-    source.buffer = audioBufferCache[cacheKey];
-    source.connect(ctx.destination);
-    source.start(0);
-  } catch (e) {
-    console.warn('WebAudio play failed, fallback to HTML5 Audio', e);
-    const audio = new Audio(url);
-    audio.play().catch(err => console.warn('HTML5 Audio fallback failed', err));
-  }
-};
 
 /**
  * Toca um som baseado na categoria configurada (Vendas, Pedidos, etc)
@@ -102,9 +83,9 @@ const playAudioBuffer = async (ctx: AudioContext, url: string, cacheKey: string)
 export const playSoundFromCategory = (category: 'SALES' | 'ORDERS' | 'SYSTEM') => {
   let mode = 'PADRÃO';
   if (category === 'SALES') {
-     mode = localStorage.getItem('appInfoSoundModeSales') || 'CASH'; // default for sales changed to CASH
+     mode = localStorage.getItem('appInfoSoundModeSales') || 'CAIXA'; // default for sales
   } else if (category === 'ORDERS') {
-     mode = localStorage.getItem('appInfoSoundModeOrders') || 'CHECK'; // default for orders changed to CHECK
+     mode = localStorage.getItem('appInfoSoundModeOrders') || 'PADRÃO';
   } else {
      mode = localStorage.getItem('appInfoSoundMode') || 'PADRÃO';
   }
@@ -194,57 +175,16 @@ export const playSystemSound = (mode: string) => {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.4);
     } else if (mode === 'CASH') {
-      // Barulho Caixa Registradora (Cha-Ching)
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(1400, ctx.currentTime);
-      osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.1);
-      
-      gain.gain.setValueAtTime(0.8, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-      
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = 'square';
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      
-      osc2.frequency.setValueAtTime(1800, ctx.currentTime + 0.1);
-      osc2.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.4);
-      
-      gain2.gain.setValueAtTime(0.8, ctx.currentTime + 0.1);
-      gain2.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-      
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.2);
-      
-      osc2.start(ctx.currentTime + 0.1);
-      osc2.stop(ctx.currentTime + 0.5);
+      const audio = new Audio('/cash.mp3');
+      audio.play().catch(e => console.warn('Audio play failed', e));
     } else if (mode === 'CHECK') {
-      // Duplo sino para pedidos (Ding-Ding)
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1046.50, ctx.currentTime); // C6
-      gain.gain.setValueAtTime(0.8, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-      
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = 'sine';
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      
-      osc2.frequency.setValueAtTime(1318.51, ctx.currentTime + 0.15); // E6
-      gain2.gain.setValueAtTime(0.8, ctx.currentTime + 0.15);
-      gain2.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.6);
-      
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
-      
-      osc2.start(ctx.currentTime + 0.15);
-      osc2.stop(ctx.currentTime + 0.6);
+      const audio = new Audio('/check.mp3');
+      audio.play().catch(e => console.warn('Audio play failed', e));
     } else if (mode === 'GALERIA') {
       const base64 = localStorage.getItem('customSoundSales');
       if (base64) {
-        playAudioBuffer(ctx, base64, 'customSoundSales');
+        const audio = new Audio(base64);
+        audio.play().catch(e => console.warn('Audio play failed', e));
       } else {
         // Fallback to PADRÃO if not found
         osc.type = 'sine';
@@ -258,7 +198,8 @@ export const playSystemSound = (mode: string) => {
     } else if (mode === 'GALERIA_PEDIDOS') {
       const base64 = localStorage.getItem('customSoundOrders');
       if (base64) {
-        playAudioBuffer(ctx, base64, 'customSoundOrders');
+        const audio = new Audio(base64);
+        audio.play().catch(e => console.warn('Audio play failed', e));
       } else {
         // Fallback to PADRÃO if not found
         osc.type = 'sine';

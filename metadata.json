@@ -1,5 +1,5 @@
 {
-  "name": "Salgados Manager Pro v2",
+  "name": "Salgados Manager Pro",
   "description": "Sistema completo de gestão para fábrica e barraca de salgados. Controle de gastos, produção, mercadorias e vendas com cálculos automáticos.",
   "requestFramePermissions": [
     "geolocation",
@@ -7,8 +7,5 @@
     "bluetooth",
     "publickey-credentials-create",
     "publickey-credentials-get"
-  ],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

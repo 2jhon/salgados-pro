@@ -55,8 +55,9 @@ export const RealtimeBroker: React.FC<RealtimeBrokerProps> = ({
             body,
             icon,
             badge: icon,
+            // @ts-ignore
             vibrate: [200, 100, 200]
-          } as any);
+          });
         } else {
           new Notification(title, { body, icon });
         }

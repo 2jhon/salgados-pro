@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { 
   Megaphone, Plus, Search, Sparkles, Image as ImageIcon, 
   Send, Clock, Trash2, Edit3, MessageCircle, AlertTriangle, 
-  Check, ArrowRight, CheckCircle2, Copy
+  Check, ArrowRight, CheckCircle2 
 } from 'lucide-react';
 import { Ad, User } from '../../types';
 
@@ -39,7 +39,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
   const filteredAds = ads.filter(ad => ad.ownerId === currentUser.id);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-10 animate-in fade-in duration-700">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form Column */}
         <div className="lg:col-span-2 space-y-8">
@@ -131,7 +131,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                       >
                          {adForm.mediaUrl ? (
                             <>
-                               <img src={adForm.mediaUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                               <img src={adForm.mediaUrl} className="w-full h-full object-cover" />
                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                   <ImageIcon className="text-white" size={32} />
                                </div>
@@ -176,34 +176,25 @@ export const AdsTab: React.FC<AdsTabProps> = ({
            {/* Ads List */}
            <div className="space-y-4">
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest px-2">Meus Anúncios ({filteredAds.length})</h3>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
                  {filteredAds.map(ad => (
                    <div key={ad.id} className="bg-white p-4 rounded-[2rem] border border-slate-100 flex items-center gap-4 group">
                       <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 shrink-0">
-                         <img src={ad.mediaUrl || 'https://images.unsplash.com/photo-1541533231363-b55c93e807a0?w=200'} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                         <img src={ad.mediaUrl || 'https://images.unsplash.com/photo-1541533231363-b55c93e807a0?w=200'} className="w-full h-full object-cover" />
                       </div>
                       <div className="flex-1 min-w-0">
                          <h4 className="font-black text-slate-800 text-sm truncate uppercase tracking-tight">{ad.title}</h4>
                          <div className="flex items-center gap-2">
-                             {(() => {
-                               const isExpired = ad.expiresAt && new Date(ad.expiresAt).getTime() <= Date.now();
-                               const statusLabel = isExpired ? 'Expirado' : 
-                                                 ad.isApproved ? 'Ativo' : 
-                                                 ad.paymentStatus === 'PAID' ? 'Em Análise (Pago)' :
-                                                 ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 
-                                                 ad.paymentStatus === 'REFUNDED' ? 'Recusado (Estornado)' : 'Recusado/Inativo';
-                               
-                               const statusClass = isExpired ? 'bg-slate-100 text-slate-400' :
-                                                 ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
-                                                 ad.paymentStatus === 'PAID' ? 'bg-amber-100 text-amber-600' :
-                                                 ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600';
-                               
-                               return (
-                                 <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${statusClass}`}>
-                                   {statusLabel}
-                                 </span>
-                               );
-                             })()}
+                            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                               ad.isApproved ? 'bg-emerald-100 text-emerald-600' :
+                               ad.paymentStatus === 'PAID' ? 'bg-amber-100 text-amber-600' :
+                               ad.paymentStatus === 'PENDING' ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'
+                            }`}>
+                               {ad.isApproved ? 'Ativo' : 
+                                ad.paymentStatus === 'PAID' ? 'Em Análise (Pago)' :
+                                ad.paymentStatus === 'PENDING' ? (effectiveAdPrice > 0 ? 'Pendente Pagto' : 'Em Análise') : 
+                                ad.paymentStatus === 'REFUNDED' ? 'Recusado (Estornado)' : 'Recusado/Inativo'}
+                            </span>
                              {ad.expiresAt && <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expira em {new Date(ad.expiresAt).toLocaleDateString()}</span>}
                          </div>
                       </div>
@@ -217,22 +208,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
                             Pagar
                           </button>
                         )}
-                        <button 
-                          onClick={() => {
-                            let phone = ad.link?.replace(/\D/g, '') || '';
-                            if (phone.startsWith('55') && phone.length > 11) {
-                               phone = phone.substring(2);
-                            }
-                            setAdForm({ title: ad.title, description: ad.description, whatsapp: phone, duration: ad.requestedDuration || 7, mediaUrl: ad.mediaUrl || '' });
-                            setEditingAdId(null);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }} 
-                          title="Aproveitar / Reutilizar Anúncio"
-                          className="p-2 text-slate-300 hover:text-emerald-500 transition-colors"
-                        >
-                          <Copy size={16} />
-                        </button>
-                         <button onClick={() => setConfirmDeleteAdId(ad.id)} title="Excluir" className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
+                         <button onClick={() => setConfirmDeleteAdId(ad.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors">
                             <Trash2 size={16} />
                          </button>
                       </div>
@@ -244,7 +220,7 @@ export const AdsTab: React.FC<AdsTabProps> = ({
 
         {confirmDeleteAdId && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center">
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Trash2 size={32} />
               </div>

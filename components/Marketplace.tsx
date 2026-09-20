@@ -1,7 +1,6 @@
 import React from 'react';
 import { supabase } from '../lib/supabase';
 import { User, AppSection, StoreProfile, SubscriptionPlan } from '../types';
-import { ScrollContainer } from './ScrollContainer';
 import { useMarketplaceLogic } from '../hooks/useMarketplaceLogic';
 import { StoryViewerModal } from './marketplace/StoryViewerModal';
 import { CartModal } from './marketplace/CartModal';
@@ -25,7 +24,7 @@ interface MarketplaceProps {
   onNavigate: (tab: string) => void;
   fetchPublicProfiles: (force?: boolean, page?: number, limit?: number) => Promise<void>;
   fetchPublicStalls: (force?: boolean, page?: number, limit?: number) => Promise<void>;
-  hasMoreProfiles?: boolean; // Aliasing hasMoreStores
+  hasMoreStores: boolean;
   hasMoreStalls: boolean;
   isLoading?: boolean;
 }
@@ -91,7 +90,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
                <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
                Patrocinado
             </h3>
-            <ScrollContainer className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-hide">
+            <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-hide">
               {sponsoredAds.map((ad, idx) => {
                  return (
                    <div 
@@ -104,7 +103,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
                      style={{ backgroundColor: ad.background_color || '#f97316' }}
                    >
                      {ad.media_url ? (
-                       <img src={ad.media_url} alt={ad.title} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+                       <img src={ad.media_url} alt={ad.title} className="absolute inset-0 w-full h-full object-cover" />
                      ) : (
                        <div className="absolute inset-0 bg-white/10"></div>
                      )}
@@ -115,7 +114,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
                    </div>
                  );
               })}
-            </ScrollContainer>
+            </div>
         </div>
       )}
 
@@ -193,7 +192,7 @@ export const Marketplace: React.FC<MarketplaceProps> = (props) => {
       />
 
       {isCartEnabled && cart.length > 0 && activeView && (
-        <div className="fixed bottom-28 left-6 right-6 z-[80] animate-in slide-in-from-bottom-6">
+        <div className="fixed bottom-28 left-6 right-6 z-[60] animate-in slide-in-from-bottom-6">
            <button 
              onClick={() => setIsCartOpen(true)}
              className="w-full bg-slate-900 text-white p-4 rounded-[2rem] shadow-2xl flex items-center justify-between border-2 border-slate-800 active:scale-95 transition-all"

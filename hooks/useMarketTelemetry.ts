@@ -35,17 +35,10 @@ export const useMarketTelemetry = () => {
       let userId = null;
       if (loggedUser) {
         const u = JSON.parse(loggedUser);
-        // We do not use u.id as customer_id because customer_id is linked to auth.users, and u.id is public.users
-        // We will try to fetch from Supabase auth
+        userId = u.id;
         if (workspaceId && u.workspaceId === workspaceId) {
            return; // Don't track owner's interactions with own store
         }
-      }
-
-      // Try to get supabase auth user
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        userId = session.user.id;
       }
 
       const payload = {
@@ -60,7 +53,7 @@ export const useMarketTelemetry = () => {
       // Dispara em background via Supabase
       supabase.from('market_telemetry').insert(payload).then(({ error }) => {
         if (error) console.error('[Telemetry] Sync falhou:', error.message);
-      }).catch(e => console.error('[Telemetry] Fetch falhou:', e));
+      });
 
     } catch (e) {
       console.error('[Telemetry] Erro ao disparar métrica:', e);

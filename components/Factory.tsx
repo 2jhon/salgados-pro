@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AppSection, User, Transaction, PeriodTotals, Customer, ConfigItem } from '../types';
 import { printer } from '../lib/printer';
 import { jsPDF } from 'jspdf';
@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable';
 import { 
   Package, DollarSign, Clock, Users, Save, 
   Loader2, CheckCircle2, AlertCircle, TrendingDown,
-  ChevronRight, Search, Wallet, Check, X, Calendar, Receipt,
+  ChevronRight, ChevronLeft, Search, Wallet, Check, X, Calendar, Receipt,
   MoreVertical, Scissors, Edit3, Trash2, Square, CheckSquare,
   AlertTriangle, FileText, Printer, Calculator, Truck, Image as ImageIcon,
   ArrowUpCircle, ArrowDownCircle, ExternalLink, RefreshCw, Link as LinkIcon, Link2Off, Lock,
@@ -17,9 +17,7 @@ import { toast } from 'sonner';
 import { shareReceipt } from '../lib/share';
 import { safeStringifyError } from '../lib/supabase';
 import { normalizeString, formatCurrency } from '../lib/utils';
-import { ScrollContainer } from './ScrollContainer';
 import { ProductInsights } from './ProductInsights';
-import { useKeyboardFocus } from '../hooks/useKeyboardFocus';
 
 import { registerStockMovement } from '../lib/supabase';
 
@@ -70,6 +68,16 @@ export const Factory: React.FC<FactoryProps> = ({
   const [expenseCalcs, setExpenseCalcs] = useState<Record<string, {qty: string, unit: string}>>({});
   const [expandedCalc, setExpandedCalc] = useState<string | null>(null);
   
+  const carouselRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const scrollCategory = (category: string, direction: 'LEFT' | 'RIGHT') => {
+    const el = carouselRefs.current[category];
+    if (el) {
+      const scrollAmount = direction === 'RIGHT' ? 300 : -300;
+      el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+  
   const [viewingCustomer, setViewingCustomer] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -96,52 +104,7 @@ export const Factory: React.FC<FactoryProps> = ({
     ids?: string[]
   } | null>(null);
 
-  const isKeyboardOpen = useKeyboardFocus();
-
   const hideMoney = user.hideSalesValues;
-  const [scale, setScale] = useState(() => localStorage.getItem('appInfoItemScale') || 'MD');
-
-  const toggleScale = () => {
-    const next = scale === 'SM' ? 'MD' : scale === 'MD' ? 'LG' : 'SM';
-    setScale(next);
-    localStorage.setItem('appInfoItemScale', next);
-    toast.info(`Escala alterada para: ${next === 'SM' ? 'Pequeno' : next === 'MD' ? 'Médio' : 'Grande'}`);
-  };
-
-  const itemWidth = scale === 'SM' ? 'w-[200px]' : scale === 'MD' ? 'w-[350px]' : 'w-[420px]';
-
-  const cardStyle = useMemo(() => {
-    if (scale === 'SM') return { 
-      padding: 'p-2', 
-      gap: 'gap-1.5', 
-      imgSize: 'w-10 h-10', 
-      iconSize: 20, 
-      titleSize: 'text-[11px]', 
-      priceSize: 'text-sm',
-      inputHeight: 'h-8',
-      inputFont: 'text-xs'
-    };
-    if (scale === 'LG') return { 
-      padding: 'p-8', 
-      gap: 'gap-8', 
-      imgSize: 'w-32 h-32', 
-      iconSize: 64, 
-      titleSize: 'text-xl', 
-      priceSize: 'text-3xl',
-      inputHeight: 'h-16',
-      inputFont: 'text-2xl'
-    };
-    return { 
-      padding: 'p-6', 
-      gap: 'gap-6', 
-      imgSize: 'w-24 h-24', 
-      iconSize: 48, 
-      titleSize: 'text-lg', 
-      priceSize: 'text-xl',
-      inputHeight: 'h-14',
-      inputFont: 'text-xl'
-    };
-  }, [scale]);
 
   const handleQtyChange = (itemId: string, val: string) => {
     setBatchQuantities(prev => ({ ...prev, [itemId]: val }));
@@ -184,33 +147,29 @@ export const Factory: React.FC<FactoryProps> = ({
     }
   };
 
-  const filteredItems = React.useMemo(() => {
+  const filteredItems = useMemo(() => {
     return (section.items || []).filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [section.items, searchTerm]);
 
-  const groupedItems = React.useMemo(() => {
-    const groupsMap = new Map<string, ConfigItem[]>();
+  const groupedFilteredItems = useMemo(() => {
+    const order: string[] = [];
+    const groups: Record<string, ConfigItem[]> = {};
     filteredItems.forEach(item => {
-      const cat = item.category || 'Geral';
-      if (!groupsMap.has(cat)) groupsMap.set(cat, []);
-      groupsMap.get(cat)!.push(item);
+      const cat = (item.category && item.category.trim()) ? item.category.trim() : 'Geral';
+      if (!groups[cat]) {
+        groups[cat] = [];
+        order.push(cat);
+      }
+      groups[cat].push(item);
     });
-
-    return Array.from(groupsMap.entries()).map(([category, items]) => {
-      const sortedItems = items.sort((a, b) => (a.order || 0) - (b.order || 0));
-      const order = sortedItems.length > 0 ? Math.min(...sortedItems.map(i => isNaN(Number(i.order)) ? 0 : Number(i.order))) : 0;
-      return { category, items: sortedItems, order };
-    }).sort((a, b) => {
-      if (a.order !== b.order) return a.order - b.order;
-      return a.category.localeCompare(b.category);
-    });
+    return order.map(cat => [cat, groups[cat]] as [string, ConfigItem[]]);
   }, [filteredItems]);
 
-  const filteredExpenses = React.useMemo(() => {
+  const filteredExpenses = useMemo(() => {
     return (section.expenses || []).filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [section.expenses, searchTerm]);
 
-  const customerSuggestions = React.useMemo(() => {
+  const customerSuggestions = useMemo(() => {
     if (!customerName || customerName.length < 1) return [];
     const term = normalizeString(customerName);
     return customers
@@ -218,12 +177,12 @@ export const Factory: React.FC<FactoryProps> = ({
       .slice(0, 5);
   }, [customers, customerName]);
 
-  const matchedCustomer = React.useMemo(() => {
+  const matchedCustomer = useMemo(() => {
     if (!customerName) return null;
     return customers.find(c => normalizeString(c.name) === normalizeString(customerName));
   }, [customers, customerName]);
 
-  const supplierSuggestions = React.useMemo(() => {
+  const supplierSuggestions = useMemo(() => {
     if (!supplierName || supplierName.length < 1) return [];
     const term = normalizeString(supplierName);
     return customers
@@ -231,7 +190,7 @@ export const Factory: React.FC<FactoryProps> = ({
       .slice(0, 5);
   }, [customers, supplierName]);
 
-  const pendingTransactions = React.useMemo(() => {
+  const pendingTransactions = useMemo(() => {
     const targetWorkspaceId = String(section.workspaceId || '').trim().toLowerCase();
     return transactions.filter(t => {
       const tWid = String(t.workspaceId || '').trim().toLowerCase();
@@ -242,7 +201,7 @@ export const Factory: React.FC<FactoryProps> = ({
     });
   }, [transactions, section.workspaceId]);
 
-  const pendingByCustomer = React.useMemo(() => {
+  const pendingByCustomer = useMemo(() => {
     const groups: Record<string, { total: number, ids: string[], count: number, items: Transaction[], type: 'RECEIVABLE' | 'PAYABLE', isExternal?: boolean, displayName: string }> = {};
     
     pendingTransactions.forEach(t => {
@@ -297,10 +256,10 @@ export const Factory: React.FC<FactoryProps> = ({
     return groups;
   }, [pendingTransactions]);
 
-  const receivablesCount = React.useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'RECEIVABLE').length, [pendingByCustomer]);
-  const payablesCount = React.useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'PAYABLE').length, [pendingByCustomer]);
+  const receivablesCount = useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'RECEIVABLE').length, [pendingByCustomer]);
+  const payablesCount = useMemo(() => Object.values(pendingByCustomer).filter((d: any) => d.type === 'PAYABLE').length, [pendingByCustomer]);
 
-  const filteredPendingList = React.useMemo(() => {
+  const filteredPendingList = useMemo(() => {
     return Object.entries(pendingByCustomer).filter(([_, data]) => {
       const d = data as any;
       if (billsTab === 'RECEIVABLES') {
@@ -381,7 +340,7 @@ export const Factory: React.FC<FactoryProps> = ({
     }
   };
 
-  const productionTotal = React.useMemo(() => {
+  const productionTotal = useMemo(() => {
     return section.items.reduce((acc, item) => {
       const qtyStr = batchQuantities[item.id] || '0';
       const qty = parseFloat(qtyStr.replace(',', '.')) || 0;
@@ -390,17 +349,17 @@ export const Factory: React.FC<FactoryProps> = ({
     }, 0);
   }, [batchQuantities, section.items, globalMethod]);
 
-  const hasItemsToProcess = React.useMemo(() => {
+  const hasItemsToProcess = useMemo(() => {
     const hasRegular = Object.values(batchQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
     const hasBonus = Object.values(batchBonusQuantities).some(v => (parseFloat(String(v).replace(',', '.')) || 0) > 0);
     return hasRegular || hasBonus;
   }, [batchQuantities, batchBonusQuantities]);
 
-  const expensesTotal = React.useMemo(() => {
+  const expensesTotal = useMemo(() => {
      return Object.values(expenseEntries).reduce((acc: number, val: any) => acc + (parseFloat(String(val).replace(',', '.')) || 0), 0);
   }, [expenseEntries]);
 
-  const confirmProduction = async (forceNegativeStock: boolean = false, forceUnregistered: boolean = false, forceCreateCustomer: boolean = false) => {
+  const confirmProduction = async (forceNegativeStock: boolean = false, forceUnregistered: boolean = false) => {
     if (productionTotal <= 0) return;
     const cleanCustomerName = customerName.trim();
     const effectiveIsUnregistered = isUnregistered || forceUnregistered;
@@ -426,8 +385,17 @@ export const Factory: React.FC<FactoryProps> = ({
         });
         return;
       }
-      
-      // Automatic customer creation will proceed silently below
+
+      // Se houver nome mas não existir no banco, exige telefone para cadastro ou modo avulso
+      const found = customers.find(c => normalizeString(c.name) === normalizeString(cleanCustomerName));
+      if (!found && !newCustomerPhone) {
+        setValidationError({
+          title: "Cliente não Cadastrado",
+          message: `O cliente "${cleanCustomerName}" não foi encontrado. Deseja informar o telefone para cadastro rápido ou registrar como venda avulsa?`,
+          type: 'NEW_CUSTOMER_NO_PHONE'
+        });
+        return;
+      }
     }
 
     // AVISO DE ESTOQUE NEGATIVO
@@ -498,10 +466,10 @@ export const Factory: React.FC<FactoryProps> = ({
       if (!effectiveIsUnregistered && cleanCustomerName) {
         let foundCustomer = customers.find(c => normalizeString(c.name) === normalizeString(cleanCustomerName));
         
-        // Se não encontrou, salva automaticamente na lista de clientes, mesmo sem telefone
-        if (!foundCustomer && addCustomer) {
+        // Se não encontrou e tem telefone preenchido para cadastro rápido
+        if (!foundCustomer && newCustomerPhone && addCustomer) {
           setIsRegistering(true);
-          const newC = await addCustomer(cleanCustomerName, newCustomerPhone || '', 'CLIENT');
+          const newC = await addCustomer(cleanCustomerName, newCustomerPhone, 'CLIENT');
           if (newC) {
             foundCustomer = newC;
           }
@@ -1076,30 +1044,16 @@ export const Factory: React.FC<FactoryProps> = ({
         </div>
       )}
 
-    <div className="space-y-6 pb-24">
-      <ScrollContainer className="flex overflow-x-auto no-scrollbar gap-2">
-        <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex flex-1 w-full min-w-max">
-          <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
-          <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
-          <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
-            <Wallet className="w-4 h-4" /> Contas
-            {(receivablesCount + payablesCount) > 0 && <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{receivablesCount + payablesCount}</span>}
-          </button>
-          <button onClick={() => setActiveTab('GASTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingDown className="w-4 h-4" /> Despesas</button>
-        </div>
-        <button 
-          onClick={toggleScale}
-          className="p-4 bg-white rounded-[1.6rem] shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors shrink-0 flex items-center justify-center gap-2"
-          title="Ajustar Tamanho"
-        >
-          <div className="flex items-end gap-0.5 h-4 mb-0.5">
-            <div className={`w-1 rounded-full bg-current ${scale === 'SM' ? 'h-2' : scale === 'MD' ? 'h-3' : 'h-4'}`} />
-            <div className={`w-1 rounded-full bg-current ${scale === 'MD' ? 'h-3' : scale === 'LG' ? 'h-4' : 'h-1'}`} />
-            <div className={`w-1 rounded-full bg-current ${scale === 'LG' ? 'h-4' : 'h-1'}`} />
-          </div>
-          <span className="text-[10px] font-black uppercase hidden sm:inline">{scale}</span>
+    <div className="space-y-6 pb-24 animate-in fade-in">
+      <div className="bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100 flex overflow-x-auto no-scrollbar">
+        <button onClick={() => setActiveTab('VENDAS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'VENDAS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><Package className="w-4 h-4" /> Produção</button>
+        <button onClick={() => setActiveTab('PRODUTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'PRODUTOS' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4" /> Produtos</button>
+        <button onClick={() => setActiveTab('A_RECEBER')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'A_RECEBER' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>
+          <Wallet className="w-4 h-4" /> Contas
+          {(receivablesCount + payablesCount) > 0 && <span className="ml-1 bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{receivablesCount + payablesCount}</span>}
         </button>
-      </ScrollContainer>
+        <button onClick={() => setActiveTab('GASTOS')} className={`flex-1 py-4 px-4 rounded-[1.6rem] flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'GASTOS' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}><TrendingDown className="w-4 h-4" /> Despesas</button>
+      </div>
 
       {activeTab === 'A_RECEBER' && (
         <div className="space-y-4 animate-in slide-in-from-right-4">
@@ -1246,172 +1200,235 @@ export const Factory: React.FC<FactoryProps> = ({
               )}
             </div>
           </div>
-          <ScrollContainer className="flex overflow-x-auto gap-2 py-2 px-1 no-scrollbar scroll-smooth">
-            <button 
-              onClick={() => {
-                const scrollContainer = document.querySelector('.overflow-y-auto');
-                if (scrollContainer) {
-                  scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
-                } else {
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }
-              }}
-              className="shrink-0 px-6 py-3 bg-slate-900 text-white rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95 transition-all text-center"
-            >
-              CATEGORIAS
-            </button>
-            {groupedItems.map(g => (
-              <button 
-                key={g.category}
-                onClick={(e) => {
-                  const safeCategory = normalizeString(g.category).replace(/[^a-z0-9]/g, '-');
-                  const id = `category-${safeCategory}`;
-                  const el = document.getElementById(id);
-                  const scrollContainer = document.querySelector('.overflow-y-auto');
-                  
-                  if (el && scrollContainer) {
-                    const topPos = el.offsetTop;
-                    scrollContainer.scrollTo({
-                      top: topPos - 100,
-                      behavior: 'smooth'
-                    });
-                  } else if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }
-                }}
-                className="shrink-0 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-full font-black text-[10px] uppercase tracking-widest border border-emerald-100 active:scale-95 transition-all text-center"
-              >
-                {g.category}
-              </button>
-            ))}
-          </ScrollContainer>
-
-          <div className="space-y-8">
-            {groupedItems.map((group, gIdx) => (
-              <div 
-                id={`category-${normalizeString(group.category).replace(/[^a-z0-9]/g, '-')}`} 
-                key={gIdx} 
-                className="relative space-y-3 animate-in fade-in slide-in-from-left-2 scroll-mt-32" 
-                style={{ animationDelay: `${gIdx * 50}ms` }}
-              >
-                <div className="flex items-center justify-between px-2">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <span className="w-2 h-4 rounded-full bg-indigo-500"></span>
-                    {group.category}
-                  </h3>
-                  <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{group.items.length} itens</span>
-                  </div>
+           <div className="space-y-8">
+              {groupedFilteredItems.length === 0 ? (
+                <div className="p-12 text-center bg-white rounded-[2.5rem] border border-slate-100">
+                  <Package className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                  <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Nenhum produto encontrado</p>
                 </div>
-                <ScrollContainer className="flex overflow-x-auto gap-5 pb-6 snap-x snap-mandatory no-scrollbar px-1 -mx-1">
-                  {group.items.map(item => {
-                    const qty = batchQuantities[item.id] || '';
-                    const hasBonusInput = Object.prototype.hasOwnProperty.call(batchBonusQuantities, item.id);
-                    const bonusQty = batchBonusQuantities[item.id] || '';
-                    const price = getEffectiveConfigPrice(item, globalMethod);
-                    const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
-                    const hasPromo = globalMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
-                    const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
-
-                    return (
-                      <div key={item.id} className={`shrink-0 snap-start ${itemWidth} bg-white ${cardStyle.padding} rounded-[3rem] shadow-md border border-slate-50 flex flex-col ${cardStyle.gap} relative overflow-hidden active:scale-[0.98] transition-all`}>
-                        {hasPromo && isPromoActive && (
-                          <div className="absolute top-0 left-0 bg-rose-500 text-white text-[10px] font-black uppercase px-3 py-1 rounded-br-2xl z-10 shadow-sm">
-                            Oferta
-                          </div>
-                        )}
-                        
-                        <div className={`flex items-start ${scale === 'SM' ? 'gap-3' : 'gap-5'}`}>
-                          <div className="flex flex-col gap-1 shrink-0">
-                            <div className={`${cardStyle.imgSize} bg-slate-100 rounded-[2.2rem] flex items-center justify-center shrink-0 shadow-inner overflow-hidden`}>
-                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className={`text-slate-300 w-2/3 h-2/3`} />}
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0 pt-1">
-                            <h4 className={`font-black text-slate-800 ${cardStyle.titleSize} uppercase leading-tight line-clamp-2`}>{item.name}</h4>
-                            {hasPromo && isPromoActive ? (
-                              <div className="flex flex-col mt-1">
-                                <p className={`text-emerald-600 font-black ${cardStyle.priceSize}`}>{formatCurrency(price)}</p>
-                                <p className="text-[10px] font-bold text-slate-400 line-through tracking-wide">{formatCurrency(originalPrice)}</p>
-                              </div>
-                            ) : (
-                              <p className={`text-slate-500 font-black mt-1 ${cardStyle.priceSize} tracking-tight`}>{formatCurrency(price)}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Bloco de Comando (Inputs e Ações) */}
-                        <div className={`flex items-stretch ${cardStyle.gap} ${cardStyle.inputHeight}`}>
-                          {/* Input de Quantidade */}
-                          <div className="flex-1 relative group">
-                            <input 
-                              type="number" 
-                              inputMode="decimal" 
-                              value={qty} 
-                              onChange={e => handleQtyChange(item.id, e.target.value)} 
-                              placeholder="0" 
-                              className={`w-full h-full rounded-[1.8rem] font-black text-center ${cardStyle.inputFont} outline-none transition-all shadow-sm ${qty ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-400 border-2 border-slate-100 focus:border-indigo-300 focus:bg-white'}`} 
-                            />
-                            {!qty && <span className="absolute left-1/2 -translate-x-1/2 -top-1 px-2 bg-white text-[8px] font-black text-slate-300 uppercase tracking-tighter">Qtd</span>}
-                          </div>
-
-                          {/* Controles Laterais */}
-                          <div className="shrink-0 flex items-stretch gap-2">
-                            <div className={`${scale === 'SM' ? 'w-10' : 'w-14'} shrink-0`}>
-                              {hasBonusInput ? (
-                                <div className="flex flex-col gap-1 h-full">
-                                  <input 
-                                    type="number" 
-                                    inputMode="decimal" 
-                                    value={bonusQty} 
-                                    onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
-                                    placeholder="B" 
-                                    className={`w-full h-1/2 rounded-xl font-black text-center text-[10px] bg-emerald-50 text-emerald-700 border-2 border-emerald-100 outline-none shadow-inner`} 
-                                  />
-                                  <button 
-                                    onClick={() => {
-                                      setBatchBonusQuantities(prev => {
-                                        const next = {...prev};
-                                        delete next[item.id];
-                                        return next;
-                                      });
-                                    }}
-                                    className="h-1/2 w-full flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 active:scale-95 transition-all shadow-sm"
-                                  >
-                                    <Trash2 size={scale === 'SM' ? 12 : 16} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <button 
-                                  onClick={() => handleBonusQtyChange(item.id, '1')}
-                                  className={`h-full w-full flex flex-col items-center justify-center rounded-[1.8rem] font-black uppercase text-[8px] bg-emerald-50 text-emerald-600 border-2 border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all outline-none shadow-sm`}
-                                >
-                                  <Gift size={scale === 'SM' ? 14 : 20} strokeWidth={2.5} />
-                                  <span className={scale === 'SM' ? 'hidden' : ''}>Brinde</span>
-                                </button>
-                              )}
-                            </div>
-
-                            <button 
-                               onClick={() => setWasteModal({ show: true, item, qty: '' })}
-                               className="h-full w-14 shrink-0 flex flex-col items-center justify-center gap-1 rounded-[1.8rem] bg-orange-50 text-orange-600 border-2 border-orange-100 hover:bg-orange-100 active:scale-95 transition-all outline-none shadow-sm"
-                               title="Registrar Perda / Quebra"
-                            >
-                               <div className="relative">
-                                 <AlertTriangle size={20} strokeWidth={2.5} />
-                               </div>
-                               <span className="text-[8px] font-black uppercase">Perda</span>
-                            </button>
-                          </div>
-                        </div>
+              ) : (
+                groupedFilteredItems.map(([category, items]) => (
+                  <div key={category} className="space-y-3 group/category">
+                    {/* Header de Categoria com Navegação > */}
+                    <div className="flex items-center justify-between px-3 sm:px-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-4 bg-indigo-500 rounded-full" />
+                        <h3 className="text-xs font-black text-slate-600 uppercase tracking-[0.18em]">{category}</h3>
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                          {items.length} {items.length === 1 ? 'item' : 'itens'}
+                        </span>
                       </div>
-                    );
-                  })}
-                </ScrollContainer>
-              </div>
-            ))}
-          </div>
-          {hasItemsToProcess && (<div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
+
+                      {/* Botões de navegação no cabeçalho com seta > */}
+                      <div className="flex items-center gap-1.5">
+                        <button 
+                          type="button"
+                          onClick={() => scrollCategory(category, 'LEFT')} 
+                          className="w-8 h-8 rounded-xl bg-white shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 flex items-center justify-center transition-all active:scale-90"
+                          title="Rolar para esquerda"
+                        >
+                          <ChevronLeft size={16} strokeWidth={2.5} />
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => scrollCategory(category, 'RIGHT')} 
+                          className="w-8 h-8 rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 flex items-center justify-center transition-all active:scale-90"
+                          title="Avançar carrossel >"
+                        >
+                          <ChevronRight size={16} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Carrossel Horizontal */}
+                    <div className="relative">
+                      {/* Seta flutuante esquerda no hover (desktop) */}
+                      <button 
+                        type="button"
+                        onClick={() => scrollCategory(category, 'LEFT')}
+                        className="hidden sm:flex absolute -left-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-white/95 text-slate-700 hover:text-indigo-600 hover:bg-white rounded-full shadow-lg border border-slate-100 items-center justify-center transition-all active:scale-90 opacity-0 group-hover/category:opacity-100"
+                        title="Rolar para esquerda"
+                      >
+                        <ChevronLeft size={20} strokeWidth={2.5} />
+                      </button>
+
+                      {/* Trilha do Carrossel */}
+                      <div 
+                        ref={el => { carouselRefs.current[category] = el; }}
+                        className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory px-3 py-2 pb-4 -mx-1"
+                      >
+                        {items.map(item => {
+                           const qty = batchQuantities[item.id] || '';
+                           const parsedQty = parseFloat(String(qty).replace(',', '.')) || 0;
+                           const hasBonusInput = Object.prototype.hasOwnProperty.call(batchBonusQuantities, item.id);
+                           const bonusQty = batchBonusQuantities[item.id] || '';
+                           const parsedBonus = parseFloat(String(bonusQty).replace(',', '.')) || 0;
+                           const price = getEffectiveConfigPrice(item, globalMethod);
+                           const isPromoActive = item.promoEndsAt ? new Date(item.promoEndsAt).getTime() > Date.now() : true;
+                           const hasPromo = globalMethod === 'A_VISTA' ? !!item.promotionalPriceAVista : !!item.promotionalPriceAPrazo;
+                           const originalPrice = globalMethod === 'A_VISTA' ? (item.defaultPriceAVista || 0) : (item.defaultPriceAPrazo || 0);
+
+                           return (
+                             <div 
+                               key={item.id} 
+                               className="product-scale-card w-[280px] shrink-0 snap-start bg-white p-4 sm:p-5 rounded-[2.2rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md hover:border-indigo-100 transition-all relative overflow-hidden group"
+                             >
+                               {hasPromo && isPromoActive && (
+                                 <div className="absolute top-0 left-0 bg-rose-500 text-white text-[8px] font-black uppercase px-2.5 py-1 rounded-br-xl z-10 shadow-sm">
+                                   Oferta
+                                 </div>
+                               )}
+
+                               {/* Topo do Card: Imagem + Detalhes + Botões Circulares Rápidos */}
+                               <div className="flex items-start gap-3">
+                                 <div className="product-scale-img w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden border border-slate-100">
+                                   {item.imageUrl ? (
+                                     <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover rounded-2xl" />
+                                   ) : (
+                                     <Package className="text-slate-300 w-7 h-7" />
+                                   )}
+                                 </div>
+
+                                 <div className="flex-1 min-w-0">
+                                   <h4 className="product-scale-title font-black text-slate-700 text-xs uppercase truncate" title={item.name}>
+                                     {item.name}
+                                   </h4>
+                                   {hasPromo && isPromoActive ? (
+                                     <div className="flex items-center gap-1 mt-0.5">
+                                       <p className="text-[11px] font-black text-emerald-600">
+                                         {formatCurrency(price)}
+                                       </p>
+                                       <p className="text-[9px] font-bold text-slate-400 line-through">
+                                         {formatCurrency(originalPrice)}
+                                       </p>
+                                     </div>
+                                   ) : (
+                                     <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+                                       Unit: {formatCurrency(price)}
+                                     </p>
+                                   )}
+                                 </div>
+
+                                 {/* Botões Circulares de Ação Rápida: Brinde e Perda */}
+                                 <div className="flex items-center gap-1.5 shrink-0">
+                                   {/* Botão circular de Brinde */}
+                                   <button 
+                                     type="button"
+                                     onClick={() => {
+                                       if (!hasBonusInput || !bonusQty || parsedBonus <= 0) {
+                                         handleBonusQtyChange(item.id, '1');
+                                       } else {
+                                         handleBonusQtyChange(item.id, String(parsedBonus + 1));
+                                       }
+                                     }}
+                                     className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-sm active:scale-90 relative ${
+                                       hasBonusInput && parsedBonus > 0 
+                                         ? 'bg-emerald-500 text-white shadow-emerald-200 ring-2 ring-emerald-300' 
+                                         : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200/60'
+                                     }`}
+                                     title={hasBonusInput && parsedBonus > 0 ? `Brindes: ${bonusQty} (clique para +1)` : "Adicionar Brinde"}
+                                   >
+                                     <Gift size={15} />
+                                     {hasBonusInput && parsedBonus > 0 && (
+                                       <span className="absolute -top-1 -right-1 bg-emerald-700 text-white text-[8px] font-black rounded-full w-4 h-4 flex items-center justify-center shadow">
+                                         {bonusQty}
+                                       </span>
+                                     )}
+                                   </button>
+
+                                   {/* Botão circular de Perda */}
+                                   <button 
+                                     type="button"
+                                     onClick={() => setWasteModal({ show: true, item, qty: '' })}
+                                     className="w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-sm active:scale-90 bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-200/60"
+                                     title="Registrar Perda / Quebra"
+                                   >
+                                     <AlertTriangle size={15} />
+                                   </button>
+                                 </div>
+                               </div>
+
+                               {/* Miolo / Base do Card: Campo de Quantidade e Subtotal */}
+                               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                                 <div className="flex items-center gap-2">
+                                   <div className={`flex-1 rounded-2xl p-2 px-3 transition-all flex items-center justify-between border-2 ${
+                                     parsedQty > 0 
+                                       ? 'bg-indigo-50/50 border-indigo-300' 
+                                       : 'bg-slate-50 border-slate-200 focus-within:border-indigo-300 focus-within:bg-white'
+                                   }`}>
+                                     <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 mr-2">Qtd</span>
+                                     <input 
+                                       type="number" 
+                                       inputMode="decimal" 
+                                       value={qty} 
+                                       onChange={e => handleQtyChange(item.id, e.target.value)} 
+                                       placeholder="0" 
+                                       className="product-scale-input w-full bg-transparent font-black text-right text-base outline-none text-slate-800 placeholder:text-slate-300" 
+                                     />
+                                   </div>
+
+                                   {/* Total em R$ se quantidade preenchida */}
+                                   {parsedQty > 0 && (
+                                     <div className="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-2 px-3 text-right shrink-0 min-w-[75px]">
+                                       <span className="text-[7px] font-black uppercase tracking-wider text-indigo-400 block">Total</span>
+                                       <span className="text-xs font-black text-indigo-700 block truncate">
+                                         {hideMoney ? 'R$ ***' : formatCurrency(parsedQty * price)}
+                                       </span>
+                                     </div>
+                                   )}
+                                 </div>
+
+                                 {/* Painel expansível de Brinde quando ativo */}
+                                 {hasBonusInput && (
+                                   <div className="flex items-center gap-1.5 p-1.5 px-2 bg-emerald-50/80 border border-emerald-200/80 rounded-xl animate-in slide-in-from-top-1">
+                                     <Gift size={12} className="text-emerald-600 shrink-0" />
+                                     <span className="text-[8px] font-black text-emerald-700 uppercase">Brinde:</span>
+                                     <input 
+                                       type="number" 
+                                       inputMode="decimal" 
+                                       value={bonusQty} 
+                                       onChange={e => handleBonusQtyChange(item.id, e.target.value)} 
+                                       placeholder="0" 
+                                       className="w-16 bg-white border border-emerald-200 rounded-lg font-black text-center text-xs text-emerald-800 outline-none p-1" 
+                                     />
+                                     <span className="text-[8px] font-bold text-emerald-600">un</span>
+                                     <button 
+                                       type="button"
+                                       onClick={() => {
+                                         setBatchBonusQuantities(prev => {
+                                           const next = {...prev};
+                                           delete next[item.id];
+                                           return next;
+                                         });
+                                       }}
+                                       className="ml-auto p-1 text-rose-500 hover:bg-rose-100 rounded-lg transition-colors"
+                                       title="Remover brinde"
+                                     >
+                                       <Trash2 size={12} />
+                                     </button>
+                                   </div>
+                                 )}
+                               </div>
+                             </div>
+                           );
+                        })}
+                      </div>
+
+                      {/* Seta flutuante direita com destaque no símbolo > */}
+                      <button 
+                        type="button"
+                        onClick={() => scrollCategory(category, 'RIGHT')}
+                        className="absolute -right-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-white/95 text-slate-700 hover:text-indigo-600 hover:bg-white rounded-full shadow-lg border border-slate-100 flex items-center justify-center transition-all active:scale-90 opacity-90 group-hover/category:opacity-100"
+                        title="Avançar carrossel >"
+                      >
+                        <ChevronRight size={20} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          {hasItemsToProcess && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmProduction} disabled={isSaving} className={`w-full py-5 rounded-[1.8rem] font-black text-[13px] uppercase tracking-widest text-white flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl disabled:opacity-50 ${globalMethod === 'A_PRAZO' ? 'bg-orange-600 shadow-orange-500/30' : 'bg-emerald-600 shadow-emerald-500/30'}`}>{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : globalMethod === 'A_PRAZO' ? <Clock className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}{hideMoney ? 'CONFIRMAR' : globalMethod === 'A_PRAZO' ? `LANÇAR DÍVIDA — ${formatCurrency(productionTotal)}` : `RECEBER (À VISTA) — ${formatCurrency(productionTotal)}`}</button></div>)}
         </>
       )}
 
@@ -1422,8 +1439,8 @@ export const Factory: React.FC<FactoryProps> = ({
            <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden">{!section.expenses || section.expenses.length === 0 ? (<div className="p-20 text-center flex flex-col items-center gap-4"><AlertCircle size={40} className="text-slate-200" /><div><p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">Nenhuma Despesa Configurada</p><p className="text-slate-300 text-[8px] uppercase mt-1">Vá em Painel para adicionar despesas.</p></div></div>) : filteredExpenses.map(item => {
                const entry = expenseEntries[item.name] || ''; const calc = expenseCalcs[item.name] || { qty: '', unit: '' }; const isCalcOpen = expandedCalc === item.name;
                return (<div key={item.id} className="p-6 border-b border-slate-50 last:border-0"><div className="flex justify-between items-center mb-4"><div className="flex items-center gap-3">{item.imageUrl ? <img src={item.imageUrl} className="w-10 h-10 rounded-lg object-cover bg-slate-100" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><DollarSign /></div>}<span className="font-black text-slate-800 text-lg">{item.name}</span></div><button onClick={() => handleToggleCalc(item)} className={`p-2 rounded-xl transition-all ${isCalcOpen ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}><Calculator className="w-4 h-4" /></button></div>{isCalcOpen && (<div className="grid grid-cols-2 gap-3 mb-4 p-4 bg-indigo-50/50 rounded-2xl animate-in slide-in-from-top-1"><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Qtd</label><input type="text" inputMode="decimal" value={calc.qty} onChange={e => handleExpenseCalcChange(item.name, 'qty', e.target.value)} placeholder="0" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div><div className="space-y-1"><label className="text-[8px] font-black text-indigo-400 uppercase ml-2">Unit.</label><input type="text" inputMode="decimal" value={calc.unit} onChange={e => handleExpenseCalcChange(item.name, 'unit', e.target.value)} placeholder="0,00" className="w-full p-3 bg-slate-100 border-2 border-slate-200 rounded-xl font-black text-center text-xs outline-none focus:bg-white focus:border-indigo-300 transition-all" /></div></div>)}<div className="flex gap-4"><div className="flex-1"><label className="block text-[8px] font-black uppercase text-slate-400 mb-1 ml-4">Valor Total (R$)</label><input type="text" inputMode="decimal" value={entry} onChange={e => handleExpenseEntryChange(item.name, 'value', e.target.value)} placeholder="0,00" className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-black text-lg outline-none focus:bg-white focus:border-red-400 transition-all text-slate-800" /></div></div></div>);
-              })}</div>
-           {expensesTotal > 0 && (<div className={`fixed left-4 right-4 z-[100] transition-all duration-300 ${isKeyboardOpen ? 'bottom-4' : 'bottom-28'} animate-in slide-in-from-bottom-5`}><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} {hideMoney ? 'REGISTRAR GASTOS' : `REGISTRAR GASTOS — ${formatCurrency(expensesTotal)}`}</button></div>)}
+             })}</div>
+           {expensesTotal > 0 && (<div className="fixed bottom-28 left-4 right-4 z-[100] animate-in slide-in-from-bottom-5"><button onClick={confirmExpenses} disabled={isSaving} className="w-full py-5 rounded-[1.8rem] font-black text-xs uppercase tracking-widest text-white flex items-center justify-center gap-3 bg-rose-600 hover:bg-rose-500 transition-all active:scale-95 disabled:opacity-50 shadow-2xl">{isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} REGISTRAR GASTOS</button></div>)}
         </div>
       )}
 
@@ -1625,6 +1642,23 @@ export const Factory: React.FC<FactoryProps> = ({
                     </>
                  )}
 
+                 {validationError.type === 'NEW_CUSTOMER_NO_PHONE' && (
+                    <>
+                       <button 
+                          onClick={() => setValidationError(null)} 
+                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all"
+                       >
+                          Informar Telefone
+                       </button>
+                       <button 
+                          onClick={() => { setIsUnregistered(true); setValidationError(null); setTimeout(() => confirmProduction(false, true), 100); }} 
+                          className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-colors"
+                       >
+                          Usar apenas como Venda Avulsa
+                       </button>
+                    </>
+                 )}
+
                  {validationError.type === 'NEGATIVE_STOCK' && (
                     <>
                        <button 
@@ -1650,7 +1684,7 @@ export const Factory: React.FC<FactoryProps> = ({
         </div>
       )}
       {activeTab === 'PRODUTOS' && (
-        <ProductInsights transactions={transactions} title={"Vendas: " + section.name} sectionName={section.name} isOwner={user?.role === 'OWNER'} />
+        <ProductInsights transactions={transactions} sections={sections} title={"Vendas: " + section.name} sectionName={section.name} isOwner={user?.role === 'OWNER'} />
       )}
       
       {wasteModal.show && wasteModal.item && (

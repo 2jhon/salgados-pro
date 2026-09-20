@@ -21,7 +21,6 @@ import { useNotes } from './hooks/useNotes';
 import { useStoreProfiles } from './hooks/useStoreProfiles';
 import { useAnalytics } from './hooks/useAnalytics';
 import { useCustomers } from './hooks/useCustomers'; 
-import { useKeyboardFocus } from './hooks/useKeyboardFocus';
 import { supabase, checkDatabaseHealth, safeStringifyError } from './lib/supabase';
 import { ADMIN_EMAILS } from './constants';
 import { 
@@ -34,10 +33,46 @@ import {
 import { Toaster, toast } from 'sonner';
 import { bluetoothPrinter } from './services/bluetoothPrinter';
 import { hasBiometryConfigured, registerBiometryLocal, removeBiometryLocal, verifyBiometryLocal } from './lib/webauthnUtils';
+import { useDensity } from './hooks/useDensity';
+import { DensitySelector } from './components/DensitySelector';
 
 export const App: React.FC = () => {
+  // State definitions
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('HOME');
+  const [financialInsights, setFinancialInsights] = useState<any[]>([]);
+  const [historicalSummaries, setHistoricalSummaries] = useState<any[]>([]);
+  const [companyProfile, setCompanyProfile] = useState<StoreProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('cached_company_profile');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [showNotesInbox, setShowNotesInbox] = useState(false);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'IDENTIFY' | 'CREATE_COMPANY' | 'CREATE_CUSTOMER' | 'RECOVERY'>('IDENTIFY');
+  const [targetType, setTargetType] = useState<UserType>('COMPANY');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
+  const [userName, setUserName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [recoverySuccess, setRecoverySuccess] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [editUserData, setEditUserData] = useState<{name: string, phone: string, cpf: string, accessCode: string, avatarUrl: string, bannerUrl: string}>({ name: '', phone: '', cpf: '', accessCode: '', avatarUrl: '', bannerUrl: '' });
+  const [isGodModeUnlocked, setIsGodModeUnlocked] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [isBiometryActive, setIsBiometryActive] = useState(hasBiometryConfigured());
+  const { density, cycleDensity } = useDensity();
+
+  // Refs
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const isFetchingRef = useRef(false);
 
   const handleTabChangeWithGuard = (tab: any) => {
     if (activeTab === 'CONFIG' && isSettingsDirty && tab !== 'CONFIG') {
@@ -49,9 +84,20 @@ export const App: React.FC = () => {
       setActiveTab(tab);
     }
   };
+
+  const formatPhone = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 11) {
+      return numbers
+        .replace(/^(\d{2})(\d)/g, '($1) $2')
+        .replace(/(\d{5})(\d)/, '$1-$2')
+        .substring(0, 15);
+    }
+    return value.substring(0, 15);
+  };
   
   const { 
-    sections, archives, saveConfig, moveSection, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem,
+    sections, archives, saveConfig, updateSingleSection, deleteSection, updateStockAtomic, adjustStockItem,
     fetchConfigByWorkspace, publicStalls, fetchPublicStalls, hasMorePublic: hasMoreStalls, 
     fetchStallById, isSyncing: isStockSyncing, reconnect: reconnectStock, loading: loadingStalls 
   } = useAppConfig();
@@ -89,10 +135,6 @@ export const App: React.FC = () => {
   const { customers, addCustomer, removeCustomer, updateCustomer } = useCustomers(currentUser?.workspaceId);
   const { trackView, getStoreSummary, getFinancialInsights, getArchivedSummaries } = useAnalytics(currentUser?.workspaceId);
 
-  const [activeTab, setActiveTab] = useState<string>('HOME');
-  const [financialInsights, setFinancialInsights] = useState<any[]>([]);
-  const [historicalSummaries, setHistoricalSummaries] = useState<any[]>([]);
-
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
@@ -119,45 +161,6 @@ export const App: React.FC = () => {
        getArchivedSummaries(currentUser.workspaceId).then(setHistoricalSummaries);
     }
   }, [currentUser?.workspaceId, activeTab, getFinancialInsights, getArchivedSummaries]);
-  const [companyProfile, setCompanyProfile] = useState<StoreProfile | null>(() => {
-    try {
-      const saved = localStorage.getItem('cached_company_profile');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return null;
-  });
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [showProfileSettings, setShowProfileSettings] = useState(false);
-  const [showNotesInbox, setShowNotesInbox] = useState(false);
-  const [authMode, setAuthMode] = useState<'LOGIN' | 'IDENTIFY' | 'CREATE_COMPANY' | 'CREATE_CUSTOMER' | 'RECOVERY'>('IDENTIFY');
-  const [targetType, setTargetType] = useState<UserType>('COMPANY');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
-  const [userName, setUserName] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [recoverySuccess, setRecoverySuccess] = useState(false);
-  const [recoveryMessage, setRecoveryMessage] = useState('');
-  const isKeyboardOpen = useKeyboardFocus();
-  
-  const [editUserData, setEditUserData] = useState<{name: string, phone: string, cpf: string, accessCode: string, avatarUrl: string, bannerUrl: string}>({ name: '', phone: '', cpf: '', accessCode: '', avatarUrl: '', bannerUrl: '' });
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-
-  const formatPhone = (value: string) => {
-    const numbers = value.replace(/\D/g, '');
-    if (numbers.length <= 11) {
-      return numbers
-        .replace(/^(\d{2})(\d)/g, '($1) $2')
-        .replace(/(\d{5})(\d)/, '$1-$2')
-        .substring(0, 15);
-    }
-    return value.substring(0, 15);
-  };
-  
-  const [isGodModeUnlocked, setIsGodModeUnlocked] = useState(false);
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const isFetchingRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -206,7 +209,7 @@ export const App: React.FC = () => {
                 toast.success("Pagamento aprovado! O vendedor já foi notificado do seu pedido.", { duration: 5000 });
                 localStorage.removeItem('marketplacePendingNote');
               }
-            }).catch(e => console.error("Erro interno ao inserir nota", e));
+            });
           } catch (e) {
             console.error("Erro ao enviar notificação de pedido: ", e);
           }
@@ -258,8 +261,6 @@ export const App: React.FC = () => {
     }
   }, [currentUser?.workspaceId, saveProfile, companyProfile]);
 
-  const [plans, setPlans] = useState<any[]>([]);
-
   useEffect(() => {
     const fetchPlans = async () => {
       const { data } = await supabase.from('subscription_plans').select('*');
@@ -268,28 +269,28 @@ export const App: React.FC = () => {
     fetchPlans();
   }, []);
 
-  const activePlan = React.useMemo(() => {
+  const activePlan = useMemo(() => {
     if (!currentUser?.activePlanId) return null;
     return plans.find(p => p.id === currentUser.activePlanId);
   }, [currentUser?.activePlanId, plans]);
 
   const now = Date.now();
 
-  const isProActive = React.useMemo(() => {
+  const isProActive = useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.hasProPlan && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_pro && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now;
     return !!(manual || fromPlan);
   }, [currentUser, activePlan, now]);
 
-  const isAdFreeActive = React.useMemo(() => {
+  const isAdFreeActive = useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.isAdFree && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_ad_free && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now;
     return !!(manual || fromPlan);
   }, [currentUser, activePlan, now]);
 
-  const isAdvertiserActive = React.useMemo(() => {
+  const isAdvertiserActive = useMemo(() => {
     if (!currentUser) return false;
     const manual = currentUser.isAdvertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
     const fromPlan = activePlan?.grants_advertiser && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now;
@@ -315,13 +316,9 @@ export const App: React.FC = () => {
     }
     setIsOffline(false);
     
-    // Proactive Health Check (Executado apenas se não houver verificação recente)
-    const lastCheck = (window as any)._lastHealthCheck || 0;
-    if (Date.now() - lastCheck < 300000) return; // 5 minutos de cache
-    (window as any)._lastHealthCheck = Date.now();
-
     console.log('[App] Initializing system and database health check...');
     
+    // Proactive Health Check (Non-blocking warning)
     checkDatabaseHealth(60000, 2).then(health => {
       if (!health.ok) {
         console.error("[App] Banco de dados inacessível ou hibernando muito profundamente.");
@@ -338,7 +335,7 @@ export const App: React.FC = () => {
       } else {
         console.log('[App] Database health verified.');
       }
-    }).catch(e => console.error("Falha health check:", e));
+    });
 
     reconnectTx();
     reconnectStock();
@@ -432,20 +429,22 @@ export const App: React.FC = () => {
       await Promise.allSettled([adsPromise, stallsPromise, profilesPromise]);
       
       // 3. Verificações de Fundo: Dívidas externas
+      // IMPORTANTE: Passa o telefone do usuário explicitamente
       if (user.phone) {
          console.log('[App] Checando dívidas globais para:', user.phone);
          const globalDebts = await fetchUserGlobalDebts(user.phone, user.workspaceId);
+         // Atualiza SOMENTE se não for null (null indica erro de rede). Se for array vazio, atualiza para limpar.
          if (globalDebts !== null) {
             setTransactions(prev => {
-               const uniqueMap = new Map();
-               // Prioridade para transações locais
-               prev.filter(t => !t.isExternal).forEach(t => uniqueMap.set(t.id, t));
-               // Adiciona externas
-               globalDebts.forEach(t => uniqueMap.set(t.id, t));
-               
-               return Array.from(uniqueMap.values()).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+               const localOnly = prev.filter(t => !t.isExternal);
+               const combined = [...localOnly, ...globalDebts];
+               // Deduplicação por ID
+               const unique = Array.from(new Map(combined.map(item => [String(item.id), item])).values());
+               return unique.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             });
          }
+      } else {
+         console.warn('[App] Usuário sem telefone cadastrado, ignorando busca de dívidas externas.');
       }
     } catch (e) {
       console.error('[loadWorkspaceData] Erro crítico ao carregar dados:', e);
@@ -585,12 +584,9 @@ export const App: React.FC = () => {
 
     if (hasChanges) {
       console.log('[Omnichannel] Sincronizando preços da Vitrine com a Fábrica...');
-      // Usar setTimeout para evitar o erro de atualizar estado durante o render
-      setTimeout(() => {
-        saveProfile({ workspaceId: currentUser.workspaceId, portfolio: updatedPortfolio }).then(updated => {
-          if (updated) setCompanyProfile(updated);
-        }).catch(err => console.error('Erro na sincronização Omnichannel:', err));
-      }, 0);
+      saveProfile({ workspaceId: currentUser.workspaceId, portfolio: updatedPortfolio }).then(updated => {
+        if (updated) setCompanyProfile(updated);
+      });
     }
   }, [sections, companyProfile, currentUser?.workspaceId, saveProfile]);
 
@@ -620,8 +616,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const [isBiometryActive, setIsBiometryActive] = useState(hasBiometryConfigured());
-
   const handleOpenProfileEditor = () => {
     if (currentUser) {
       setShowProfileSettings(true);
@@ -641,10 +635,14 @@ export const App: React.FC = () => {
     fetchPublicProfiles(true);
   }, [fetchPublicStalls, fetchPublicProfiles]);
 
-  const allowedSections = React.useMemo(() => {
+  const allowedSections = useMemo(() => {
     if (!currentUser || !sections.length) return [];
     if (targetType === 'CUSTOMER') return [];
-    if (currentUser.role === 'OWNER') return sections.filter(s => s.type !== 'STOCK_STYLE' && s.type !== 'SYSTEM_SETTINGS');
+    
+    if (currentUser.role === 'OWNER') {
+      return sections.filter(s => s.type !== 'STOCK_STYLE' && s.type !== 'SYSTEM_SETTINGS');
+    }
+    
     const assignedIds = currentUser.assignedSectionIds || [];
     return sections.filter(s => assignedIds.includes(s.id) && s.type !== 'SYSTEM_SETTINGS');
   }, [sections, currentUser, targetType]);
@@ -960,7 +958,6 @@ export const App: React.FC = () => {
                   src={currentUser.bannerUrl || companyProfile?.bannerUrl} 
                   className="w-full h-full object-cover" 
                   alt="Capa" 
-                  referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
                 <div className="absolute inset-0 backdrop-blur-[2px]" />
@@ -971,7 +968,7 @@ export const App: React.FC = () => {
              <div onClick={handleOpenProfileEditor} className="flex items-center gap-4 cursor-pointer group">
                 <div className={`w-14 h-14 rounded-2xl overflow-hidden border-2 flex items-center justify-center transition-all shadow-lg ${currentUser.bannerUrl || companyProfile?.bannerUrl ? 'border-white/30 bg-white/10 backdrop-blur-md scale-110' : 'border-slate-100 bg-slate-100'}`}>
                    {currentUser.avatarUrl || companyProfile?.logoUrl ? (
-                     <img src={currentUser.avatarUrl || companyProfile?.logoUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                     <img src={currentUser.avatarUrl || companyProfile?.logoUrl} className="w-full h-full object-cover" />
                    ) : (
                      <div className={`${currentUser.bannerUrl || companyProfile?.bannerUrl ? 'text-white' : 'text-slate-300'} font-black text-xl`}>
                        {currentUser.name.charAt(0)}
@@ -991,6 +988,11 @@ export const App: React.FC = () => {
                 </div>
              </div>
              <div className="flex gap-2">
+                <DensitySelector 
+                  density={density} 
+                  onToggle={cycleDensity} 
+                  isBannerActive={!!(currentUser.bannerUrl || companyProfile?.bannerUrl)} 
+                />
                 <button 
                   onClick={async () => {
                      try {
@@ -1083,7 +1085,7 @@ export const App: React.FC = () => {
         />
       )}
       {activeTab !== 'GOD_MODE' && (
-        <div className={`fixed bottom-6 left-0 right-0 z-[90] flex justify-center pointer-events-none transition-transform duration-300 ${isKeyboardOpen ? 'translate-y-48 opacity-0' : 'translate-y-0 opacity-100'}`}>
+        <div className="fixed bottom-6 left-0 right-0 z-[90] flex justify-center pointer-events-none">
           <div className="bg-slate-900 p-2 rounded-[2.5rem] shadow-2xl flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[92vw] pointer-events-auto border border-slate-800">
               <button 
                 onClick={() => handleTabChangeWithGuard('HOME')} 
@@ -1145,13 +1147,21 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
-        <div className="p-4 pt-6 max-w-7xl mx-auto">
+      <div className={`flex-1 overflow-y-auto no-scrollbar pb-32 transition-all duration-300 ${
+        density === 'small' 
+          ? 'compact-mode [&_.p-6]:!p-3.5 sm:[&_.p-6]:!p-4 [&_.p-8]:!p-4 sm:[&_.p-8]:!p-5 [&_.gap-6]:!gap-3 [&_.gap-4]:!gap-2 [&_.space-y-6]:!space-y-3 [&_.space-y-4]:!space-y-2 [&_.rounded-\\[2\\.5rem\\]]:!rounded-[1.4rem] [&_.rounded-\\[2rem\\]]:!rounded-[1.2rem]' 
+          : density === 'large'
+          ? 'large-mode [&_.p-6]:!p-8 sm:[&_.p-6]:!p-10 [&_.p-8]:!p-10 sm:[&_.p-8]:!p-12 [&_.gap-6]:!gap-8 [&_.gap-4]:!gap-5 [&_.space-y-6]:!space-y-8 [&_.space-y-4]:!space-y-6'
+          : ''
+      }`}>
+        <div className={`p-4 pt-6 max-w-7xl mx-auto transition-all ${
+          density === 'small' ? 'max-w-[1360px] px-2 sm:px-4' : density === 'large' ? 'max-w-6xl px-4 sm:px-6' : ''
+        }`}>
           {activeTab === 'HOME' && <Home sections={sections} archives={archives} visibleSections={allowedSections} transactions={transactions} user={currentUser} onNavigate={setActiveTab} ads={ads} incrementClick={incrementClick} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} plans={plans} stores={marketplaceStores} stalls={publicStalls} hasMoreTransactions={hasMoreTransactions} fetchNextTransactions={fetchNextTransactions} loadingTransactions={loading} financialInsights={financialInsights} historicalSummaries={historicalSummaries} />}
-        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} moveSection={moveSection} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={(d) => setTimeout(() => setIsSettingsDirty(d), 0)} customers={customers} addCustomer={addCustomer} removeCustomer={removeCustomer} updateCustomer={updateCustomer} />}
+        {activeTab === 'CONFIG' && currentUser.role === 'OWNER' && <Settings sections={sections} saveConfig={saveConfig} deleteSection={deleteSection} users={users} addUser={createUser} removeUser={removeUser} updateUser={updateUser} transactions={transactions} clearTransactions={clearTransactions} archiveYear={archiveYear} currentUser={currentUser} companyProfile={companyProfile} onSaveProfile={handleSaveProfile} ads={ads} saveAd={saveAd} deleteAd={deleteAd} onNavigate={setActiveTab} isGodModeUnlocked={isGodModeUnlocked} onUnlockGodMode={() => { setIsGodModeUnlocked(true); setActiveTab('GOD_MODE'); }} addNote={addNote} onDirtyChange={setIsSettingsDirty} customers={customers} addCustomer={addCustomer} removeCustomer={removeCustomer} updateCustomer={updateCustomer} />}
         {activeTab === 'GOD_MODE' && isGodModeUnlocked && (currentUser.email === 'hacker3d22@gmail.com' || currentUser.email === 'brasilanonymous66@gmail.com') && <SuperAdmin onExit={() => setActiveTab('CONFIG')} />}
         {activeTab === 'ESTOQUE' && currentUser.role === 'OWNER' && <Stock sections={sections} saveConfig={saveConfig} workspaceId={currentUser.workspaceId} user={currentUser} adjustStockItem={adjustStockItem} />}
-        {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}
+        {activeTab === 'ACTIVITY' && currentUser.role === 'OWNER' && <ManagerActivity sections={sections} transactions={transactions} users={users} deleteTransaction={(id) => deleteTransaction(id, currentUser.name)} hasMore={hasMoreTransactions} fetchNext={fetchNextTransactions} loading={loading} />}
         {activeTab === 'MARKETPLACE' && (
           <Marketplace 
             user={currentUser} 

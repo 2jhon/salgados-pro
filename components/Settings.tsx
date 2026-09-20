@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { AppSection, User, Transaction, Ad, StoreProfile, Customer } from '../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { AppSection, User, Transaction, Ad, StoreProfile, Customer, ConfigItem } from '../types';
 import { useSettingsLogic } from '../hooks/useSettingsLogic';
 import { StructureTab } from './settings/StructureTab';
 import { VitrineContainer } from './settings/VitrineContainer';
@@ -16,13 +16,12 @@ import {
   Layout, Users, Megaphone, Settings as SettingsIcon,
   Trash2, Package, UserCircle, ShoppingBag, Truck, Calendar,
   Rocket, Database, Zap, BarChart3, History, X, Check, EyeOff, Loader2, Camera, Store,
-  Fingerprint, Bell, LogOut, Edit3, ChevronUp, ChevronDown, MoveUp, MoveDown
+  Fingerprint, Bell, LogOut, Edit3, ArrowUp, ArrowDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 
 interface SettingsProps {
   sections: AppSection[];
-  saveConfig: (sections: AppSection[]) => Promise<boolean>;
-  moveSection: (id: string, direction: 'up' | 'down') => Promise<boolean>;
+  saveConfig: (input: AppSection[] | ((prev: AppSection[]) => AppSection[])) => Promise<boolean>;
   deleteSection: (id: string) => Promise<void>;
   users: User[];
   addUser: (user: Omit<User, 'id'>) => Promise<User | null>;
@@ -61,25 +60,34 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     showCustomerModal, setShowCustomerModal, showCustomerHistory, setShowCustomerHistory, editingCustomer, setEditingCustomer, customerForm, setCustomerForm, handleSaveCustomer,
     showUserModal, setShowUserModal, editingUser, setEditingUser, userForm, setUserForm, handleSaveUser,
     showSectionModal, setShowSectionModal, editingSection, setEditingSection, sectionForm, setSectionForm, handleCreateSection,
-    manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem, startEditManageItem, moveCategory, moveItem, isSaving,
+    manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem, startEditManageItem,
+    handleMoveCategory, handleMoveItem,
     adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd, handleRetryAdPayment,
     handleGenerateAdText, handleGenerateAdImage, deleteAd,
     uploadToStorage
   } = useSettingsLogic(props);
 
-  const onDirtyChangeRef = useRef(props.onDirtyChange);
-  useEffect(() => {
-    onDirtyChangeRef.current = props.onDirtyChange;
-  }, [props.onDirtyChange]);
+  const { categoriesOrder, groupedItems } = useMemo(() => {
+    if (!editingSection) return { categoriesOrder: [], groupedItems: {} };
+    const currentList = manageTab === 'PRODUCTS' ? (editingSection.items || []) : (editingSection.expenses || []);
+    const order: string[] = [];
+    const grouped: Record<string, ConfigItem[]> = {};
+
+    currentList.forEach(item => {
+      const cat = (item.category && item.category.trim()) ? item.category.trim() : 'GERAL';
+      if (!grouped[cat]) {
+        grouped[cat] = [];
+        order.push(cat);
+      }
+      grouped[cat].push(item);
+    });
+
+    return { categoriesOrder: order, groupedItems: grouped };
+  }, [editingSection, manageTab]);
 
   useEffect(() => {
-    if (isMarketplaceDirty !== lastReportedDirtyRef.current) {
-      lastReportedDirtyRef.current = isMarketplaceDirty;
-      onDirtyChangeRef.current?.(isMarketplaceDirty);
-    }
-  }, [isMarketplaceDirty]);
-
-  const lastReportedDirtyRef = useRef<boolean>(false);
+    props.onDirtyChange?.(isMarketplaceDirty);
+  }, [isMarketplaceDirty, props]);
 
   const [clientSubTab, setClientSubTab] = useState<'CLIENT' | 'SUPPLIER'>('CLIENT');
   const [sysPeriod, setSysPeriod] = useState<'day' | 'week' | 'month' | 'all' | 'custom'>('day');
@@ -136,7 +144,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             setShowSectionModal={setShowSectionModal}
             setEditingSection={setEditingSection}
             deleteSection={props.deleteSection}
-            moveSection={props.moveSection}
+            saveConfig={props.saveConfig}
           />
         )}
         {activeTab === 'CLIENTES' && (
@@ -502,45 +510,58 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                        </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-3">R$ Vista</label>
-                          <input 
-                            value={manageForm.priceVista} 
-                            onChange={e => setManageForm({...manageForm, priceVista: e.target.value})} 
-                            placeholder="0,00" 
-                            className="w-full p-4 bg-white rounded-xl font-black text-slate-700 outline-none border border-slate-100"
-                          />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-3">R$ Prazo</label>
-                          <input 
-                            value={manageForm.pricePrazo} 
-                            onChange={e => setManageForm({...manageForm, pricePrazo: e.target.value})} 
-                            placeholder="0,00" 
-                            className="w-full p-4 bg-white rounded-xl font-black text-slate-700 outline-none border border-slate-100"
-                          />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-emerald-500 uppercase tracking-widest ml-3">R$ Promo Vista</label>
-                          <input 
-                            value={manageForm.promoVista} 
-                            onChange={e => setManageForm({...manageForm, promoVista: e.target.value})} 
-                            placeholder="0,00" 
-                            className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-xl font-black outline-none border border-emerald-100"
-                          />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[8px] font-black text-emerald-500 uppercase tracking-widest ml-3">R$ Promo Prazo</label>
-                          <input 
-                            value={manageForm.promoPrazo} 
-                            onChange={e => setManageForm({...manageForm, promoPrazo: e.target.value})} 
-                            placeholder="0,00" 
-                            className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-xl font-black outline-none border border-emerald-100"
-                          />
-                       </div>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                         <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-3">R$ Vista</label>
+                            <input 
+                              value={manageForm.priceVista} 
+                              onChange={e => setManageForm({...manageForm, priceVista: e.target.value})} 
+                              placeholder="0,00" 
+                              className="w-full p-4 bg-white rounded-xl font-black text-slate-700 outline-none border border-slate-100"
+                            />
+                         </div>
+                         <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-3">R$ Prazo</label>
+                            <input 
+                              value={manageForm.pricePrazo} 
+                              onChange={e => setManageForm({...manageForm, pricePrazo: e.target.value})} 
+                              placeholder="0,00" 
+                              className="w-full p-4 bg-white rounded-xl font-black text-slate-700 outline-none border border-slate-100"
+                            />
+                         </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-3">
+                         <div className="space-y-1 col-span-1">
+                            <label className="text-[8px] font-black text-rose-500 uppercase tracking-widest ml-3" title="Preço de custo para cálculo de lucro">R$ Custo (Unid)</label>
+                            <input 
+                              value={manageForm.costPrice}
+                              onChange={e => setManageForm({...manageForm, costPrice: e.target.value})}
+                              placeholder="0,00" 
+                              className="w-full p-4 bg-rose-50 rounded-xl font-black text-rose-700 outline-none border border-rose-100"
+                            />
+                         </div>
+                         <div className="space-y-1 col-span-1">
+                            <label className="text-[8px] font-black text-emerald-500 uppercase tracking-widest ml-3">R$ Promo Vista</label>
+                            <input 
+                              value={manageForm.promoVista} 
+                              onChange={e => setManageForm({...manageForm, promoVista: e.target.value})} 
+                              placeholder="0,00" 
+                              className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-xl font-black outline-none border border-emerald-100"
+                            />
+                         </div>
+                         <div className="space-y-1 col-span-1">
+                            <label className="text-[8px] font-black text-emerald-500 uppercase tracking-widest ml-3">R$ Promo Praz</label>
+                            <input 
+                              value={manageForm.promoPrazo} 
+                              onChange={e => setManageForm({...manageForm, promoPrazo: e.target.value})} 
+                              placeholder="0,00" 
+                              className="w-full p-4 bg-emerald-50 text-emerald-700 rounded-xl font-black outline-none border border-emerald-100"
+                            />
+                         </div>
+                      </div>
                     </div>
-
                     <button 
                       onClick={handleSaveManageItem}
                       disabled={isProcessing}
@@ -549,118 +570,172 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       {editingItemId ? 'Atualizar Item' : 'Adicionar Item'}
                     </button>
                     {editingItemId && (
-                      <button onClick={() => { setEditingItemId(null); setManageForm({ name: '', category: '', priceVista: '', pricePrazo: '', imageUrl: '', promoVista: '', promoPrazo: '', promoEndsAt: '' }); }} className="w-full py-2 text-[9px] font-black text-rose-400 uppercase">Cancelar Edição</button>
+                      <button onClick={() => { setEditingItemId(null); setManageForm({ name: '', category: '', priceVista: '', pricePrazo: '', costPrice: '', imageUrl: '', promoVista: '', promoPrazo: '', promoEndsAt: '' }); }} className="w-full py-2 text-[9px] font-black text-rose-400 uppercase">Cancelar Edição</button>
                     )}
                  </div>
 
-                 {/* LISTA DE ITENS AGRUPADA POR CATEGORIA */}
+                 {/* LISTA DE ITENS AGRUPADOS POR CATEGORIA */}
                  <div className="space-y-6 pb-8">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
                       {manageTab === 'PRODUCTS' ? 'Produtos Cadastrados' : 'Despesas Cadastradas'}
                     </h4>
-                    
-                    {(() => {
-                        const rawList = (manageTab === 'PRODUCTS' ? (editingSection.items || []) : (editingSection.expenses || []));
-                        const list = [...rawList].sort((a, b) => {
-                            const numA = isNaN(Number(a.order)) ? 0 : Number(a.order);
-                            const numB = isNaN(Number(b.order)) ? 0 : Number(b.order);
-                            return numA - numB;
-                        });
-                        
-                        const groupsMap = new Map<string, any[]>();
-                        list.forEach(item => {
-                           const cat = item.category || 'Geral';
-                           if (!groupsMap.has(cat)) groupsMap.set(cat, []);
-                           groupsMap.get(cat)!.push(item);
-                        });
 
-                        const sortedGroups = Array.from(groupsMap.entries()).map(([category, items]) => {
-                          const order = items.length > 0 ? Math.min(...items.map(i => isNaN(Number(i.order)) ? 0 : Number(i.order))) : 0;
-                          return { category, items, order };
-                        }).sort((a, b) => a.order - b.order);
+                    {categoriesOrder.length === 0 && (
+                      <div className="text-center py-10 bg-slate-50/50 rounded-3xl border border-slate-100">
+                        <Package className="mx-auto text-slate-300 mb-2" size={32} />
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Nenhum item cadastrado nesta aba</p>
+                      </div>
+                    )}
 
-                        return sortedGroups.map((group) => (
-                          <div key={group.category} className="space-y-2">
-                             <div className="flex items-center justify-between px-4 mb-1">
-                                <h5 className="text-[9px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
-                                  <span className="w-1.5 h-3 rounded-full bg-indigo-500"></span>
-                                  {group.category}
-                                </h5>
-                                <div className="flex items-center gap-1">
-                                   <button 
-                                     onClick={() => moveCategory(editingSection.id, group.category, 'up', manageTab)} 
-                                     disabled={isSaving}
-                                     className="p-1 px-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all border border-emerald-200 shadow-sm disabled:opacity-30 disabled:cursor-wait"
-                                     title="Mover Categoria para Cima"
-                                   >
-                                      <MoveUp size={14} strokeWidth={3} />
-                                   </button>
-                                   <button 
-                                     onClick={() => moveCategory(editingSection.id, group.category, 'down', manageTab)} 
-                                     disabled={isSaving}
-                                     className="p-1 px-2 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all border border-rose-200 shadow-sm disabled:opacity-30 disabled:cursor-wait"
-                                     title="Mover Categoria para Baixo"
-                                   >
-                                      <MoveDown size={14} strokeWidth={3} />
-                                   </button>
-                                </div>
-                             </div>
-                             <div className="space-y-2">
-                                {group.items.map((item: any) => (
-                                  <div key={item.id} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-all">
-                                     <div className="flex items-center gap-4">
-                                        <div className="flex flex-col gap-1 items-center">
-                                           <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden flex items-center justify-center border border-slate-100">
-                                              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <Package className="text-slate-200" size={20} />}
-                                           </div>
-                                           <div className="flex items-center gap-0.5">
-                                              <button 
-                                                onClick={() => moveItem(editingSection.id, item.id, 'up', manageTab)} 
-                                                disabled={isSaving}
-                                                className="p-1 text-emerald-600 bg-emerald-50 rounded-lg border border-emerald-200 transition-all hover:bg-emerald-100 disabled:opacity-30 shadow-sm"
-                                                title="Subir Item"
-                                              >
-                                                <ChevronUp size={12} strokeWidth={3} />
-                                              </button>
-                                              <button 
-                                                onClick={() => moveItem(editingSection.id, item.id, 'down', manageTab)} 
-                                                disabled={isSaving}
-                                                className="p-1 text-rose-600 bg-rose-50 rounded-lg border border-rose-200 transition-all hover:bg-rose-100 disabled:opacity-30 shadow-sm"
-                                                title="Descer Item"
-                                              >
-                                                <ChevronDown size={12} strokeWidth={3} />
-                                              </button>
-                                           </div>
-                                        </div>
-                                        <div className="min-w-0">
-                                           <p className="font-black text-slate-800 text-[11px] uppercase leading-none mb-1 truncate">{item.name}</p>
-                                           <p className="text-[10px] font-bold text-slate-400 uppercase">R$ {item.defaultPriceAVista?.toFixed(2)} / R$ {item.defaultPriceAPrazo?.toFixed(2)}</p>
-                                        </div>
-                                     </div>
-                                     <div className="flex gap-1">
-                                        <button onClick={() => startEditManageItem(item)} className="p-2.5 text-indigo-400 hover:bg-indigo-50 rounded-xl transition-all"><Edit3 size={16} /></button>
-                                        <button 
-                                          onClick={() => {
-                                            setConfirmModal({
-                                              title: 'Excluir Item',
-                                              message: `Tem certeza que deseja excluir '${item.name}'?`,
-                                              onConfirm: async () => {
-                                                await handleDeleteManageItem(item.id);
-                                                setConfirmModal(null);
-                                              }
-                                            });
-                                          }} 
-                                          className="p-2.5 text-rose-300 hover:bg-rose-50 rounded-xl transition-all"
-                                        >
-                                          <Trash2 size={16} />
-                                        </button>
-                                     </div>
-                                  </div>
-                                ))}
-                             </div>
+                    {categoriesOrder.map((categoryName, catIdx) => {
+                      const itemsInCat = groupedItems[categoryName] || [];
+                      const isFirstCat = catIdx === 0;
+                      const isLastCat = catIdx === categoriesOrder.length - 1;
+
+                      return (
+                        <div key={categoryName} className="space-y-3">
+                          {/* CABEÇALHO DA CATEGORIA COM SETAS DE ORDENAÇÃO */}
+                          <div className="flex items-center justify-between px-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-1.5 h-4 bg-indigo-600 rounded-full inline-block" />
+                              <span className="text-xs font-black text-indigo-600 uppercase tracking-widest">
+                                {categoryName}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {/* SETA CATEGORIA SUBIR */}
+                              <button
+                                onClick={() => handleMoveCategory(categoryName, 'UP')}
+                                disabled={isFirstCat || isProcessing}
+                                title="Mover categoria para cima"
+                                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all ${
+                                  isFirstCat
+                                    ? 'opacity-30 bg-emerald-50 text-emerald-400 border-emerald-100 cursor-not-allowed'
+                                    : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100 active:scale-95 shadow-sm'
+                                }`}
+                              >
+                                <ArrowUp size={15} strokeWidth={2.5} />
+                              </button>
+
+                              {/* SETA CATEGORIA DESCER */}
+                              <button
+                                onClick={() => handleMoveCategory(categoryName, 'DOWN')}
+                                disabled={isLastCat || isProcessing}
+                                title="Mover categoria para baixo"
+                                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all ${
+                                  isLastCat
+                                    ? 'opacity-30 bg-rose-50 text-rose-400 border-rose-100 cursor-not-allowed'
+                                    : 'bg-rose-50 text-rose-500 border-rose-100 hover:bg-rose-100 active:scale-95 shadow-sm'
+                                }`}
+                              >
+                                <ArrowDown size={15} strokeWidth={2.5} />
+                              </button>
+                            </div>
                           </div>
-                        ));
-                    })()}
+
+                          {/* LISTA DE ITENS DA CATEGORIA */}
+                          <div className="space-y-2">
+                            {itemsInCat.map((item, itemIdx) => {
+                              const isFirstItem = itemIdx === 0;
+                              const isLastItem = itemIdx === itemsInCat.length - 1;
+
+                              return (
+                                <div 
+                                  key={item.id} 
+                                  className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-indigo-100 transition-all shadow-sm"
+                                >
+                                  {/* LADO ESQUERDO: FOTO + SETAS DE REORDENAÇÃO DO ITEM */}
+                                  <div className="flex items-center gap-4">
+                                    <div className="flex flex-col items-center gap-1.5">
+                                      <div className="w-14 h-14 bg-slate-50 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-100 flex-shrink-0 shadow-inner">
+                                        {item.imageUrl ? (
+                                          <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                          <Package className="text-slate-200" size={24} />
+                                        )}
+                                      </div>
+
+                                      {/* SETAS DE ORDENAÇÃO DO ITEM (SUBIR / DESCER) */}
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleMoveItem(item.id, 'UP')}
+                                          disabled={isFirstItem || isProcessing}
+                                          title="Mover item para cima"
+                                          className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                                            isFirstItem
+                                              ? 'opacity-25 bg-emerald-50 text-emerald-400 border-emerald-100 cursor-not-allowed'
+                                              : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100 active:scale-90'
+                                          }`}
+                                        >
+                                          <ChevronUp size={14} strokeWidth={3} />
+                                        </button>
+
+                                        <button
+                                          onClick={() => handleMoveItem(item.id, 'DOWN')}
+                                          disabled={isLastItem || isProcessing}
+                                          title="Mover item para baixo"
+                                          className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                                            isLastItem
+                                              ? 'opacity-25 bg-rose-50 text-rose-400 border-rose-100 cursor-not-allowed'
+                                              : 'bg-rose-50 text-rose-500 border-rose-100 hover:bg-rose-100 active:scale-90'
+                                          }`}
+                                        >
+                                          <ChevronDown size={14} strokeWidth={3} />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* CENTRO: NOME E PREÇO */}
+                                    <div>
+                                      <p className="font-black text-slate-800 text-xs sm:text-sm uppercase leading-tight mb-1">
+                                        {item.name}
+                                      </p>
+                                      <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase">
+                                        R$ {(item.defaultPriceAVista ?? item.defaultPrice ?? 0).toFixed(2)} / R$ {(item.defaultPriceAPrazo ?? 0).toFixed(2)}
+                                      </p>
+                                      {item.promotionalPriceAVista ? (
+                                        <p className="text-[9px] font-black text-emerald-600 uppercase mt-0.5">
+                                          Promo: R$ {item.promotionalPriceAVista.toFixed(2)}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  {/* LADO DIREITO: BOTÕES DE EDITAR E EXCLUIR */}
+                                  <div className="flex items-center gap-1">
+                                    <button 
+                                      onClick={() => startEditManageItem(item)} 
+                                      className="p-2.5 text-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all"
+                                      title="Editar produto"
+                                    >
+                                      <Edit3 size={16} />
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setConfirmModal({
+                                          show: true,
+                                          title: 'Excluir Item',
+                                          message: `Tem certeza que deseja excluir '${item.name}'?`,
+                                          onConfirm: async () => {
+                                            await handleDeleteManageItem(item.id);
+                                            setConfirmModal(null);
+                                          }
+                                        });
+                                      }} 
+                                      className="p-2.5 text-rose-300 hover:bg-rose-50 hover:text-rose-500 rounded-xl transition-all"
+                                      title="Excluir produto"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                  </div>
               </div>
            </div>

@@ -70,7 +70,7 @@ export const AdBannerSlider: React.FC<AdBannerSliderProps> = ({
   if (filteredAds.length === 0) return null;
 
   return (
-    <div className="relative group">
+    <div className="relative group animate-in slide-in-from-top-6 duration-700">
       <div className="overflow-hidden rounded-[3rem] shadow-2xl border-[8px] border-white relative h-64 bg-slate-100">
         <div className="flex h-full transition-transform duration-1000" style={{ transform: `translateX(-${currentAdIndex * 100}%)` }}>
           {filteredAds.map((ad) => {
@@ -85,7 +85,7 @@ export const AdBannerSlider: React.FC<AdBannerSliderProps> = ({
                 className="w-full shrink-0 h-full relative cursor-pointer" 
                 style={{ backgroundColor: ad.backgroundColor || '#f59e0b' }}
               >
-                {ad.mediaUrl && <img src={ad.mediaUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />}
+                {ad.mediaUrl && <img src={ad.mediaUrl} className="w-full h-full object-cover" />}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent p-8 flex flex-col justify-end">
                    <div className="flex justify-between items-end">
                       <div>

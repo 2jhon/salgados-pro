@@ -13,6 +13,39 @@ interface StoreInsightsProps {
   historicalSummaries?: any[];
 }
 
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const vendas = payload.find((p: any) => p.dataKey === 'Vendas')?.value as number || 0;
+    const gastos = payload.find((p: any) => p.dataKey === 'Gastos')?.value as number || 0;
+    const saldo = vendas - gastos;
+
+    return (
+      <div className="bg-white p-4 rounded-[1.5rem] shadow-2xl border border-slate-100 min-w-[150px]">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b border-slate-50 pb-2 flex items-center gap-1">
+          <Calendar size={12} /> {label}
+        </p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] font-bold text-slate-400 uppercase">Vendas</span>
+            <span className="text-xs font-black text-emerald-600">{formatCurrency(vendas)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+             <span className="text-[9px] font-bold text-slate-400 uppercase">Gastos</span>
+             <span className="text-xs font-black text-rose-500">{formatCurrency(gastos)}</span>
+          </div>
+          <div className="pt-2 border-t border-slate-50 mt-2 flex items-center justify-between">
+             <span className="text-[9px] font-black text-slate-800 uppercase">Resultado</span>
+             <span className={`text-xs font-black ${saldo >= 0 ? 'text-indigo-600' : 'text-orange-500'}`}>
+               {saldo >= 0 ? '+' : ''}{formatCurrency(saldo)}
+             </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const StoreInsights: React.FC<StoreInsightsProps> = ({
   transactions,
   sections,
@@ -25,7 +58,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   
   const [expandedCard, setExpandedCard] = useState<'sales' | 'expenses' | null>(null);
 
-  const { stats, breakdowns } = React.useMemo(() => {
+  const { stats, breakdowns } = useMemo(() => {
     // Merge historical BI data with current real-time transactions to ensure latest data is always visible
     // Deduplicate by ID to avoid double counting, prioritizing real-time transactions list which is already mapped
     const seenIds = new Set();
@@ -100,7 +133,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
     };
   }, [transactions, financialInsights]);
 
-  const chartData = React.useMemo(() => {
+  const chartData = useMemo(() => {
     // Also merge for chart consistency, prioritizing transactions list
     const seenIds = new Set();
     const dataSource = [...(transactions || []), ...(financialInsights || [])].filter(t => {
@@ -146,7 +179,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
   const [selectedArchiveYear, setSelectedArchiveYear] = useState<string | null>(null);
 
   // Unified archive tracker - combines legacy AppSections and new historical_summaries table
-  const unifiedArchives = React.useMemo(() => {
+  const unifiedArchives = useMemo(() => {
     const list: { year: string, data: { name: string, Vendas: number, Gastos: number }[] }[] = [];
     
     // 1. New DB Summaries (Preferred)
@@ -182,7 +215,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
     return list.sort((a, b) => Number(b.year) - Number(a.year));
   }, [historicalSummaries, archives]);
 
-  const archiveChartData = React.useMemo(() => {
+  const archiveChartData = useMemo(() => {
     if (unifiedArchives.length === 0) return null;
     
     const entry = selectedArchiveYear 
@@ -191,39 +224,6 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
       
     return entry?.data || null;
   }, [unifiedArchives, selectedArchiveYear]);
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const vendas = payload.find((p: any) => p.dataKey === 'Vendas')?.value as number || 0;
-      const gastos = payload.find((p: any) => p.dataKey === 'Gastos')?.value as number || 0;
-      const saldo = vendas - gastos;
-
-      return (
-        <div className="bg-white p-4 rounded-[1.5rem] shadow-2xl border border-slate-100 min-w-[150px]">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b border-slate-50 pb-2 flex items-center gap-1">
-            <Calendar size={12} /> {label}
-          </p>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] font-bold text-slate-400 uppercase">Vendas</span>
-              <span className="text-xs font-black text-emerald-600">{formatCurrency(vendas)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-               <span className="text-[9px] font-bold text-slate-400 uppercase">Gastos</span>
-               <span className="text-xs font-black text-rose-500">{formatCurrency(gastos)}</span>
-            </div>
-            <div className="pt-2 border-t border-slate-50 mt-2 flex items-center justify-between">
-               <span className="text-[9px] font-black text-slate-800 uppercase">Resultado</span>
-               <span className={`text-xs font-black ${saldo >= 0 ? 'text-indigo-600' : 'text-orange-500'}`}>
-                 {saldo >= 0 ? '+' : ''}{formatCurrency(saldo)}
-               </span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   if (!isOwner) return null;
 
@@ -244,7 +244,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.sales)}</p>
           
           {expandedCard === 'sales' && breakdowns.sales.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-emerald-500/30 space-y-2 relative z-10">
+            <div className="mt-4 pt-4 border-t border-emerald-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
                {breakdowns.sales.map((item, idx) => (
                  <div key={idx} className="flex items-center justify-between text-xs">
                    <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
@@ -268,7 +268,7 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <p className="text-2xl font-black mt-1 truncate">{formatCurrency(stats.expenses)}</p>
 
           {expandedCard === 'expenses' && breakdowns.expenses.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-rose-500/30 space-y-2 relative z-10">
+            <div className="mt-4 pt-4 border-t border-rose-500/30 space-y-2 animate-in slide-in-from-top-2 fade-in duration-300 relative z-10">
                {breakdowns.expenses.map((item, idx) => (
                  <div key={idx} className="flex items-center justify-between text-xs">
                    <span className="font-bold opacity-80 truncate pr-2 max-w-[70%]">{item.name}</span>
@@ -286,18 +286,18 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Vendas vs Gastos (7 Dias)</h3>
         </div>
         <div className="h-48 w-full">
-          <ResponsiveContainer width="100%" height="100%" minHeight={192} minWidth={200}>
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} tickFormatter={(value) => `R$${value}`} />
               <Tooltip 
                 cursor={{ fill: '#f8fafc', radius: [4, 4, 0, 0] }}
-                content={<CustomTooltip />}
+                content={CustomTooltip}
               />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: 800, paddingTop: '10px' }} />
-              <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
-              <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+              <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+              <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -323,18 +323,18 @@ export const StoreInsights: React.FC<StoreInsightsProps> = ({
             )}
           </div>
           <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%" minHeight={192} minWidth={200}>
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={archiveChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 800 }} tickFormatter={(value) => `R$${value}`} />
                 <Tooltip 
                   cursor={{ fill: '#f8fafc', radius: [4, 4, 0, 0] }}
-                  content={<CustomTooltip />}
+                  content={CustomTooltip}
                 />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: 800, paddingTop: '10px' }} />
-                <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
-                <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+                <Bar dataKey="Vendas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                <Bar dataKey="Gastos" fill="#e11d48" radius={[4, 4, 0, 0]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </div>

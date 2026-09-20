@@ -55,14 +55,9 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     }
   }, [profile]);
 
-  const onDirtyChangeRef = useRef(onDirtyChange);
-  useEffect(() => {
-    onDirtyChangeRef.current = onDirtyChange;
-  }, [onDirtyChange]);
-
   // Detect dirty state
   useEffect(() => {
-    if (!onDirtyChangeRef.current) return;
+    if (!onDirtyChange) return;
     
     // Normalization helper to compare only relevant fields and handle nulls consistently
     const normalize = (data: any) => ({
@@ -100,15 +95,8 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
 
     const isDirty = JSON.stringify(currentNormalized) !== JSON.stringify(profileNormalized);
     
-    // Only update parent if status actually changed
-    if (onDirtyChangeRef.current && isDirty !== lastDirtyRef.current) {
-      lastDirtyRef.current = isDirty;
-      // Using setTimeout to ensure it happens after the current render cycle
-      setTimeout(() => onDirtyChangeRef.current?.(isDirty), 0);
-    }
-  }, [formData, profile, workspaceId]);
-
-  const lastDirtyRef = useRef<boolean>(false);
+    onDirtyChange(isDirty);
+  }, [formData, profile, workspaceId, onDirtyChange]);
 
   const [showItemModal, setShowItemModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -119,7 +107,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Categorization Logic
-  const categorizedPortfolio = React.useMemo(() => {
+  const categorizedPortfolio = useMemo(() => {
     const groups: Record<string, { items: (PortfolioItem & { originalIndex: number })[] }> = {};
     
     formData.portfolio.forEach((item, idx) => {
@@ -131,7 +119,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
     return groups;
   }, [formData.portfolio]);
 
-  const existingCategories = React.useMemo(() => {
+  const existingCategories = useMemo(() => {
     const cats = new Set<string>();
     formData.portfolio.forEach(item => {
       if (item.category) cats.add(item.category.toUpperCase().trim());
@@ -471,7 +459,7 @@ export const MarketplaceManager: React.FC<MarketplaceManagerProps> = ({ profile,
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-50 space-y-8">
         <div className="flex justify-between items-center">
            <div className="flex items-center gap-4">

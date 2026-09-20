@@ -168,6 +168,7 @@ export interface ConfigItem {
   currentStock?: number;
   minStock?: number;
   trackStock?: boolean;
+  costPrice?: number; // Preço de custo unitário para cálculo de imobilizado
   imageUrl?: string; // Nova propriedade para imagem
   promotionalPriceAVista?: number; // Preço promocional à vista
   promotionalPriceAPrazo?: number; // Preço promocional a prazo

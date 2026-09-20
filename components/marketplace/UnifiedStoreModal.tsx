@@ -4,7 +4,6 @@ import {
   Instagram, Flag, MapPin, Clock, Star, Plus, ChevronRight, ShoppingCart
 } from 'lucide-react';
 import { StoreProfile } from '../../types';
-import { ScrollContainer } from '../ScrollContainer';
 
 interface UnifiedStoreModalProps {
   activeView: any;
@@ -58,7 +57,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
   const workspaceId = activeView.data?.workspaceId || activeView.profile?.workspaceId;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in">
       <div className="bg-white w-full max-w-5xl h-[85vh] sm:h-[90vh] rounded-t-[3rem] sm:rounded-[3rem] overflow-hidden flex flex-col shadow-3xl animate-in slide-in-from-bottom-10 relative">
         
         {/* BOTÃO X DE FECHAR GLOBAL (Sempre Visível) */}
@@ -71,7 +70,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
           <div className="h-40 w-full relative bg-slate-200">
               {activeView.profile?.bannerUrl ? (
                   <>
-                    <img src={activeView.profile.bannerUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    <img src={activeView.profile.bannerUrl} className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/20" />
                   </>
               ) : (
@@ -85,7 +84,7 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                   <div className="w-32 h-32 bg-white rounded-[2.5rem] p-1 shadow-2xl relative z-10">
                       <div className="w-full h-full bg-slate-100 rounded-[2.2rem] overflow-hidden relative">
                           {activeView.imageUrl ? (
-                             <img src={activeView.imageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                             <img src={activeView.imageUrl} className="w-full h-full object-cover" />
                           ) : (
                              <div className="w-full h-full flex items-center justify-center text-slate-300">
                                 {activeView.type === 'STALL' ? <Smartphone /> : <Store />}
@@ -343,66 +342,67 @@ export const UnifiedStoreModal: React.FC<UnifiedStoreModalProps> = ({
                                </div>
                            </div>
                            {groupedItems.length > 0 && (
-                             <ScrollContainer className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
+                             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
                                <button onClick={(e) => { e.preventDefault(); document.getElementById('cat-geral')?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-slate-800 text-white font-bold text-[10px] shadow-sm active:scale-95 transition-all">CATEGORIAS</button>
                                {groupedItems.map(g => (
                                   <button key={g.category} onClick={(e) => { e.preventDefault(); document.getElementById(`cat-${g.category.replace(/\s+/g, '-').toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' }); }} className="shrink-0 snap-start px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-100 hover:bg-emerald-100 active:scale-95 transition-all uppercase">
                                     {g.category}
                                   </button>
                                ))}
-                             </ScrollContainer>
+                             </div>
                            )}
                         </div>
 
-                        {/* LISTAGEM DE GRUPOS EM CARROSSEL HORIZONTAL */}
-                        <div className="space-y-8 pb-10" id="cat-geral">
+                        {/* LISTAGEM DE GRUPOS EM LISTA VERTICAL COMPACTA */}
+                        <div className="space-y-10 pb-10 px-8" id="cat-geral">
                            {groupedItems.map((group, gIdx) => (
                               <div key={gIdx} id={`cat-${group.category.replace(/\s+/g, '-').toLowerCase()}`} className="scroll-mt-40">
-                                 <div className="px-8 flex items-center justify-between mb-3">
-                                     <h3 className="text-[12px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                                 <div className="flex items-center justify-between mb-4">
+                                     <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
                                         <span className="w-1.5 h-4 rounded-full bg-emerald-500"></span>
                                         {group.category}
                                      </h3>
-                                     <span className="text-[10px] font-bold text-slate-400">{group.items.length} ITENS</span>
+                                     <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{group.items.length} ITENS</span>
                                  </div>
-                                 <ScrollContainer className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory px-8 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }} containerClassName="-mx-8 px-0">
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {group.items.map((item: any, i: number) => (
                                       <button 
                                          key={i} 
                                          onClick={() => setSelectedProduct(item)}
-                                         className="shrink-0 snap-center sm:snap-start w-64 flex flex-col p-3 bg-white border border-slate-100 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all text-left group relative focus:outline-none"
+                                         className="flex items-center gap-4 p-3 bg-white border border-slate-100 rounded-3xl shadow-sm hover:shadow-md hover:border-emerald-200 transition-all text-left group relative focus:outline-none w-full"
                                       >
-                                         <div className="w-full h-36 bg-slate-100 rounded-2xl overflow-hidden relative mb-3">
+                                         <div className="w-20 h-20 bg-slate-100 rounded-2xl overflow-hidden shrink-0 relative">
                                             {item.imageUrl ? (
                                                <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                             ) : (
                                                <div className="w-full h-full flex items-center justify-center text-slate-300">
-                                                  {isCartEnabled ? <ShoppingCart size={24} /> : <ShoppingBag size={24} />}
+                                                  {isCartEnabled ? <ShoppingCart size={20} /> : <ShoppingBag size={20} />}
                                                </div>
                                             )}
                                          </div>
-                                         <div className="flex-1 flex flex-col px-1">
-                                            <h4 className="font-black text-slate-700 text-sm uppercase group-hover:text-emerald-600 transition-colors line-clamp-1">{item.name}</h4>
-                                            <p className="text-[10px] text-slate-400 line-clamp-2 mt-1 mb-3">{item.description}</p>
-                                            <div className="mt-auto border-t border-slate-50 pt-2 flex items-center justify-between">
+                                         <div className="flex-1 min-w-0 pr-2">
+                                            <h4 className="font-black text-slate-700 text-xs uppercase group-hover:text-emerald-600 transition-colors truncate">{item.name}</h4>
+                                            <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5 mb-2">{item.description}</p>
+                                            
+                                            <div className="flex items-center justify-between">
                                               <div>
                                                   {item.promotionalPrice && (!item.promoEndsAt || new Date(item.promoEndsAt).getTime() > Date.now()) ? (
-                                                    <div className="flex flex-col">
-                                                      <p className="text-slate-400 font-bold text-[10px] line-through leading-none">R$ {(item.price || 0).toFixed(2)}</p>
-                                                      <p className="text-emerald-600 font-black text-lg leading-none">R$ {item.promotionalPrice.toFixed(2)}</p>
+                                                    <div className="flex items-baseline gap-2">
+                                                      <p className="text-emerald-600 font-black text-sm">R$ {item.promotionalPrice.toFixed(2)}</p>
+                                                      <p className="text-slate-300 font-bold text-[8px] line-through">R$ {(item.price || 0).toFixed(2)}</p>
                                                     </div>
                                                   ) : (
-                                                    <p className="text-emerald-600 font-black text-lg">R$ {(item.price || 0).toFixed(2)}</p>
+                                                    <p className="text-emerald-600 font-black text-sm">R$ {(item.price || 0).toFixed(2)}</p>
                                                   )}
                                               </div>
-                                              <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white group-active:scale-90 transition-all shadow-sm">
-                                                 {isCartEnabled ? <Plus size={16} /> : <ChevronRight size={16} />}
+                                              <div className="w-7 h-7 rounded-full bg-slate-50 text-slate-300 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white group-active:scale-90 transition-all shadow-sm">
+                                                 {isCartEnabled ? <Plus size={14} /> : <ChevronRight size={14} />}
                                               </div>
                                             </div>
                                          </div>
                                       </button>
                                     ))}
-                                 </ScrollContainer>
+                                 </div>
                               </div>
                            ))}
                         </div>

@@ -9,12 +9,13 @@ interface ProductInsightsProps {
   title?: string;
   sectionName?: string;
   isOwner?: boolean;
+  sections?: import('../types').AppSection[];
 }
 
-export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, title = 'Desempenho de Produtos', sectionName, isOwner }) => {
+export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, title = 'Desempenho de Produtos', sectionName, isOwner, sections }) => {
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'all'>('day');
 
-  const { productStats, expenseStats, totalSales, totalExpenses } = React.useMemo(() => {
+  const { productStats, expenseStats, totalSales, totalExpenses } = useMemo(() => {
     const now = new Date();
     
     // Robust local timezone bounds
@@ -43,7 +44,18 @@ export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, 
       filtered = filtered.filter(t => t.category && t.category.trim().toLowerCase() === sectionName.trim().toLowerCase());
     }
 
-    const pStats: Record<string, { quantity: number; revenue: number }> = {};
+    const costMap: Record<string, number> = {};
+    if (sections) {
+      sections.forEach(s => {
+        s.items?.forEach(i => {
+           if (i.costPrice) {
+               costMap[i.name.toUpperCase()] = i.costPrice;
+           }
+        });
+      });
+    }
+
+    const pStats: Record<string, { quantity: number; revenue: number; cost: number; net: number }> = {};
     const eStats: Record<string, { quantity: number; revenue: number }> = {};
     let tSales = 0;
     let tExpenses = 0;
@@ -74,9 +86,13 @@ export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, 
         eStats[itemName].revenue += t.value;
         tExpenses += t.value;
       } else {
-        if (!pStats[itemName]) pStats[itemName] = { quantity: 0, revenue: 0 };
+        if (!pStats[itemName]) pStats[itemName] = { quantity: 0, revenue: 0, cost: 0, net: 0 };
         pStats[itemName].quantity += (t.quantity || 1);
         pStats[itemName].revenue += t.value;
+        const qty = t.quantity || 1;
+        const cost = (costMap[itemUpper] || 0) * qty;
+        pStats[itemName].cost += cost;
+        pStats[itemName].net += (t.value - cost);
         tSales += t.value;
       }
     });
@@ -89,7 +105,9 @@ export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, 
     };
   }, [transactions, period, sectionName]);
 
-  const netProfit = totalSales - totalExpenses;
+  let tCost = 0;
+    Object.values(productStats).forEach(s => { tCost += (s as any).cost || 0; });
+    const netProfit = totalSales - tCost - totalExpenses;
 
   const formatCurrency = (val: number) => 
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -122,8 +140,8 @@ export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, 
       doc.text('Detalhamento de Vendas', 14, startY);
       autoTable(doc, {
         startY: startY + 5,
-        head: [['Produto/Item', 'Unidades', 'Receita']],
-        body: productStats.map(s => [s.name, s.quantity, formatCurrency(s.revenue)]),
+        head: [isOwner ? ['Produto/Item', 'Unid.', 'Receita', 'Custo (CMV)', 'Lucro'] : ['Produto/Item', 'Unidades', 'Receita']],
+        body: productStats.map(s => isOwner ? [s.name, s.quantity, formatCurrency(s.revenue), formatCurrency(s.cost), formatCurrency(s.net)] : [s.name, s.quantity, formatCurrency(s.revenue)]),
         theme: 'striped',
         headStyles: { fillColor: [16, 185, 129] }, // emerald-500
       });
@@ -233,6 +251,16 @@ export const ProductInsights: React.FC<ProductInsightsProps> = ({ transactions, 
                         <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1">
                           <TrendingUp className="w-3 h-3" /> {formatCurrency(stat.revenue)}
                         </span>
+                        {isOwner && (
+                          <>
+                            <span className="text-[10px] font-black text-rose-500 uppercase flex items-center gap-1">
+                               CMV: {formatCurrency(stat.cost)}
+                            </span>
+                            <span className="text-[10px] font-black text-indigo-500 uppercase flex items-center gap-1">
+                               Líq: {formatCurrency(stat.net)}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

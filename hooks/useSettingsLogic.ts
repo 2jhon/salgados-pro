@@ -8,7 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 
 interface UseSettingsLogicProps {
   sections: AppSection[];
-  saveConfig: (sections: AppSection[] | ((prev: AppSection[]) => AppSection[])) => Promise<boolean>;
+  saveConfig: (sections: AppSection[]) => Promise<boolean>;
   addUser: (user: Omit<User, 'id'>) => Promise<User | null>;
   removeUser: (id: string) => Promise<void>;
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
@@ -32,7 +32,6 @@ export const useSettingsLogic = ({
   const [activeTab, setActiveTab] = useState<'ESTRUTURA' | 'CLIENTES' | 'EQUIPE' | 'VITRINE' | 'INSIGHTS' | 'MARKETING' | 'ANUNCIO' | 'SISTEMA' | 'PLANOS' | 'AUDITORIA'>('ESTRUTURA');
   const [isMarketplaceDirty, setIsMarketplaceDirty] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [supportPhone, setSupportPhone] = useState('21999999999');
@@ -67,14 +66,14 @@ export const useSettingsLogic = ({
     fetchGlobalSettings();
   }, []);
 
-  const activePlan = React.useMemo(() => currentUser.activePlanId ? plans.find(p => p.id === currentUser.activePlanId) : null, [currentUser.activePlanId, plans]);
+  const activePlan = useMemo(() => currentUser.activePlanId ? plans.find(p => p.id === currentUser.activePlanId) : null, [currentUser.activePlanId, plans]);
   const now = Date.now();
-  const isProActive = React.useMemo(() => !!((currentUser.hasProPlan || activePlan?.grants_pro) && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now), [currentUser, activePlan, now]);
-  const isAdFreeActive = React.useMemo(() => !!((currentUser.isAdFree || activePlan?.grants_ad_free) && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now), [currentUser, activePlan, now]);
-  const isAdvertiserActive = React.useMemo(() => !!((currentUser.isAdvertiser || activePlan?.grants_advertiser) && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now), [currentUser, activePlan, now]);
-  const freeAdsRemaining = React.useMemo(() => activePlan ? Math.max(0, (activePlan.free_ads_per_month || 0) - (currentUser.freeAdsUsedThisMonth || 0)) : 0, [activePlan, currentUser.freeAdsUsedThisMonth]);
+  const isProActive = useMemo(() => !!((currentUser.hasProPlan || activePlan?.grants_pro) && currentUser.proExpiresAt && new Date(currentUser.proExpiresAt).getTime() > now), [currentUser, activePlan, now]);
+  const isAdFreeActive = useMemo(() => !!((currentUser.isAdFree || activePlan?.grants_ad_free) && currentUser.adFreeExpiresAt && new Date(currentUser.adFreeExpiresAt).getTime() > now), [currentUser, activePlan, now]);
+  const isAdvertiserActive = useMemo(() => !!((currentUser.isAdvertiser || activePlan?.grants_advertiser) && currentUser.advertiserExpiresAt && new Date(currentUser.advertiserExpiresAt).getTime() > now), [currentUser, activePlan, now]);
+  const freeAdsRemaining = useMemo(() => activePlan ? Math.max(0, (activePlan.free_ads_per_month || 0) - (currentUser.freeAdsUsedThisMonth || 0)) : 0, [activePlan, currentUser.freeAdsUsedThisMonth]);
   const isFreeAdAvailable = freeAdsRemaining > 0;
-  const effectiveAdPrice = React.useMemo(() => {
+  const effectiveAdPrice = useMemo(() => {
     if (isFreeAdAvailable) return 0;
     if (currentUser.customAdPrice) return currentUser.customAdPrice;
     if (promoAdPrice && promoAdEndsAt && new Date(promoAdEndsAt).getTime() > Date.now()) return promoAdPrice;
@@ -108,7 +107,7 @@ export const useSettingsLogic = ({
   // States for Manage Item (Modal Content)
   const [manageTab, setManageTab] = useState<'PRODUCTS' | 'EXPENSES'>('PRODUCTS');
   const [manageForm, setManageForm] = useState({ 
-    name: '', category: '', priceVista: '', pricePrazo: '', imageUrl: '',
+    name: '', category: '', priceVista: '', pricePrazo: '', costPrice: '', imageUrl: '',
     promoVista: '', promoPrazo: '', promoEndsAt: ''
   });
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -195,10 +194,8 @@ export const useSettingsLogic = ({
     try {
         const isProduct = manageTab === 'PRODUCTS';
         const priceV = parseFloat((manageForm.priceVista || '0').replace(',', '.')) || 0;
+        const costP = parseFloat((manageForm.costPrice || '0').replace(',', '.')) || 0;
         const priceP = parseFloat((manageForm.pricePrazo || '0').replace(',', '.')) || 0;
-        
-        const updatedSection = { ...editingSection };
-        const list = isProduct ? (updatedSection.items || []) : (updatedSection.expenses || []);
         
         let finalUrl = manageForm.imageUrl;
         if (finalUrl && finalUrl.startsWith('data:image')) {
@@ -215,10 +212,11 @@ export const useSettingsLogic = ({
             promotionalPriceAVista: manageForm.promoVista ? parseFloat(manageForm.promoVista.replace(',', '.')) : undefined,
             promotionalPriceAPrazo: manageForm.promoPrazo ? parseFloat(manageForm.promoPrazo.replace(',', '.')) : undefined,
             promoEndsAt: manageForm.promoEndsAt || undefined,
-            currentStock: 0, minStock: 0, trackStock: true,
-            order: editingItemId ? (list.find(i => i.id === editingItemId)?.order || 0) : (list.length * 10)
+            currentStock: 0, minStock: 0, trackStock: true, costPrice: costP > 0 ? costP : undefined
         };
 
+        const updatedSection = { ...editingSection };
+        const list = isProduct ? (updatedSection.items || []) : (updatedSection.expenses || []);
         let newList = editingItemId ? list.map(i => i.id === editingItemId ? { ...i, ...newItem } : i) : [newItem, ...list];
 
         if (isProduct) updatedSection.items = newList; else updatedSection.expenses = newList;
@@ -243,6 +241,112 @@ export const useSettingsLogic = ({
     } finally { setIsProcessing(false); }
   };
 
+  const handleMoveCategory = async (categoryName: string, direction: 'UP' | 'DOWN') => {
+    if (!editingSection) return;
+    try {
+      const isProduct = manageTab === 'PRODUCTS';
+      const list = isProduct ? [...(editingSection.items || [])] : [...(editingSection.expenses || [])];
+      
+      const categoriesOrder: string[] = [];
+      const grouped: Record<string, ConfigItem[]> = {};
+
+      list.forEach(item => {
+        const cat = (item.category && item.category.trim()) ? item.category.trim() : 'Geral';
+        if (!grouped[cat]) {
+          grouped[cat] = [];
+          categoriesOrder.push(cat);
+        }
+        grouped[cat].push(item);
+      });
+
+      const catIndex = categoriesOrder.indexOf(categoryName);
+      if (catIndex === -1) return;
+
+      const targetIndex = direction === 'UP' ? catIndex - 1 : catIndex + 1;
+      if (targetIndex < 0 || targetIndex >= categoriesOrder.length) return;
+
+      const newCategoriesOrder = [...categoriesOrder];
+      const temp = newCategoriesOrder[catIndex];
+      newCategoriesOrder[catIndex] = newCategoriesOrder[targetIndex];
+      newCategoriesOrder[targetIndex] = temp;
+
+      const newList: ConfigItem[] = [];
+      newCategoriesOrder.forEach(cat => {
+        newList.push(...(grouped[cat] || []));
+      });
+
+      const updatedSection = { ...editingSection };
+      if (isProduct) updatedSection.items = newList;
+      else updatedSection.expenses = newList;
+
+      setEditingSection(updatedSection);
+      await saveConfig(sections.map(s => s.id === updatedSection.id ? updatedSection : s));
+      toast.success(`Categoria "${categoryName}" reposicionada!`);
+    } catch (e) {
+      console.error("Erro ao mover categoria:", e);
+      toast.error("Erro ao reordenar categoria.");
+    }
+  };
+
+  const handleMoveItem = async (itemId: string, direction: 'UP' | 'DOWN') => {
+    if (!editingSection) return;
+    try {
+      const isProduct = manageTab === 'PRODUCTS';
+      const list = isProduct ? [...(editingSection.items || [])] : [...(editingSection.expenses || [])];
+      
+      const categoriesOrder: string[] = [];
+      const grouped: Record<string, ConfigItem[]> = {};
+
+      list.forEach(item => {
+        const cat = (item.category && item.category.trim()) ? item.category.trim() : 'Geral';
+        if (!grouped[cat]) {
+          grouped[cat] = [];
+          categoriesOrder.push(cat);
+        }
+        grouped[cat].push(item);
+      });
+
+      let targetCat: string | null = null;
+      let itemIdxInGroup = -1;
+
+      for (const cat of categoriesOrder) {
+        const idx = grouped[cat].findIndex(i => i.id === itemId);
+        if (idx !== -1) {
+          targetCat = cat;
+          itemIdxInGroup = idx;
+          break;
+        }
+      }
+
+      if (!targetCat || itemIdxInGroup === -1) return;
+
+      const catItems = grouped[targetCat];
+      const targetItemIdx = direction === 'UP' ? itemIdxInGroup - 1 : itemIdxInGroup + 1;
+      if (targetItemIdx < 0 || targetItemIdx >= catItems.length) return;
+
+      const newCatItems = [...catItems];
+      const tempItem = newCatItems[itemIdxInGroup];
+      newCatItems[itemIdxInGroup] = newCatItems[targetItemIdx];
+      newCatItems[targetItemIdx] = tempItem;
+      grouped[targetCat] = newCatItems;
+
+      const newList: ConfigItem[] = [];
+      categoriesOrder.forEach(cat => {
+        newList.push(...(grouped[cat] || []));
+      });
+
+      const updatedSection = { ...editingSection };
+      if (isProduct) updatedSection.items = newList;
+      else updatedSection.expenses = newList;
+
+      setEditingSection(updatedSection);
+      await saveConfig(sections.map(s => s.id === updatedSection.id ? updatedSection : s));
+    } catch (e) {
+      console.error("Erro ao mover item:", e);
+      toast.error("Erro ao reordenar item.");
+    }
+  };
+
   const startEditManageItem = (item: ConfigItem) => {
     setEditingItemId(item.id);
     setManageForm({
@@ -250,157 +354,12 @@ export const useSettingsLogic = ({
       category: item.category || '',
       priceVista: String(item.defaultPriceAVista || ''),
       pricePrazo: String(item.defaultPriceAPrazo || ''),
+      costPrice: String(item.costPrice || ''),
       imageUrl: item.imageUrl || '',
       promoVista: String(item.promotionalPriceAVista || ''),
       promoPrazo: String(item.promotionalPriceAPrazo || ''),
       promoEndsAt: item.promoEndsAt || ''
     });
-  };
-
-  const moveCategory = async (sectionId: string, categoryName: string, direction: 'up' | 'down', type: 'PRODUCTS' | 'EXPENSES') => {
-    if (isSaving) return;
-    setIsSaving(true);
-    let upDir = direction === 'up';
-    try {
-      const pSection = sections.find(s => s.id === sectionId);
-      if (!pSection) {
-        setIsSaving(false);
-        return;
-      }
-
-      const rawList = type === 'PRODUCTS' ? (pSection.items || []) : (pSection.expenses || []);
-      if (!rawList.length) {
-        setIsSaving(false);
-        return;
-      }
-
-      const list = [...rawList].sort((a, b) => {
-          const numA = isNaN(Number(a.order)) ? 0 : Number(a.order);
-          const numB = isNaN(Number(b.order)) ? 0 : Number(b.order);
-          return numA - numB;
-      });
-      
-      const groupsMap = new Map<string, ConfigItem[]>();
-      list.forEach(item => {
-         const cat = item.category || 'Geral';
-         if (!groupsMap.has(cat)) groupsMap.set(cat, []);
-         groupsMap.get(cat)!.push(item);
-      });
-
-      const categories = Array.from(groupsMap.keys());
-      const idx = categories.indexOf(categoryName);
-      if (idx === -1 || (direction === 'up' && idx === 0) || (direction === 'down' && idx === categories.length - 1)) {
-        setIsSaving(false);
-        return;
-      }
-
-      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-      [categories[idx], categories[targetIdx]] = [categories[targetIdx], categories[idx]];
-
-      const updatedItems: ConfigItem[] = [];
-      categories.forEach((catName, catIdx) => {
-         const items = groupsMap.get(catName) || [];
-         items.forEach((it, iIdx) => {
-             updatedItems.push({ ...it, order: (catIdx * 1000) + (iIdx * 10) });
-         });
-      });
-
-      const updatedSections = sections.map(s => {
-        if (s.id !== sectionId) return s;
-        return { ...s, [type === 'PRODUCTS' ? 'items' : 'expenses']: updatedItems };
-      });
-      
-      const success = await saveConfig(updatedSections);
-      
-      if (success) {
-        if (editingSection?.id === sectionId) {
-          setEditingSection(updatedSections.find(s => s.id === sectionId) || null);
-        }
-        toast.success(`Categoria ${upDir ? 'subiu' : 'desceu'}!`);
-      }
-    } catch (error: any) {
-      console.error(error);
-      toast.error("Erro ao mover categoria.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const moveItem = async (sectionId: string, itemId: string, direction: 'up' | 'down', type: 'PRODUCTS' | 'EXPENSES') => {
-    if (isSaving) return;
-    setIsSaving(true);
-    try {
-      const pSection = sections.find(s => s.id === sectionId);
-      if (!pSection) {
-        setIsSaving(false);
-        return;
-      }
-
-      const rawList = type === 'PRODUCTS' ? (pSection.items || []) : (pSection.expenses || []);
-      if (!rawList.length) {
-        setIsSaving(false);
-        return;
-      }
-
-      const list = [...rawList].sort((a, b) => {
-          const numA = isNaN(Number(a.order)) ? 0 : Number(a.order);
-          const numB = isNaN(Number(b.order)) ? 0 : Number(b.order);
-          return numA - numB;
-      });
-
-      const groupsMap = new Map<string, ConfigItem[]>();
-      list.forEach(item => {
-         const cat = item.category || 'Geral';
-         if (!groupsMap.has(cat)) groupsMap.set(cat, []);
-         groupsMap.get(cat)!.push(item);
-      });
-
-      const itemToMove = list.find(i => i.id === itemId);
-      if (!itemToMove) {
-        setIsSaving(false);
-        return;
-      }
-      const catName = itemToMove.category || 'Geral';
-      
-      const catItems = groupsMap.get(catName) || [];
-      const idx = catItems.findIndex(i => i.id === itemId);
-      if (idx === -1 || (direction === 'up' && idx === 0) || (direction === 'down' && idx === catItems.length - 1)) {
-        setIsSaving(false);
-        return;
-      }
-      
-      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-      [catItems[idx], catItems[targetIdx]] = [catItems[targetIdx], catItems[idx]];
-
-      groupsMap.set(catName, catItems);
-      const categories = Array.from(groupsMap.keys());
-
-      const updatedItems: ConfigItem[] = [];
-      categories.forEach((cat, catIdx) => {
-         const items = groupsMap.get(cat) || [];
-         items.forEach((it, iIdx) => {
-             updatedItems.push({ ...it, order: (catIdx * 1000) + (iIdx * 10) });
-         });
-      });
-
-      const updatedSections = sections.map(s => {
-        if (s.id !== sectionId) return s;
-        return { ...s, [type === 'PRODUCTS' ? 'items' : 'expenses']: updatedItems };
-      });
-      
-      const success = await saveConfig(updatedSections);
-      
-      if (success) {
-        if (editingSection?.id === sectionId) {
-          setEditingSection(updatedSections.find(s => s.id === sectionId) || null);
-        }
-        toast.success("Ordem do item atualizada!");
-      }
-    } catch (e) {
-      toast.error("Erro ao mover item.");
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleGenerateAdText = async () => {
@@ -444,10 +403,9 @@ export const useSettingsLogic = ({
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: `Você é um fotógrafo culinário profissional. Crie um prompt descritivo em INGLÊS para gerar uma imagem fotográfica perfeita do seguinte prato/produto: "${adForm.title}".\n\nRegras:\n1. Descreva o alimento (traduzindo se necessário) de forma realista (ex: se for Pastel, explique como "deep fried crusty pastry with filling").\n2. Inclua: "food photography, professional studio lighting, 4k resolution, highly detailed, appetizing, mouth-watering, clean background".\n3. NÃO USE aspas, não use ponto final, e retorne APENAS os termos em inglês separados por vírgula. Absolutamente nenhum texto extra, e não crie coisas que não tenham a ver com o título pedido.`
+        contents: `Crie um prompt em INGLÊS, curto e focado em visual para um banner de comida. O título do anúncio é: ${adForm.title}. Foque em iluminação profissional, 4k, food photography. Retorne APENAS o prompt em inglês.`
       });
-      let visualPrompt = response.text?.trim() || "delicious food, professional photography, 4k";
-      visualPrompt = visualPrompt.replace(/['"]/g, ''); // Remove quotes that might break URL
+      const visualPrompt = response.text?.trim() || "delicious food professional photography 4k";
       
       const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(visualPrompt)}?width=512&height=512&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
       
@@ -573,10 +531,9 @@ export const useSettingsLogic = ({
     showUserModal, setShowUserModal, editingUser, setEditingUser, userForm, setUserForm, handleSaveUser,
     showSectionModal, setShowSectionModal, editingSection, setEditingSection, sectionForm, setSectionForm, handleCreateSection,
     manageTab, setManageTab, manageForm, setManageForm, editingItemId, setEditingItemId, handleSaveManageItem, handleDeleteManageItem,
+    handleMoveCategory, handleMoveItem,
     adForm, setAdForm, editingAdId, setEditingAdId, handleSaveAd, handleRetryAdPayment,
     handleGenerateAdText, handleGenerateAdImage, deleteAd,
-    startEditManageItem,
-    moveCategory, moveItem,
-    isSaving, setIsSaving
+    startEditManageItem
   };
 };
